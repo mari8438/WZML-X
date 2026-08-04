@@ -5,6 +5,40 @@ from psutil import cpu_percent, virtual_memory
 from ...core.config_manager import Config
 
 
+PROFILE_LIMITS = {
+    "safe": {
+        "normal_tasks": 2,
+        "hstream_downloads": 1,
+        "hstream_uploads": 1,
+        "rss_downloads": 2,
+        "rss_uploads": 1,
+        "ytdlp_fragments": 2,
+        "ffmpeg_threads": 1,
+        "telegram_transmissions": 8,
+    },
+    "balanced": {
+        "normal_tasks": 4,
+        "hstream_downloads": 4,
+        "hstream_uploads": 1,
+        "rss_downloads": 8,
+        "rss_uploads": 2,
+        "ytdlp_fragments": 4,
+        "ffmpeg_threads": 2,
+        "telegram_transmissions": 16,
+    },
+    "max_speed": {
+        "normal_tasks": 12,
+        "hstream_downloads": 10,
+        "hstream_uploads": 1,
+        "rss_downloads": 20,
+        "rss_uploads": 5,
+        "ytdlp_fragments": 8,
+        "ffmpeg_threads": 4,
+        "telegram_transmissions": 48,
+    },
+}
+
+
 def _safe_int(value, default=0):
     try:
         return int(value)
@@ -33,18 +67,25 @@ def get_performance_profile():
     return "max_speed"
 
 
+def get_profile_limit(resource):
+    profile = get_performance_profile()
+    limits = PROFILE_LIMITS.get(profile, PROFILE_LIMITS["balanced"])
+    return limits[resource]
+
+
+def get_adaptive_limit(resource):
+    limit = get_profile_limit(resource)
+    overloaded, _ = resources_overloaded()
+    return max(1, limit // 2) if overloaded else limit
+
+
 def get_ffmpeg_threads():
     cpu_total = max(1, cpu_count() or 1)
     configured = _safe_int(getattr(Config, "FFMPEG_THREADS", 0))
     if configured > 0:
         return max(1, min(configured, cpu_total))
 
-    profile = get_performance_profile()
-    if profile == "safe":
-        return 1
-    if profile == "balanced":
-        return max(1, min(2, cpu_total // 2 or 1))
-    return max(1, min(3, cpu_total // 2 or 1))
+    return max(1, min(get_profile_limit("ffmpeg_threads"), cpu_total))
 
 
 def get_ffmpeg_cores():
@@ -65,17 +106,43 @@ def get_tg_flood_wait_multiplier():
 
 
 def get_max_parallel_tasks():
+    profile_cap = get_profile_limit("normal_tasks")
     configured = _safe_int(getattr(Config, "MAX_PARALLEL_TASKS", 0))
     if configured > 0:
-        profile_cap = {"safe": 2, "balanced": 3}.get(get_performance_profile())
-        return min(configured, profile_cap) if profile_cap else configured
+        return min(configured, profile_cap)
+    return profile_cap
 
-    profile = get_performance_profile()
-    if profile == "safe":
-        return 2
-    if profile == "balanced":
-        return 3
-    return 4
+
+def get_hstream_download_workers():
+    return get_adaptive_limit("hstream_downloads")
+
+
+def get_hstream_upload_workers():
+    return get_profile_limit("hstream_uploads")
+
+
+def get_rss_parallel_downloads():
+    return get_adaptive_limit("rss_downloads")
+
+
+def get_rss_parallel_uploads():
+    return get_adaptive_limit("rss_uploads")
+
+
+def get_ytdlp_fragments():
+    return get_adaptive_limit("ytdlp_fragments")
+
+
+def get_telegram_transmissions():
+    return get_adaptive_limit("telegram_transmissions")
+
+
+def get_thread_pool_workers():
+    cpu_total = max(1, cpu_count() or 1)
+    profile_cap = {"safe": 16, "balanced": 48, "max_speed": 128}.get(
+        get_performance_profile(), 48
+    )
+    return max(8, min(profile_cap, cpu_total * 6))
 
 
 def get_premium_upload_workers():

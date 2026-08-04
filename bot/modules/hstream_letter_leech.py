@@ -17,7 +17,7 @@ from json import loads
 from os import path as ospath
 from pathlib import Path
 from re import sub
-from shutil import rmtree
+from shutil import disk_usage, rmtree
 from sys import executable
 from urllib.parse import urlsplit
 
@@ -39,6 +39,11 @@ from ..helper.ext_utils.hstream_translation import (
     translate_subtitle,
 )
 from ..helper.ext_utils.media_utils import get_video_thumbnail
+from ..helper.ext_utils.performance import (
+    get_hstream_download_workers,
+    get_hstream_upload_workers,
+    get_ytdlp_fragments,
+)
 from ..helper.poster_engine.engine import POSTER_TEMPLATE_COUNT, render_poster_option
 from ..helper.telegram_helper.bot_commands import BotCommands
 from ..helper.telegram_helper.message_utils import edit_message, send_message
@@ -485,7 +490,7 @@ async def _run_ytdlp(url, output_dir, source_url, cancel_event, processes):
         "30",
         "--no-check-certificates",
         "--concurrent-fragments",
-        "4",
+        str(get_ytdlp_fragments()),
         "--merge-output-format",
         "mkv",
         "--remux-video",
@@ -713,6 +718,9 @@ async def _prepare_episode(
     processes,
     owner_id,
     translator,
+    quality_slots,
+    translation_lock,
+    pause_event,
 ):
     if cancel_event.is_set():
         return None
@@ -731,11 +739,12 @@ async def _prepare_episode(
         thumb = ospath.join(directory, "video_thumb.jpg")
         await sync_to_async(_copy_thumbnail, cover, thumb)
     subtitle_tracks = await _download_subtitles(episode, directory)
-    subtitle_tracks, tamil_available = await _translate_subtitles(
-        subtitle_tracks,
-        directory,
-        translator,
-    )
+    async with translation_lock:
+        subtitle_tracks, tamil_available = await _translate_subtitles(
+            subtitle_tracks,
+            directory,
+            translator,
+        )
     sample_paths = await _download_sample_images(episode, directory)
     sample_collage = ""
     if sample_paths:
@@ -783,27 +792,41 @@ async def _prepare_episode(
         poster = local_poster
     except Exception as error:
         LOGGER.warning(f"Hstream poster generation failed for {episode.title}: {error}")
-    videos = []
-    for stream in episode.streams:
-        if cancel_event.is_set():
-            break
-        try:
-            result = await _download_quality(
-                episode,
-                stream,
-                subtitle_tracks,
-                directory,
-                cancel_event,
-                processes,
-                tamil_available,
-            )
-        except Exception as error:
-            LOGGER.error(
-                f"Hstream download failed for {episode.title} {stream.label}: {error}"
-            )
-            result = None
-        if result:
-            videos.append((stream, result))
+
+    if disk_usage(root).free < 2 * 1024**3:
+        raise RuntimeError("Less than 2GB free disk space remains")
+
+    async def download_stream(stream):
+        if not await _wait_until_resumed(pause_event, cancel_event):
+            return None
+        async with quality_slots:
+            if cancel_event.is_set():
+                return None
+            try:
+                return await _download_quality(
+                    episode,
+                    stream,
+                    subtitle_tracks,
+                    directory,
+                    cancel_event,
+                    processes,
+                    tamil_available,
+                )
+            except Exception as error:
+                LOGGER.error(
+                    f"Hstream download failed for {episode.title} {stream.label}: {error}"
+                )
+                return None
+
+    results = await gather(
+        *(download_stream(stream) for stream in episode.streams),
+        return_exceptions=False,
+    )
+    videos = [
+        (stream, result)
+        for stream, result in zip(episode.streams, results)
+        if result
+    ]
     if not videos:
         await sync_to_async(rmtree, directory, ignore_errors=True)
         raise RuntimeError(f"No Hstream quality downloaded for {episode.title}")
@@ -1071,36 +1094,57 @@ async def hstream_letter_leech(_, message):
                         f"No Hstream episodes found for <code>{escape(tokens[1])}</code>.",
                     )
                     return
+                download_workers = get_hstream_download_workers()
+                upload_workers = get_hstream_upload_workers()
+                quality_slots = Semaphore(download_workers)
+                translation_lock = Lock()
+                free_gb = max(1, disk_usage(root).free // (1024**3))
+                prepare_window = max(
+                    1,
+                    min(4, download_workers, max(1, free_gb // 8)),
+                )
                 status = await edit_message(
                     status,
                     (
                         f"<b>Hstream letter {escape(tokens[1].upper())}</b>\n"
                         f"Episodes: <code>{len(items)}</code>\n"
-                        "Pipeline: <code>1 episode / sequential qualities</code>\n"
+                        f"Pipeline: <code>{download_workers} downloads / "
+                        f"{upload_workers} ordered upload</code>\n"
                         f"Tamil: <code>{'ready' if translator else 'ESub fallback'}</code>\n"
                         + controls
                     ),
                 )
 
-                for index, item in enumerate(items):
-                    if cancel_event.is_set():
-                        break
-                    if not await _wait_until_resumed(pause_event, cancel_event):
-                        break
+                pending = {}
+
+                def start_prepare(index):
                     task = create_task(
                         _prepare_episode(
                             resolver,
-                            item,
+                            items[index],
                             index,
                             root,
                             cancel_event,
                             processes,
                             controller.user_id,
                             translator,
+                            quality_slots,
+                            translation_lock,
+                            pause_event,
                         )
                     )
+                    pending[index] = task
                     prepare_tasks.add(task)
-                    task.add_done_callback(prepare_tasks.discard)
+
+                for index in range(min(prepare_window, len(items))):
+                    start_prepare(index)
+
+                for index, item in enumerate(items):
+                    if cancel_event.is_set():
+                        break
+                    if not await _wait_until_resumed(pause_event, cancel_event):
+                        break
+                    task = pending.pop(index)
                     try:
                         prepared = await task
                     except CancelledError:
@@ -1115,6 +1159,11 @@ async def hstream_letter_leech(_, message):
                         LOGGER.error(f"Hstream preparation failed for {item.url}: {error}")
                         prepared = None
                         failed += 1
+                    finally:
+                        prepare_tasks.discard(task)
+                    next_index = index + prepare_window
+                    if next_index < len(items) and not cancel_event.is_set():
+                        start_prepare(next_index)
                     if prepared:
                         if not await _wait_until_resumed(pause_event, cancel_event):
                             break

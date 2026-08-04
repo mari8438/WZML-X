@@ -93,7 +93,7 @@ class Config:
             "-threads 0 -i mltb.video -map 0:v:0 -map 0:a:m:language:tam -map 0:s:m:language:eng -c copy -max_muxing_queue_size 9999 mltb.mkv -del"
         ]
     }
-    PERFORMANCE_PROFILE = "auto"
+    PERFORMANCE_PROFILE = "max_speed"
     FFMPEG_THREADS = 0
     FFMPEG_CPU_CORES = ""
     TG_COPY_DELAY = 0.15
@@ -241,8 +241,8 @@ class Config:
     RCLONE_SERVE_PORT = 8081
     RSS_CHAT = ""
     RSS_DELAY = 600
-    RSS_PARALLEL_DOWNLOADS = 8
-    RSS_PARALLEL_UPLOADS = 2
+    RSS_PARALLEL_DOWNLOADS = 20
+    RSS_PARALLEL_UPLOADS = 5
     RSS_SIZE_LIMIT = 0
     TMV_AUTO_LEECH = False
     TMV_CATEGORY = "tamil"

@@ -8,6 +8,7 @@ from yt_dlp import YoutubeDL, DownloadError
 from .... import task_dict_lock, task_dict, user_data
 from ....core.config_manager import BinConfig
 from ...ext_utils.bot_utils import sync_to_async, async_to_sync
+from ...ext_utils.performance import get_ytdlp_fragments
 from ...ext_utils.task_manager import (
     check_running_tasks,
     stop_duplicate_check,
@@ -72,6 +73,7 @@ class YoutubeDLHelper:
             "trim_file_name": 220,
             "ffmpeg_location": f"/bin/{BinConfig.FFMPEG_NAME}",
             "fragment_retries": 10,
+            "concurrent_fragment_downloads": get_ytdlp_fragments(),
             "retries": 10,
             "retry_sleep_functions": {
                 "http": lambda n: 3,

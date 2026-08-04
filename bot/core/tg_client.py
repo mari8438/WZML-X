@@ -7,6 +7,7 @@ from inspect import signature
 
 from .. import LOGGER, bot_loop
 from .config_manager import Config
+from ..helper.ext_utils.performance import get_telegram_transmissions
 
 _DB_PARTITION_SALT = b"wzmlx_v3_db_partition_salt"
 
@@ -42,7 +43,7 @@ class TgClient:
         kwargs["parse_mode"] = enums.ParseMode.HTML
         kwargs["in_memory"] = True
         for param, value in {
-            "max_concurrent_transmissions": 100,
+            "max_concurrent_transmissions": get_telegram_transmissions(),
             "skip_updates": False,
         }.items():
             if param in signature(Client.__init__).parameters:

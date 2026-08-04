@@ -95,12 +95,12 @@ UPLOAD_PRIVATE_DUMP_ONLY_DOMAINS = ""
 # max_speed: faster Telegram leech with CPU/RAM safety guards.
 # balanced: lower parallelism.
 # safe: lowest CPU pressure.
-PERFORMANCE_PROFILE = "auto"
-FFMPEG_THREADS = 0  # 0 = auto from profile. Example: 2 or 3 for fixed low CPU.
+PERFORMANCE_PROFILE = "max_speed"  # high-spec branch: 24-core/128-GB profile
+FFMPEG_THREADS = 0  # 0 = profile default (4 threads/job on max_speed).
 FFMPEG_CPU_CORES = ""  # empty = auto. Example: "0,1" to pin FFmpeg.
 TG_COPY_DELAY = 0.15  # delay between sequential dump -> user copies.
 TG_FLOOD_WAIT_MULTIPLIER = 1.1
-MAX_PARALLEL_TASKS = 0  # 0 = safe profile decides (2 on a 2-vCPU/4-GB VPS)
+MAX_PARALLEL_TASKS = 0  # 0 = profile default (12 on max_speed).
 SAFE_CPU_PERCENT = 88
 SAFE_FREE_RAM_MB = 768
 
@@ -365,8 +365,8 @@ QUEUE_UPLOAD = 0
 # RSS
 RSS_DELAY = 600
 RSS_CHAT = ""
-RSS_PARALLEL_DOWNLOADS = 8
-RSS_PARALLEL_UPLOADS = 2
+RSS_PARALLEL_DOWNLOADS = 20
+RSS_PARALLEL_UPLOADS = 5
 RSS_SIZE_LIMIT = 0
 
 # 1TamilMV auto leech

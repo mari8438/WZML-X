@@ -26,8 +26,7 @@ psutil
 pycountry
 pymongo
 pysubs2
-pyrotgfork
-pytgcrypto
+wzgram==3.0.25
 python-magic
 pytz
 qbittorrent-api

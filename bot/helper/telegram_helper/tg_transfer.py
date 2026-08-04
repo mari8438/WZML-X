@@ -14,9 +14,13 @@ from pyrogram.session import Auth, Session
 
 from ... import LOGGER
 from ...core.tg_client import TgClient
+from ..ext_utils.performance import get_telegram_transmissions
 
 pyrogram.crypto_executor = ThreadPoolExecutor(
-    max_workers=min(16, (cpu_count() or 4) * 2), thread_name_prefix="crypto"
+    max_workers=min(
+        get_telegram_transmissions(), max(4, (cpu_count() or 4) * 2)
+    ),
+    thread_name_prefix="crypto",
 )
 
 _orig_tcp_connect = TCP.connect

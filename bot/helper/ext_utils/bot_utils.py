@@ -24,10 +24,13 @@ from .help_messages import (
     YT_HELP_DICT,
 )
 from .telegraph_helper import telegraph
+from .performance import get_thread_pool_workers
 
 COMMAND_USAGE = {}
 
-THREAD_POOL = ThreadPoolExecutor(max_workers=500)
+THREAD_POOL = ThreadPoolExecutor(
+    max_workers=get_thread_pool_workers(), thread_name_prefix="wz-work"
+)
 _SERVICE_PWD_SALT = b"wzmlx_v3_service_pwd_salt"
 _cached_secret_bytes = None
 

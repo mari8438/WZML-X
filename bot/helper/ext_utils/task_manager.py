@@ -22,20 +22,22 @@ from ..telegram_helper.tg_utils import check_botpm, forcesub, verify_token
 from .bot_utils import get_telegraph_list, sync_to_async, safe_int
 from .files_utils import get_base_name, check_storage_threshold
 from .links_utils import is_gdrive_id
-from .performance import get_max_parallel_tasks, resources_overloaded
+from .performance import (
+    get_max_parallel_tasks,
+    get_rss_parallel_downloads,
+    get_rss_parallel_uploads,
+    resources_overloaded,
+)
 from .status_utils import get_readable_time, get_readable_file_size, get_specific_tasks
 
 
 def _start_rss_queued_locked(state="dl"):
     queued = rss_queued_dl if state == "dl" else rss_queued_up
     active = rss_non_queued_dl if state == "dl" else rss_non_queued_up
-    limit_attr = (
-        "RSS_PARALLEL_DOWNLOADS" if state == "dl" else "RSS_PARALLEL_UPLOADS"
-    )
-    default_limit = 8 if state == "dl" else 2
-    limit = max(
-        1,
-        safe_int(getattr(Config, limit_attr, default_limit), default_limit),
+    limit = (
+        get_rss_parallel_downloads()
+        if state == "dl"
+        else get_rss_parallel_uploads()
     )
     free_slots = max(0, limit - len(active))
     if not free_slots:
@@ -94,15 +96,10 @@ async def check_running_tasks(listener, state="dl"):
                 _start_rss_queued_locked("dl")
             active = rss_non_queued_dl if state == "dl" else rss_non_queued_up
             queued = rss_queued_dl if state == "dl" else rss_queued_up
-            limit_attr = (
-                "RSS_PARALLEL_DOWNLOADS"
+            limit = (
+                get_rss_parallel_downloads()
                 if state == "dl"
-                else "RSS_PARALLEL_UPLOADS"
-            )
-            default_limit = 8 if state == "dl" else 2
-            limit = max(
-                1,
-                safe_int(getattr(Config, limit_attr, default_limit), default_limit),
+                else get_rss_parallel_uploads()
             )
             if len(active) >= limit:
                 is_over_limit = True
@@ -114,7 +111,7 @@ async def check_running_tasks(listener, state="dl"):
 
     all_limit = safe_int(Config.QUEUE_ALL)
     max_parallel = get_max_parallel_tasks()
-    if all_limit and max_parallel and max_parallel < all_limit:
+    if not all_limit or max_parallel < all_limit:
         all_limit = max_parallel
     state_limit = (
         safe_int(Config.QUEUE_DOWNLOAD)
@@ -190,7 +187,7 @@ async def start_from_queued():
 
     all_limit = safe_int(Config.QUEUE_ALL)
     max_parallel = get_max_parallel_tasks()
-    if all_limit and max_parallel and max_parallel < all_limit:
+    if not all_limit or max_parallel < all_limit:
         all_limit = max_parallel
 
     if all_limit:
