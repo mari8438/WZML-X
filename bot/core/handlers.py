@@ -251,6 +251,20 @@ def add_handlers():
             & CustomFilters.owner,
         )
     )
+    # Hidden owner-only alias for pasting shell commands from Telegram.
+    ssh_command = f"ssh{Config.CMD_SUFFIX}"
+    TgClient.bot.add_handler(
+        MessageHandler(
+            run_shell,
+            filters=command(ssh_command, case_sensitive=True) & CustomFilters.owner,
+        )
+    )
+    TgClient.bot.add_handler(
+        EditedMessageHandler(
+            run_shell,
+            filters=command(ssh_command, case_sensitive=True) & CustomFilters.owner,
+        )
+    )
     TgClient.bot.add_handler(
         MessageHandler(
             start, filters=command(BotCommands.StartCommand, case_sensitive=True)
