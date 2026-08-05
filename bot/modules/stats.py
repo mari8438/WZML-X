@@ -279,6 +279,9 @@ async def stats_pages(_, query):
     data = query.data.split()
     message = query.message
     user_id = query.from_user.id
+    if len(data) < 3 or not data[1].lstrip("-").isdigit():
+        await query.answer("This stats button has expired.", show_alert=True)
+        return
     if user_id != int(data[1]):
         await query.answer("Not Yours!", show_alert=True)
     elif data[2] == "close":
@@ -287,6 +290,9 @@ async def stats_pages(_, query):
     elif data[2] == "killproc":
         if not await CustomFilters.owner(_, query):
             await query.answer("Sorry! You cannot Kill System Tasks!", show_alert=True)
+            return
+        if len(data) < 4 or not data[3].isdigit():
+            await query.answer("Invalid process ID.", show_alert=True)
             return
         pid = int(data[3])
         try:

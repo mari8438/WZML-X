@@ -10,19 +10,23 @@ from .tg_utils import chat_info
 class CustomFilters:
     async def owner_filter(self, _, update):
         user = update.from_user or update.sender_chat
-        return user.id == Config.OWNER_ID
+        return bool(user and user.id == Config.OWNER_ID)
 
     owner = create(owner_filter)
 
     async def authorized_user(self, _, update):
         if isinstance(update, CallbackQuery):
-            uid = update.from_user.id
-            chat_id = update.message.chat.id if update.message else None
+            uid = getattr(update.from_user, "id", None)
+            chat = getattr(update.message, "chat", None) if update.message else None
+            chat_id = getattr(chat, "id", None)
             thread_id = update.message.message_thread_id if update.message and getattr(update.message, "is_topic_message", False) else None
         else:
-            uid = (update.from_user or update.sender_chat).id
-            chat_id = update.chat.id
+            user = update.from_user or update.sender_chat
+            uid = getattr(user, "id", None)
+            chat_id = getattr(getattr(update, "chat", None), "id", None)
             thread_id = update.message_thread_id if update.is_topic_message else None
+        if uid is None and chat_id is None:
+            return False
         return bool(
             uid == Config.OWNER_ID
             or (
@@ -54,7 +58,10 @@ class CustomFilters:
     authorized = create(authorized_user)
 
     async def authorized_usetting(self, _, update):
-        uid = (update.from_user or update.sender_chat).id
+        user = update.from_user or update.sender_chat
+        uid = getattr(user, "id", None)
+        if uid is None:
+            return False
         is_exists = False
         if await CustomFilters.authorized("", update):
             is_exists = True
@@ -79,7 +86,9 @@ class CustomFilters:
 
     async def sudo_user(self, _, update):
         user = update.from_user or update.sender_chat
-        uid = user.id
+        uid = getattr(user, "id", None)
+        if uid is None:
+            return False
         return bool(
             uid == Config.OWNER_ID
             or uid in user_data

@@ -110,6 +110,10 @@ class TelegramUploader:
         self._is_private = False
         self._sent_msg = None
         self._log_msg = None
+        self._anchor_chat_id = None
+        self._anchor_thread_id = getattr(listener, "chat_thread_id", None)
+        self._anchor_message_id = getattr(listener, "mid", None)
+        self._capture_anchor(listener.message)
         self._user_session = self._listener.user_transmission
         self._error = ""
         self._deferred_copies = []
@@ -118,6 +122,25 @@ class TelegramUploader:
         self._private_dump_warned = False
         self._premium_workers = (
             get_premium_upload_workers() if self._user_session else 1
+        )
+
+    def _capture_anchor(self, message):
+        chat = getattr(message, "chat", None)
+        chat_id = getattr(chat, "id", None)
+        if chat_id is not None:
+            self._anchor_chat_id = chat_id
+        thread_id = getattr(message, "message_thread_id", None)
+        if thread_id is not None:
+            self._anchor_thread_id = thread_id
+        message_id = getattr(message, "id", None)
+        if message_id is not None:
+            self._anchor_message_id = message_id
+
+    def _can_reply(self):
+        return bool(
+            self._sent_msg is not None
+            and getattr(self._sent_msg, "chat", None) is not None
+            and hasattr(self._sent_msg, "reply_video")
         )
 
     async def _upload_progress(self, current, _):
@@ -160,6 +183,15 @@ class TelegramUploader:
             self._sent_msg = self._listener.message
             return True
         if self._listener.up_dest:
+            up_dest = str(self._listener.up_dest)
+            if "|" in up_dest:
+                up_dest, topic = up_dest.split("|", 1)
+                if topic.lstrip("-").isdigit():
+                    self._anchor_thread_id = int(topic)
+            if up_dest.lstrip("-").isdigit():
+                self._anchor_chat_id = int(up_dest)
+            else:
+                self._anchor_chat_id = up_dest
             msg_link = (
                 self._listener.message.link if self._listener.is_super_chat else ""
             )
@@ -177,13 +209,17 @@ class TelegramUploader:
                     disable_notification=True,
                 )
                 self._sent_msg = self._log_msg
+                self._capture_anchor(self._log_msg)
                 if self._user_session:
                     self._sent_msg = await TgClient.user.get_messages(
-                        chat_id=self._sent_msg.chat.id,
+                        chat_id=self._anchor_chat_id,
                         message_ids=self._sent_msg.id,
                     )
                 else:
-                    self._is_private = self._sent_msg.chat.type.name == "PRIVATE"
+                    chat = getattr(self._sent_msg, "chat", None)
+                    self._is_private = bool(
+                        chat and getattr(getattr(chat, "type", None), "name", "") == "PRIVATE"
+                    )
                 if self._listener.leech_dest:
                     try:
                         leech_dest = self._listener.leech_dest
@@ -475,9 +511,20 @@ class TelegramUploader:
                 if poster_followup
                 else caption
             )
-            sent = await send_message(target, media_caption, photo=path)
+            if self._anchor_chat_id is not None:
+                sent = await TgClient.bot.send_photo(
+                    chat_id=self._anchor_chat_id,
+                    photo=path,
+                    caption=media_caption,
+                    reply_to_message_id=self._anchor_message_id,
+                    message_thread_id=self._anchor_thread_id,
+                    disable_notification=True,
+                )
+            else:
+                sent = await send_message(target, media_caption, photo=path)
             if sent:
                 self._sent_msg = sent
+                self._capture_anchor(sent)
                 if poster_followup:
                     await self._send_caption_followup(sent, poster_followup)
                 if (
@@ -529,10 +576,16 @@ class TelegramUploader:
                 )
             return
         if self._bot_pm or self._listener.leech_dest:
+            chat_id = getattr(getattr(msg, "chat", None), "id", None)
+            chat_id = chat_id if chat_id is not None else self._anchor_chat_id
+            message_id = getattr(msg, "id", None)
+            if chat_id is None or message_id is None:
+                LOGGER.warning("Deferred copy skipped: uploaded message has no chat context")
+                return
             if self._sequential_leech:
-                self._deferred_copies.append((msg.chat.id, msg.id))
+                self._deferred_copies.append((chat_id, message_id))
             else:
-                create_task(self._copy_deferred_message(msg.chat.id, msg.id))
+                create_task(self._copy_deferred_message(chat_id, message_id))
 
     def _get_leech_dest(self):
         leech_dest = self._listener.leech_dest
@@ -658,13 +711,13 @@ class TelegramUploader:
                         self._user_session = f_size > 2097152000
                         if self._user_session:
                             self._sent_msg = await TgClient.user.get_messages(
-                                chat_id=self._sent_msg.chat.id,
-                                message_ids=self._sent_msg.id,
+                                chat_id=self._anchor_chat_id,
+                                message_ids=getattr(self._sent_msg, "id", self._anchor_message_id),
                             )
                         else:
                             self._sent_msg = await self._listener.client.get_messages(
-                                chat_id=self._sent_msg.chat.id,
-                                message_ids=self._sent_msg.id,
+                                chat_id=self._anchor_chat_id,
+                                message_ids=getattr(self._sent_msg, "id", self._anchor_message_id),
                             )
                     self._last_msg_in_group = False
                     self._last_uploaded = 0
@@ -791,12 +844,34 @@ class TelegramUploader:
                 if split_at < 1000:
                     split_at = 4000
                 chunk, plain = plain[:split_at], plain[split_at:].lstrip()
-            await message.reply_text(
-                escape(chunk),
-                quote=True,
-                disable_web_page_preview=True,
-                disable_notification=True,
-            )
+            if getattr(message, "chat", None) is not None:
+                await message.reply_text(
+                    escape(chunk),
+                    quote=True,
+                    disable_web_page_preview=True,
+                    disable_notification=True,
+                )
+            elif self._active_route and self._active_route.chat_id is not None:
+                await self._active_route.client.send_message(
+                    chat_id=self._active_route.chat_id,
+                    text=escape(chunk),
+                    reply_to_message_id=getattr(message, "id", None),
+                    message_thread_id=self._active_route.thread_id,
+                    disable_web_page_preview=True,
+                    disable_notification=True,
+                )
+            elif self._anchor_chat_id is not None:
+                await TgClient.bot.send_message(
+                    chat_id=self._anchor_chat_id,
+                    text=escape(chunk),
+                    reply_to_message_id=getattr(message, "id", None),
+                    message_thread_id=self._anchor_thread_id,
+                    disable_web_page_preview=True,
+                    disable_notification=True,
+                )
+            else:
+                LOGGER.warning("Caption follow-up skipped: message has no chat context")
+                return
 
     async def _upload_file(
         self,
@@ -811,17 +886,10 @@ class TelegramUploader:
             self._is_corrupted = True
             return
 
-        if self._sent_msg is None:
-            LOGGER.error("Cannot upload: _sent_msg is None")
+        if self._sent_msg is None and self._anchor_chat_id is None:
+            LOGGER.error("Cannot upload: no message or explicit chat target")
             await self._listener.on_upload_error(
-                "Upload failed: Message not initialized"
-            )
-            return
-
-        if not hasattr(self._sent_msg, "chat") or self._sent_msg.chat is None:
-            LOGGER.error("Cannot upload: _sent_msg.chat is None")
-            await self._listener.on_upload_error(
-                "Upload failed: Invalid message object"
+                "Upload failed: Message target is not initialized"
             )
             return
 
@@ -940,6 +1008,12 @@ class TelegramUploader:
             f_size = await aiopath.getsize(self._up_path)
             route = await starfallx_upload.acquire_route(self._listener, f_size)
             self._active_route = route
+            if route.kind == "current":
+                route.chat_id = self._anchor_chat_id
+                route.thread_id = self._anchor_thread_id
+            use_direct = route.direct or not self._can_reply()
+            if use_direct and route.chat_id is None:
+                raise RuntimeError("Upload route has no usable chat ID")
             if getattr(route, "notice", ""):
                 await send_message(self._listener.message, route.notice)
 
@@ -963,7 +1037,7 @@ class TelegramUploader:
                 if thumb:
                     doc_thumb = await get_telegram_document_thumb(thumb)
                 send_thumb = doc_thumb or thumb
-                if route.direct:
+                if use_direct:
                     self._sent_msg = await self._send_direct_file(
                         route, key, cap_mono, thumb=send_thumb
                     )
@@ -1004,7 +1078,7 @@ class TelegramUploader:
                     return
                 if thumb == "none":
                     thumb = None
-                if route.direct:
+                if use_direct:
                     self._sent_msg = await self._send_direct_file(
                         route,
                         key,
@@ -1036,7 +1110,7 @@ class TelegramUploader:
                     return
                 if thumb == "none":
                     thumb = None
-                if route.direct:
+                if use_direct:
                     self._sent_msg = await self._send_direct_file(
                         route,
                         key,
@@ -1064,7 +1138,7 @@ class TelegramUploader:
                     await starfallx_upload.release_route(route)
                     self._active_route = None
                     return
-                if route.direct:
+                if use_direct:
                     self._sent_msg = await self._send_direct_file(route, key, cap_mono)
                 else:
                     self._sent_msg = await self._sent_msg.reply_photo(
@@ -1082,7 +1156,7 @@ class TelegramUploader:
             if (
                 not self._listener.is_cancelled
                 and self._media_group
-                and not route.direct
+                and not use_direct
                 and (self._sent_msg.video or self._sent_msg.document)
             ):
                 key = "documents" if self._sent_msg.document else "videos"

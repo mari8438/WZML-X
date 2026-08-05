@@ -66,6 +66,11 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
             message, parsed_thread_id = parsed_target
             if parsed_thread_id is not None:
                 kwargs.setdefault("message_thread_id", parsed_thread_id)
+        if not isinstance(message, int) and (
+            not hasattr(message, "reply") or getattr(message, "chat", None) is None
+        ):
+            LOGGER.warning(f"send_message got invalid target: {type(message).__name__}")
+            return None
         if photo:
             if photo == "IMAGES":
                 photo = choice(Config.IMAGES) if Config.IMAGES else None
@@ -119,9 +124,6 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
                 reply_markup=buttons,
                 **kwargs,
             )
-        if not hasattr(message, "reply"):
-            LOGGER.warning(f"send_message got invalid target: {type(message).__name__}")
-            return "Invalid message target"
         return await message.reply(
             text=text,
             quote=True,
@@ -148,7 +150,7 @@ async def send_message(message, text, buttons=None, block=True, photo=None, **kw
         raise
     except Exception as e:
         LOGGER.error(str(e), exc_info=True)
-        return str(e)
+        return None
 
 
 async def open_category_btns(message):
@@ -338,7 +340,11 @@ async def delete_message(*args):
     results = await gather(*tasks, return_exceptions=True)
     for result in results:
         if isinstance(result, Exception):
-            LOGGER.error(result)
+            error = str(result).upper()
+            if "MESSAGE_DELETE_FORBIDDEN" in error or "MESSAGE_ID_INVALID" in error:
+                LOGGER.debug(f"Message cleanup skipped: {result}")
+            else:
+                LOGGER.error(result)
 
 
 async def delete_links(message):

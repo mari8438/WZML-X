@@ -882,7 +882,14 @@ class StarFallXUploadManager:
         max_main = max(0, _safe_int(Config.MAIN_BOT_FALLBACK_UPLOADS, 0))
         if max_main and self._main_active < max_main:
             self._main_active += 1
-            return UploadRoute("current", "Main Bot", listener.client, reserved=True)
+            return UploadRoute(
+                "current",
+                "Main Bot",
+                listener.client,
+                chat_id,
+                thread_id,
+                reserved=True,
+            )
         return None
 
     async def release_route(self, route, failed=False, flood_wait=0):

@@ -44,7 +44,7 @@ from ..helper.ext_utils.performance import (
     get_hstream_upload_workers,
     get_ytdlp_fragments,
 )
-from ..helper.poster_engine.engine import POSTER_TEMPLATE_COUNT, render_poster_option
+from ..helper.poster_engine.engine import render_poster_option
 from ..helper.telegram_helper.bot_commands import BotCommands
 from ..helper.telegram_helper.message_utils import edit_message, send_message
 from .batch_task_registry import BatchTaskController
@@ -774,11 +774,7 @@ async def _prepare_episode(
         "brand": "Anime Starfall",
     }
     owner_settings = user_data.get(owner_id, {})
-    template = str(
-        owner_settings.get("POST_TEMPLATE_ID") or Config.POST_TEMPLATE_ID or 1
-    )
-    if template not in {str(value) for value in range(1, POSTER_TEMPLATE_COUNT + 1)}:
-        template = "1"
+    template = "8"
     poster = ""
     try:
         poster = await render_poster_option(
@@ -938,19 +934,19 @@ async def _upload_episode(prepared, destination, thread_id, cancel_event):
         if prepared["thumb"] and ospath.isfile(prepared["thumb"]):
             media["thumb"] = prepared["thumb"]
         if prepared["cover"] and ospath.isfile(prepared["cover"]):
-            media["cover"] = prepared["cover"]
+            media["video_cover"] = prepared["cover"]
         try:
             await _telegram_call(TgClient.bot.send_video, **media)
         except Exception as error:
-            LOGGER.warning(f"Hstream send_video failed, using document: {error}")
-            media.pop("video")
-            media.pop("supports_streaming", None)
-            media.pop("duration", None)
-            media.pop("width", None)
-            media.pop("height", None)
-            media.pop("cover", None)
-            media["document"] = path
-            await _telegram_call(TgClient.bot.send_document, **media)
+            if "THUMB" not in str(error).upper() and "COVER" not in str(error).upper():
+                raise
+            LOGGER.warning(
+                f"Hstream video artwork was rejected for {ospath.basename(path)}; "
+                "retrying as video without artwork"
+            )
+            media.pop("thumb", None)
+            media.pop("video_cover", None)
+            await _telegram_call(TgClient.bot.send_video, **media)
         uploaded += 1
     sample_collage = prepared.get("sample_collage")
     if (

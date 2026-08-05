@@ -448,6 +448,12 @@ async def _download_image(url):
         return None
     url = str(url).strip()
     if not url.startswith(("http://", "https://")):
+        if await aiopath.isfile(url):
+            try:
+                return await sync_to_async(lambda: Image.open(url).convert("RGB"))
+            except Exception as err:
+                LOGGER.warning(f"Poster local image load failed: {err}")
+                return None
         LOGGER.warning(f"Poster image URL is not HTTP(S); ignoring: {url[:80]}")
         return None
     try:

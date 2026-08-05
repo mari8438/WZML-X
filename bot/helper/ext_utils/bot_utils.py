@@ -10,6 +10,7 @@ from functools import partial, wraps
 from hashlib import sha256
 from hmac import new as hmac_new
 from secrets import token_bytes
+from re import findall
 
 from httpx import AsyncClient
 from pyrogram.handlers import MessageHandler
@@ -117,7 +118,11 @@ def create_help_buttons():
 
 
 def compare_versions(v1, v2):
-    v1, v2 = (list(map(int, v.split("-")[0][1:].split("."))) for v in (v1, v2))
+    versions = []
+    for value in (v1, v2):
+        numbers = [int(part) for part in findall(r"\d+", str(value).split("-", 1)[0])]
+        versions.append(numbers or [0])
+    v1, v2 = versions
     return (
         "New Version Update is Available! Check Now!"
         if v1 < v2
