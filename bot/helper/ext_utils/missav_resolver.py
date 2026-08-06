@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from html import unescape
 from re import DOTALL, finditer, search, sub
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 from httpx import AsyncClient
 from lxml import html
@@ -12,6 +12,7 @@ MISSAV_HOSTS = {
     "missav.live",
     "missav.ws",
 }
+MISSAV_BASE = "https://missav.live"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36"
@@ -113,6 +114,15 @@ def _catalog_links(source, page_url):
     return links
 
 
+def _letter_catalog_links(source, page_url, letter):
+    letter = str(letter or "").strip().lower()
+    return [
+        url
+        for url in _catalog_links(source, page_url)
+        if urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1].lower().startswith(letter)
+    ]
+
+
 class MissAVResolver:
     def __init__(self):
         self.client = AsyncClient(
@@ -157,6 +167,22 @@ class MissAVResolver:
             except Exception:
                 # Catalog pages routinely retain stale/deleted cards. The caller
                 # reports an empty result if every public card is unavailable.
+                continue
+        return items
+
+    async def discover_letter(self, letter):
+        letter = str(letter or "").strip().upper()
+        if len(letter) != 1 or not "A" <= letter <= "Z":
+            raise ValueError("MissAV letter must be A-Z")
+        page_url = f"{MISSAV_BASE}/en/search/{quote(letter)}"
+        source = await self._get(page_url)
+        items = []
+        for link in _letter_catalog_links(source, page_url, letter):
+            try:
+                item = await self.resolve_title(link)
+                if item.title.lstrip().upper().startswith(letter):
+                    items.append(item)
+            except Exception:
                 continue
         return items
 

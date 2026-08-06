@@ -31,6 +31,22 @@ def _safe_filename(value):
     return value[:170] or "MissAV"
 
 
+def _parse_letter_range(value):
+    value = str(value or "").strip().upper()
+    if len(value) == 1 and "A" <= value <= "Z":
+        return [value]
+    if (
+        len(value) == 3
+        and value[1] == "-"
+        and "A" <= value[0] <= "Z"
+        and "A" <= value[2] <= "Z"
+    ):
+        if value[0] > value[2]:
+            raise ValueError("MissAV range must be ascending, for example <code>A-G</code>")
+        return [chr(code) for code in range(ord(value[0]), ord(value[2]) + 1)]
+    raise ValueError("Use a MissAV URL, one letter, or a range such as <code>A-G</code>")
+
+
 def _parse_destination(message, tokens):
     destination = message.chat.id
     thread_id = message.message_thread_id if getattr(message, "is_topic_message", False) else None
@@ -172,10 +188,15 @@ async def _upload_video(path, destination, thread_id, poster, cancel_event, slot
 
 async def missav_leech(_, message):
     tokens = (message.text or "").split()
-    if len(tokens) < 2 or not tokens[1].startswith("https://"):
-        await send_message(message, "<b>Usage:</b> <code>/mll URL [-up CHAT_ID|TOPIC_ID]</code>")
+    if len(tokens) < 2:
+        await send_message(
+            message,
+            "<b>Usage:</b> <code>/mll URL</code>, <code>/mll A</code>, or "
+            "<code>/mll A-G [-up CHAT_ID|TOPIC_ID]</code>",
+        )
         return
     try:
+        letters = None if tokens[1].startswith("https://") else _parse_letter_range(tokens[1])
         destination, thread_id = _parse_destination(message, tokens)
         await TgClient.bot.get_chat(destination)
     except Exception as error:
@@ -194,9 +215,19 @@ async def missav_leech(_, message):
     uploaded = skipped = failed = 0
     try:
         async with MissAVResolver() as resolver:
-            items = await resolver.discover(tokens[1])
+            if letters is None:
+                items = await resolver.discover(tokens[1])
+            else:
+                items = []
+                seen_urls = set()
+                for letter in letters:
+                    for item in await resolver.discover_letter(letter):
+                        if item.url not in seen_urls:
+                            seen_urls.add(item.url)
+                            items.append(item)
         if not items:
-            raise RuntimeError("No public MissAV titles were found")
+            target = tokens[1].upper() if letters else tokens[1]
+            raise RuntimeError(f"No public MissAV titles were found for {target}")
         await edit_message(status, f"<b>MissAV titles:</b> <code>{len(items)}</code>")
         for index, item in enumerate(items, start=1):
             if cancel_event.is_set():
