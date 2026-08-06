@@ -3,6 +3,7 @@ from os import path as ospath, listdir
 from re import search as re_search
 from contextlib import suppress
 from secrets import token_hex
+from pathlib import Path
 from yt_dlp import YoutubeDL, DownloadError
 
 from .... import task_dict_lock, task_dict, user_data
@@ -223,6 +224,40 @@ class YoutubeDLHelper:
                 return
             async_to_sync(self._listener.on_download_complete)
         return
+
+    def _download_direct_hls_sync(self, url, output_path, headers):
+        """Download one already-resolved public HLS variant without task callbacks."""
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        opts = dict(self.opts)
+        opts.update(
+            {
+                "format": "best",
+                "http_headers": dict(headers or {}),
+                "outtmpl": str(output.with_suffix("")) + ".%(ext)s",
+                "writethumbnail": False,
+                "noplaylist": True,
+                "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mkv"}],
+            }
+        )
+        with YoutubeDL(opts) as ydl:
+            ydl.download([url])
+        candidates = [output, *output.parent.glob(f"{output.stem}.*")]
+        result = next((path for path in candidates if path.is_file() and path.suffix == ".mkv"), None)
+        if result is None:
+            raise DownloadError(f"yt-dlp did not produce {output.name}")
+        if result != output:
+            result.replace(output)
+        return str(output)
+
+    async def download_direct_hls(self, url, output_path, headers=None):
+        """Reuse yt-dlp options, retry policy, progress hook, and cancellation hook."""
+        return await sync_to_async(
+            self._download_direct_hls_sync,
+            url,
+            output_path,
+            headers or {},
+        )
 
     async def add_download(self, path, qual, playlist, options):
         if playlist:

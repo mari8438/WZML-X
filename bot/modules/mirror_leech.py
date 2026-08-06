@@ -8,6 +8,7 @@ from .. import DOWNLOAD_DIR, LOGGER, bot_loop, task_dict_lock, user_data
 from ..helper.ext_utils.bot_utils import (
     COMMAND_USAGE,
     arg_parser,
+    parse_upload_destinations,
     get_content_type,
     sync_to_async,
 )
@@ -165,7 +166,11 @@ class Mirror(TaskListener):
         self.seed = args["-d"]
         self.name = args["-n"]
         self.custom_name = args["-n"]
-        self.up_dest = args["-up"]
+        upload_destinations = (
+            parse_upload_destinations(args["-up"]) if self.is_leech else []
+        )
+        self.up_dest = upload_destinations[0] if upload_destinations else args["-up"]
+        self.extra_up_dests = upload_destinations[1:]
         self.rc_flags = args["-rcf"]
         self.link = args["link"]
         self.compress = args["-z"]

@@ -14,6 +14,7 @@ from ..core.config_manager import Config
 from ..helper.ext_utils.bot_utils import (
     COMMAND_USAGE,
     arg_parser,
+    parse_upload_destinations,
     new_task,
     sync_to_async,
 )
@@ -571,7 +572,11 @@ class YtDlp(TaskListener):
         self.select = args["-s"]
         self.name = args["-n"]
         self.custom_name = args["-n"]
-        self.up_dest = args["-up"]
+        upload_destinations = (
+            parse_upload_destinations(args["-up"]) if self.is_leech else []
+        )
+        self.up_dest = upload_destinations[0] if upload_destinations else args["-up"]
+        self.extra_up_dests = upload_destinations[1:]
         self.category = args["-gc"]
         self.rc_flags = args["-rcf"]
         self.link = args["link"]

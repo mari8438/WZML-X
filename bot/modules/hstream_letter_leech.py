@@ -55,6 +55,22 @@ _QUALITY_TIMEOUT = 45 * 60
 _INVALID_FILENAME = r'[\\/:*?"<>|]'
 
 
+def _parse_letter_range(value):
+    value = str(value or "").strip().upper()
+    if len(value) == 1 and "A" <= value <= "Z":
+        return [value]
+    if (
+        len(value) == 3
+        and value[1] == "-"
+        and "A" <= value[0] <= "Z"
+        and "A" <= value[2] <= "Z"
+    ):
+        if value[0] > value[2]:
+            raise ValueError("Hstream range must be ascending, for example <code>A-G</code>")
+        return [chr(code) for code in range(ord(value[0]), ord(value[2]) + 1)]
+    raise ValueError("Use one letter or an ascending range such as <code>A-G</code>")
+
+
 async def _wait_until_resumed(pause_event, cancel_event):
     while not pause_event.is_set() and not cancel_event.is_set():
         resumed = create_task(pause_event.wait())
@@ -971,17 +987,19 @@ async def _upload_episode(prepared, destination, thread_id, cancel_event):
 
 async def hstream_letter_leech(_, message):
     tokens = (message.text or "").split()
-    if len(tokens) < 2 or len(tokens[1]) != 1 or not tokens[1].isalnum():
+    if len(tokens) < 2:
         await send_message(
             message,
-            "<b>Usage:</b> <code>/hsll A [-up CHAT_ID|TOPIC_ID]</code>",
+            "<b>Usage:</b> <code>/hsll A</code> or <code>/hsll A-G [-up CHAT_ID|TOPIC_ID]</code>",
         )
         return
     try:
+        letters = _parse_letter_range(tokens[1])
         destination, thread_id = _parse_destination(message, tokens)
     except ValueError as error:
         await send_message(message, str(error))
         return
+    range_label = letters[0] if len(letters) == 1 else f"{letters[0]}-{letters[-1]}"
     if _RUN_LOCK.locked():
         await send_message(message, "Another Hstream letter run is already active.")
         return
@@ -1041,7 +1059,7 @@ async def hstream_letter_leech(_, message):
             status = await send_message(
                 message,
                 (
-                    f"<b>Hstream letter {escape(tokens[1].upper())}</b>\n"
+                    f"<b>Hstream range {escape(range_label)}</b>\n"
                     "Waiting for current bot and RSS tasks to finish.\n"
                     + controls
                 ),
@@ -1058,7 +1076,7 @@ async def hstream_letter_leech(_, message):
                     status = await edit_message(
                         status,
                         (
-                            f"<b>Hstream letter {escape(tokens[1].upper())}</b>\n"
+                            f"<b>Hstream range {escape(range_label)}</b>\n"
                             f"Waiting: <code>{normal_count}</code> normal | "
                             f"<code>{rss_count}</code> RSS/TMV task(s)\n"
                             + controls
@@ -1083,11 +1101,17 @@ async def hstream_letter_leech(_, message):
                 translator = None
 
             async with HstreamResolver() as resolver:
-                items = await resolver.discover(tokens[1])
+                items = []
+                seen_urls = set()
+                for letter in letters:
+                    for item in await resolver.discover(letter):
+                        if item.url not in seen_urls:
+                            seen_urls.add(item.url)
+                            items.append(item)
                 if not items:
                     await send_message(
                         message,
-                        f"No Hstream episodes found for <code>{escape(tokens[1])}</code>.",
+                        f"No Hstream episodes found for <code>{escape(range_label)}</code>.",
                     )
                     return
                 download_workers = get_hstream_download_workers()
@@ -1102,7 +1126,7 @@ async def hstream_letter_leech(_, message):
                 status = await edit_message(
                     status,
                     (
-                        f"<b>Hstream letter {escape(tokens[1].upper())}</b>\n"
+                        f"<b>Hstream range {escape(range_label)}</b>\n"
                         f"Episodes: <code>{len(items)}</code>\n"
                         f"Pipeline: <code>{download_workers} downloads / "
                         f"{upload_workers} ordered upload</code>\n"
@@ -1184,7 +1208,7 @@ async def hstream_letter_leech(_, message):
                             status = await edit_message(
                                 status,
                                 (
-                                    f"<b>Hstream letter {escape(tokens[1].upper())}</b>\n"
+                                    f"<b>Hstream range {escape(range_label)}</b>\n"
                                     f"Progress: <code>{index + 1}/{len(items)}</code>\n"
                                     f"Uploaded: <code>{uploaded}</code> | Failed: <code>{failed}</code>\n"
                                     f"State: <code>{'paused' if not pause_event.is_set() else 'running'}</code>\n"

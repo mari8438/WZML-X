@@ -1,4 +1,4 @@
-from asyncio import create_task, sleep
+from asyncio import Semaphore, create_task, gather, sleep
 from html import escape, unescape
 from logging import getLogger
 from os import path as ospath, walk
@@ -68,6 +68,7 @@ from ...ext_utils.media_utils import (
 from ...telegram_helper.message_utils import delete_message
 
 LOGGER = getLogger(__name__)
+_DESTINATION_COPY_SLOTS = Semaphore(5)
 
 PERMANENT_DESTINATION_ERRORS = {
     "CHANNEL_INVALID",
@@ -141,6 +142,14 @@ class TelegramUploader:
             self._sent_msg is not None
             and getattr(self._sent_msg, "chat", None) is not None
             and hasattr(self._sent_msg, "reply_video")
+        )
+
+    def _needs_destination_copy(self):
+        return bool(
+            self._listener.is_super_chat
+            or self._listener.up_dest
+            or self._listener.leech_dest
+            or getattr(self._listener, "extra_up_dests", None)
         )
 
     async def _upload_progress(self, current, _):
@@ -528,7 +537,7 @@ class TelegramUploader:
                 if poster_followup:
                     await self._send_caption_followup(sent, poster_followup)
                 if (
-                    (self._listener.is_super_chat or self._listener.up_dest)
+                    self._needs_destination_copy()
                     and not self._is_private
                 ):
                     self._queue_deferred_copy(sent)
@@ -555,7 +564,7 @@ class TelegramUploader:
                 del self._msgs_dict[msg.link]
             await delete_message(msg)
         del self._media_dict[key][subkey]
-        if self._listener.is_super_chat or self._listener.up_dest:
+        if self._needs_destination_copy():
             for m in msgs_list:
                 self._msgs_dict[m.link] = m.caption
                 self._queue_deferred_copy(m)
@@ -662,6 +671,31 @@ class TelegramUploader:
                     self._listener.user_id,
                     f"Failed to forward to {leech_dest}\n{e}",
                 )
+        extra_destinations = getattr(self._listener, "extra_up_dests", []) or []
+
+        async def copy_extra(raw_destination):
+            destination = raw_destination
+            topic_id = None
+            if "|" in str(destination):
+                destination, topic = str(destination).rsplit("|", 1)
+                topic_id = int(topic) if topic.lstrip("-").isdigit() else None
+            if str(destination).lstrip("-").isdigit():
+                destination = int(destination)
+            async with _DESTINATION_COPY_SLOTS:
+                await self._copy_message_with_backoff(
+                    chat_id=destination,
+                    from_chat_id=chat_id,
+                    message_id=msg_id,
+                    message_thread_id=topic_id,
+                )
+
+        results = await gather(
+            *(copy_extra(destination) for destination in extra_destinations),
+            return_exceptions=True,
+        )
+        for destination, result in zip(extra_destinations, results):
+            if isinstance(result, Exception):
+                LOGGER.error(f"Failed to copy upload to {destination}: {result}")
 
     async def upload(self):
         await self._user_settings()
@@ -729,7 +763,7 @@ class TelegramUploader:
                         return
                     if (
                         not self._is_corrupted
-                        and (self._listener.is_super_chat or self._listener.up_dest)
+                        and self._needs_destination_copy()
                         and not self._is_private
                     ):
                         self._msgs_dict[self._sent_msg.link] = file_

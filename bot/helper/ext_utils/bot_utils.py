@@ -295,6 +295,22 @@ def arg_parser(items, arg_base):
             arg_base["link"] = " ".join(link_items)
 
 
+def parse_upload_destinations(value):
+    """Parse the multi-value part of ``-up`` while preserving old one-value use."""
+    values = value if isinstance(value, (list, tuple)) else str(value or "").split()
+    destinations = []
+    seen = set()
+    for raw in values:
+        raw = str(raw).strip()
+        if not raw:
+            continue
+        key = raw.casefold()
+        if key not in seen:
+            seen.add(key)
+            destinations.append(raw)
+    return destinations
+
+
 def get_size_bytes(size):
     size = size.lower()
     if "k" in size:

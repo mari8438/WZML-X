@@ -441,6 +441,31 @@ class TaskConfig:
                     "LEECH_DUMP_CHAT"
                 )
                 self.up_dest = Config.LEECH_DUMP_CHAT
+            normalized_extra_dests = []
+            for extra_dest in getattr(self, "extra_up_dests", []) or []:
+                extra_dest = str(extra_dest).strip()
+                for prefix in ("b:", "u:", "h:"):
+                    if extra_dest.startswith(prefix):
+                        extra_dest = extra_dest[len(prefix) :]
+                        break
+                chat_value = extra_dest.split("|", 1)[0]
+                if chat_value.lower() == "pm":
+                    chat_value = self.user_id
+                    extra_dest = str(self.user_id)
+                elif chat_value.lstrip("-").isdigit():
+                    chat_value = int(chat_value)
+                if "|" in extra_dest:
+                    _, topic_value = extra_dest.rsplit("|", 1)
+                    if not topic_value.lstrip("-").isdigit():
+                        raise ValueError(f"Invalid topic in upload destination: {extra_dest}")
+                try:
+                    await TgClient.bot.get_chat(chat_value)
+                except Exception as error:
+                    raise ValueError(
+                        f"Extra upload destination is inaccessible: {extra_dest}"
+                    ) from error
+                normalized_extra_dests.append(extra_dest)
+            self.extra_up_dests = normalized_extra_dests
             self.hybrid_leech = TgClient.IS_PREMIUM_USER and (
                 self.user_dict.get("HYBRID_LEECH")
                 or Config.HYBRID_LEECH
