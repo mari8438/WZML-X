@@ -15,8 +15,29 @@ MISSAV_HOSTS = {
 MISSAV_BASE = "https://missav.live"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0 Safari/537.36"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
+PAGE_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "max-age=0",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+}
+STREAM_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "application/vnd.apple.mpegurl,application/x-mpegURL,*/*;q=0.8",
+}
+
+
+class MissAVProtectedPageError(RuntimeError):
+    """The public page is temporarily protected; no bypass is attempted."""
 
 
 @dataclass
@@ -114,21 +135,12 @@ def _catalog_links(source, page_url):
     return links
 
 
-def _letter_catalog_links(source, page_url, letter):
-    letter = str(letter or "").strip().lower()
-    return [
-        url
-        for url in _catalog_links(source, page_url)
-        if urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1].lower().startswith(letter)
-    ]
-
-
 class MissAVResolver:
     def __init__(self):
         self.client = AsyncClient(
             follow_redirects=True,
             timeout=40,
-            headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"},
+            headers=PAGE_HEADERS,
         )
 
     async def __aenter__(self):
@@ -142,15 +154,30 @@ class MissAVResolver:
             raise ValueError("Rejected non-Surrit stream URL")
         if not stream and not _valid_missav_url(url):
             raise ValueError("Only public HTTPS MissAV URLs are supported")
-        headers = {}
+        headers = dict(STREAM_HEADERS if stream else PAGE_HEADERS)
         if referer:
             parsed = urlsplit(referer)
-            headers.update({"Referer": referer, "Origin": f"{parsed.scheme}://{parsed.netloc}"})
+            headers.update(
+                {
+                    "Referer": referer,
+                    "Origin": f"{parsed.scheme}://{parsed.netloc}",
+                    "Sec-Fetch-Site": "cross-site",
+                    "Sec-Fetch-Mode": "cors",
+                    "Sec-Fetch-Dest": "empty",
+                }
+            )
         response = await self.client.get(url, headers=headers)
+        if response.status_code in {401, 403}:
+            raise MissAVProtectedPageError(
+                "MissAV temporarily returned a protected/Cloudflare page. "
+                "No bypass was attempted; retry later or use a public catalog URL."
+            )
         response.raise_for_status()
         content_type = response.headers.get("content-type", "").lower()
-        if "captcha" in response.text[:5000].lower() or response.status_code in {401, 403}:
-            raise RuntimeError("MissAV returned a protected or CAPTCHA page")
+        if "captcha" in response.text[:5000].lower():
+            raise MissAVProtectedPageError(
+                "MissAV returned a protected/Cloudflare page. No bypass was attempted."
+            )
         if not stream and "text/html" not in content_type:
             raise RuntimeError("MissAV did not return a public HTML page")
         return response.text
@@ -177,11 +204,12 @@ class MissAVResolver:
         page_url = f"{MISSAV_BASE}/en/search/{quote(letter)}"
         source = await self._get(page_url)
         items = []
-        for link in _letter_catalog_links(source, page_url, letter):
+        # The public search route is the site's letter view. It does not promise
+        # that every video code begins with the query, so retain the visible
+        # result order instead of discarding legitimate matches by prefix.
+        for link in _catalog_links(source, page_url):
             try:
-                item = await self.resolve_title(link)
-                if item.title.lstrip().upper().startswith(letter):
-                    items.append(item)
+                items.append(await self.resolve_title(link))
             except Exception:
                 continue
         return items
