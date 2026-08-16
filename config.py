@@ -1,9 +1,9 @@
 # REQUIRED CONFIG
-BOT_TOKEN = ""
-OWNER_ID = 0
-TELEGRAM_API = 0
-TELEGRAM_HASH = ""
-DATABASE_URL = ""
+BOT_TOKEN = "8782820027:AAFptmQHiix2BaJTQpcNwb7aKdY-qUy1YYA"
+OWNER_ID = "6426143861"
+TELEGRAM_API = "28864343"
+TELEGRAM_HASH = "50f2a1b19f0fd9d50da2241c7c0cda40"
+DATABASE_URL = "mongodb+srv://newsudo:786780@cluster0.pbiae8a.mongodb.net/?appName=Cluster0"
 
 # OPTIONAL CONFIG
 DEFAULT_LANG = "en"
@@ -12,7 +12,7 @@ TG_PROXY = (
 )  # {"scheme": â€socks5â€, "hostname": â€â€, "port": 1234, "username": â€userâ€, "password": â€passâ€}
 USER_SESSION_STRING = ""
 CMD_SUFFIX = ""
-AUTHORIZED_CHATS = ""
+AUTHORIZED_CHATS = "-1004467601602"
 SUDO_USERS = ""
 STATUS_LIMIT = 10
 DEFAULT_UPLOAD = "rc"
@@ -208,7 +208,7 @@ DISABLE_SEED = False
 DISABLE_FF_MODE = False
 
 # Telegraph
-AUTHOR_NAME = "WZML-X"
+AUTHOR_NAME = "ZENCURSE"
 AUTHOR_URL = "https://t.me/WZML_X"
 
 # Task Limits
