@@ -11,6 +11,7 @@ from hashlib import sha256
 from hmac import new as hmac_new
 from secrets import token_bytes
 from re import findall
+from shlex import split as shell_split
 
 from httpx import AsyncClient
 from pyrogram.handlers import MessageHandler
@@ -309,6 +310,55 @@ def parse_upload_destinations(value):
             seen.add(key)
             destinations.append(raw)
     return destinations
+
+
+def resolve_ffmpeg_commands(selection, configured_commands):
+    """Resolve ``-ff`` presets or inline definitions into safe command strings."""
+    if isinstance(selection, dict):
+        configured_commands = selection
+        selection = list(selection)
+    if isinstance(selection, str):
+        selection = [selection]
+    if isinstance(selection, (set, tuple)):
+        selection = list(selection)
+    if not isinstance(selection, list):
+        raise ValueError("FFmpeg commands must be a preset name or a list of commands")
+
+    # A normal command such as ``-ff remux subtitle`` reaches the parser as
+    # one set member. Split it here so every named preset is honoured.
+    requested = []
+    for value in selection:
+        if not isinstance(value, str):
+            raise ValueError("Each FFmpeg command must be text")
+        requested.extend(shell_split(value))
+
+    configured_commands = configured_commands or {}
+    if not isinstance(configured_commands, dict):
+        raise ValueError("FFMPEG_CMDS must be a dictionary of preset command lists")
+    lookup = {str(key).casefold(): key for key in configured_commands}
+    resolved = []
+    missing = []
+    for name in requested:
+        key = lookup.get(name.casefold())
+        if key is None:
+            missing.append(name)
+            continue
+        commands = configured_commands[key]
+        if isinstance(commands, str):
+            commands = [commands]
+        if not isinstance(commands, (list, tuple)) or not all(
+            isinstance(command, str) and command.strip() for command in commands
+        ):
+            raise ValueError(f"FFMPEG_CMDS preset '{key}' must contain command strings")
+        resolved.extend(commands)
+    if missing:
+        available = ", ".join(map(str, configured_commands)) or "none"
+        raise ValueError(
+            f"FFmpeg preset not found: {', '.join(missing)}. Available: {available}"
+        )
+    if not resolved:
+        raise ValueError("No FFmpeg commands were selected")
+    return resolved
 
 
 def get_size_bytes(size):

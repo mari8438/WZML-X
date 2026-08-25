@@ -23,7 +23,12 @@ from .. import (
 )
 from ..core.config_manager import Config, BinConfig
 from ..core.tg_client import TgClient
-from .ext_utils.bot_utils import get_size_bytes, new_task, sync_to_async
+from .ext_utils.bot_utils import (
+    get_size_bytes,
+    new_task,
+    resolve_ffmpeg_commands,
+    sync_to_async,
+)
 from .ext_utils.bulk_links import extract_bulk_links
 from .ext_utils.files_utils import (
     SevenZ,
@@ -278,24 +283,14 @@ class TaskConfig:
                 self.up_dest = Config.UPLOAD_PATHS[self.up_dest]
 
         if self.ffmpeg_cmds and not isinstance(self.ffmpeg_cmds, list):
-            if self.user_dict.get("FFMPEG_CMDS", None):
-                ffmpeg_dict = self.user_dict["FFMPEG_CMDS"]
-                self.ffmpeg_cmds = [
-                    value
-                    for key in list(self.ffmpeg_cmds)
-                    if key in ffmpeg_dict
-                    for value in ffmpeg_dict[key]
-                ]
-            elif "FFMPEG_CMDS" not in self.user_dict and Config.FFMPEG_CMDS:
-                ffmpeg_dict = Config.FFMPEG_CMDS
-                self.ffmpeg_cmds = [
-                    value
-                    for key in list(self.ffmpeg_cmds)
-                    if key in ffmpeg_dict
-                    for value in ffmpeg_dict[key]
-                ]
-            else:
-                self.ffmpeg_cmds = None
+            ffmpeg_dict = (
+                self.user_dict.get("FFMPEG_CMDS")
+                if "FFMPEG_CMDS" in self.user_dict
+                else Config.FFMPEG_CMDS
+            )
+            self.ffmpeg_cmds = resolve_ffmpeg_commands(
+                self.ffmpeg_cmds, ffmpeg_dict
+            )
 
         self.metadata_title = self.user_dict.get("METADATA")
 
@@ -824,13 +819,27 @@ class TaskConfig:
             self.is_cancelled = True
             return False
         checked = False
-        cmds = [
-            [part.strip() for part in split(item) if part.strip()]
-            for item in self.ffmpeg_cmds
-        ]
+        try:
+            cmds = [
+                [part.strip() for part in split(item) if part.strip()]
+                for item in self.ffmpeg_cmds
+            ]
+        except ValueError as error:
+            raise ValueError(f"Invalid quotes in FFmpeg command: {error}") from error
         try:
             ffmpeg = FFMpeg(self)
             for ffmpeg_cmd in cmds:
+                if "-i" not in ffmpeg_cmd:
+                    raise ValueError(
+                        "FFmpeg command must include '-i mltb.video', '-i mltb.audio', or '-i mltb.ext'"
+                    )
+                input_index = ffmpeg_cmd.index("-i")
+                if input_index + 1 >= len(ffmpeg_cmd):
+                    raise ValueError("FFmpeg '-i' is missing its input value")
+                if not any(part.startswith("mltb") for part in ffmpeg_cmd):
+                    raise ValueError(
+                        "FFmpeg command must use an mltb output such as 'mltb.mkv'"
+                    )
                 self.proceed_count = 0
                 if "-threads" in ffmpeg_cmd:
                     thread_index = ffmpeg_cmd.index("-threads")

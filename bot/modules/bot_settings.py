@@ -4,6 +4,7 @@ from asyncio import (
     gather,
     sleep,
 )
+from ast import literal_eval
 from functools import partial
 from io import BytesIO
 from os import getcwd
@@ -103,6 +104,13 @@ DEFAULT_VALUES = {
     "PERFORMANCE_PROFILE": "max_speed",
     "FFMPEG_THREADS": 0,
     "FFMPEG_CPU_CORES": "",
+    "FFMPEG_CMDS": {
+        "t": [
+            "-threads 0 -i mltb.video -map 0:v:0 -map 0:a:m:language:tam "
+            "-map 0:s:m:language:eng -c copy -max_muxing_queue_size 9999 "
+            "mltb.mkv -del"
+        ]
+    },
     "TG_COPY_DELAY": 0.15,
     "TG_FLOOD_WAIT_MULTIPLIER": 1.1,
     "MAX_PARALLEL_TASKS": 0,
@@ -510,10 +518,39 @@ async def edit_variable(_, message, pre_message, key):
         value = str(value)
     elif value.isdigit():
         value = int(value)
+    elif key == "FFMPEG_CMDS":
+        try:
+            value = literal_eval(value)
+        except (SyntaxError, ValueError) as error:
+            await send_message(
+                message,
+                f"Invalid FFMPEG_CMDS dictionary: <code>{error}</code>",
+            )
+            return await update_buttons(pre_message, "var")
+        if not isinstance(value, dict) or not all(
+            isinstance(name, str)
+            and isinstance(commands, (list, tuple))
+            and all(isinstance(command, str) and command.strip() for command in commands)
+            for name, commands in value.items()
+        ):
+            await send_message(
+                message,
+                "FFMPEG_CMDS must be a dictionary like "
+                '<code>{"remux": ["-i mltb.video -c copy mltb.mkv -del"]}</code>',
+            )
+            return await update_buttons(pre_message, "var")
     elif value.startswith("[") and value.endswith("]"):
-        value = eval(value)
+        try:
+            value = literal_eval(value)
+        except (SyntaxError, ValueError):
+            await send_message(message, "Invalid list value.")
+            return await update_buttons(pre_message, "var")
     elif value.startswith("{") and value.endswith("}"):
-        value = eval(value)
+        try:
+            value = literal_eval(value)
+        except (SyntaxError, ValueError):
+            await send_message(message, "Invalid dictionary value.")
+            return await update_buttons(pre_message, "var")
     Config.set(key, value)
     await update_buttons(pre_message, "var")
     await delete_message(message)
