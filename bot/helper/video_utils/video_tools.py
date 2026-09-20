@@ -627,7 +627,7 @@ def _colorize_ass_letters(text, palette):
     return "".join(out)
 
 
-async def _create_intro_subtitle(listener, dir_path):
+async def _create_intro_subtitle(listener, dir_path, video_path=None):
     text = (
         listener.user_dict.get("INTRO_SUBTITLE_TEXT")
         or Config.INTRO_SUBTITLE_TEXT
@@ -646,10 +646,28 @@ async def _create_intro_subtitle(listener, dir_path):
     out_path = ospath.join(dir_path, f"intro_{listener.mid}.ass")
     duration = int(getattr(Config, "INTRO_SUBTITLE_DURATION", 5) or 5)
     fade_ms = int(getattr(Config, "INTRO_SUBTITLE_FADE_MS", 400) or 400)
-    ranges = _parse_intro_ranges(
+    configured_ranges = (
         listener.user_dict.get("INTRO_SUBTITLE_RANGES")
         or getattr(Config, "INTRO_SUBTITLE_RANGES", "")
     )
+    if configured_ranges and "00:01:20 - 00:01:25" in configured_ranges:
+        configured_ranges = ""
+    ranges = _parse_intro_ranges(configured_ranges)
+    # With no user override, place the intro at the start and every five
+    # minutes until the end of the actual video.  The old fixed range list
+    # silently stopped after 20 minutes and missed longer videos.
+    if not configured_ranges and video_path:
+        try:
+            from ..ext_utils.media_utils import get_media_info
+
+            video_duration = float((await get_media_info(video_path))[0] or 0)
+            gap = 5 * 60
+            ranges = [
+                (start, min(start + duration, video_duration))
+                for start in range(0, int(video_duration), gap)
+            ]
+        except Exception as error:
+            LOGGER.warning(f"Intro subtitle duration probe failed: {error}")
     font = str(getattr(Config, "INTRO_SUBTITLE_FONT", "Arial") or "Arial")
     size = int(getattr(Config, "INTRO_SUBTITLE_FONT_SIZE", 36) or 36)
     color = str(getattr(Config, "INTRO_SUBTITLE_COLOR", "&H00FFFFFF") or "&H00FFFFFF")
@@ -1351,7 +1369,7 @@ async def _execute_vt_pipeline(listener, input_path, state):
                         await remove(sub_path)
 
     if has_intro:
-        intro_path = await _create_intro_subtitle(listener, dir_path)
+        intro_path = await _create_intro_subtitle(listener, dir_path, input_path)
         if intro_path:
             extra_inputs.insert(0, ("intro_sub", intro_path, None))
             cleanup_paths.append(intro_path)

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from asyncio import create_subprocess_exec
@@ -579,8 +580,7 @@ async def _write_planner(listener, root, batches, limit, warnings):
 
 
 async def _compatible(files):
-    signature = None
-    for path in files:
+    async def probe(path):
         result = await cmd_exec(
             [
                 "ffprobe",
@@ -589,35 +589,36 @@ async def _compatible(files):
                 "error",
                 "-print_format",
                 "json",
-                "-show_streams",
+                "-show_entries",
+                "stream=codec_type,codec_name,width,height,sample_rate,channels",
                 path,
             ]
         )
         if result[2] != 0:
-            return False
+            return None
         try:
             data = json.loads(result[0] or "{}")
         except Exception:
-            return False
+            return None
         streams = data.get("streams", [])
-        sig = []
-        for stream in streams:
-            if stream.get("codec_type") in {"video", "audio"}:
-                sig.append(
-                    (
-                        stream.get("codec_type"),
-                        stream.get("codec_name"),
-                        stream.get("width"),
-                        stream.get("height"),
-                        stream.get("sample_rate"),
-                        stream.get("channels"),
-                    )
-                )
-        if signature is None:
-            signature = sig
-        elif signature != sig:
-            return False
-    return True
+        return [
+            (
+                stream.get("codec_type"),
+                stream.get("codec_name"),
+                stream.get("width"),
+                stream.get("height"),
+                stream.get("sample_rate"),
+                stream.get("channels"),
+            )
+            for stream in streams
+            if stream.get("codec_type") in {"video", "audio"}
+        ]
+
+    signatures = await asyncio.gather(*(probe(path) for path in files))
+    if any(signature is None for signature in signatures):
+        return False
+    signature = signatures[0]
+    return all(sig == signature for sig in signatures[1:])
 
 
 async def _merge_batch(listener, root, batch):
@@ -653,9 +654,12 @@ async def _merge_batch(listener, root, batch):
         list_path,
     ]
     if copy_mode:
-        cmd.extend(["-c", "copy"])
+        cmd.extend(["-c", "copy", "-threads", str(get_ffmpeg_threads())])
     else:
-        cmd.extend(["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-c:s", "copy"])
+        cmd.extend([
+            "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
+            "-c:s", "copy", "-threads", str(get_ffmpeg_threads()),
+        ])
     cmd.extend(["-max_muxing_queue_size", "9999", output])
 
     await _next_process_step(listener, "Merging batch", output)
