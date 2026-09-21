@@ -656,8 +656,13 @@ async def _merge_batch(listener, root, batch):
     if copy_mode:
         cmd.extend(["-c", "copy", "-threads", str(get_ffmpeg_threads())])
     else:
+        # Mixed audio layouts are common after ZIP extraction. Re-encoding
+        # the entire video made large auto-merge jobs crawl (especially for
+        # HEVC/10-bit sources). Keep the video bitstream and normalize only
+        # audio; FFmpeg will still reject genuinely incompatible video input
+        # instead of silently producing a broken concat.
         cmd.extend([
-            "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
             "-c:s", "copy", "-threads", str(get_ffmpeg_threads()),
         ])
     cmd.extend(["-max_muxing_queue_size", "9999", output])
