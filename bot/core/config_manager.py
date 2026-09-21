@@ -333,8 +333,8 @@ class Config:
     DRIVE_CATEGORY_MODE = False
     DRIVE_CATEGORY_SA = ""
     UPDATE_PKGS = True
-    UPSTREAM_REPO = ""
-    UPSTREAM_BRANCH = "master"
+    UPSTREAM_REPO = "https://github.com/mari8438/WZML-X"
+    UPSTREAM_BRANCH = "starfallx-v1.2-video-tools"
     USENET_SERVERS = []
     USER_SESSION_STRING = ""
     USER_TRANSMISSION = True

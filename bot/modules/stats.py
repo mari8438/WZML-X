@@ -1,6 +1,7 @@
 from asyncio import gather, sleep, wait_for, TimeoutError
 from pyrogram.enums import ButtonStyle
 from platform import platform, version
+from pathlib import Path
 from re import search as research
 from time import time
 
@@ -68,6 +69,8 @@ commands = {
         r"v?([\d.]+)",
     ),
 }
+
+REPO_ROOT = str(Path(__file__).resolve().parents[2])
 
 
 async def _remote_repo_version():
@@ -186,16 +189,21 @@ async def get_stats(event, key="home"):
 """
     elif key == "strepo":
         last_commit, changelog = "No Data", "N/A"
-        if await aiopath.exists(".git"):
+        if await aiopath.exists(f"{REPO_ROOT}/.git"):
             last_commit = (
                 await cmd_exec(
-                    "git log -1 --pretty='%cd ( %cr )' --date=format-local:'%d/%m/%Y'",
-                    True,
+                    [
+                        "git", "-C", REPO_ROOT, "log", "-1",
+                        "--pretty=%cd ( %cr )", "--date=format-local:%d/%m/%Y",
+                    ],
                 )
             )[0]
             changelog = (
                 await cmd_exec(
-                    "git log -1 --pretty=format:'<code>%s</code> <b>By</b> %an'", True
+                    [
+                        "git", "-C", REPO_ROOT, "log", "-1",
+                        "--pretty=format:<code>%s</code> <b>By</b> %an",
+                    ]
                 )
             )[0]
         official_v = await _remote_repo_version()
