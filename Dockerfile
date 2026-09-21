@@ -109,6 +109,12 @@ RUN sed -i 's/Components: main/Components: main contrib non-free/g' /etc/apt/sou
         zip \
     && rm -rf /var/lib/apt/lists/*
 
+# yt-dlp's current YouTube challenge solver requires a supported JavaScript
+# runtime. Debian's Node.js 18 is intentionally kept for other tooling, while
+# Deno provides a supported runtime for yt-dlp-ejs.
+RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh -s -- -y \
+    && deno --version
+
 RUN python -m venv /wzvenv \
     && python -m pip install --no-cache-dir --upgrade pip uv setuptools wheel
 

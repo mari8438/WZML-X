@@ -71,7 +71,7 @@ def _youtube_reload_options(options, drop_cookie=False):
     extractor_args = dict(retry_options.get("extractor_args") or {})
     extractor_args["youtube"] = ["player_client=default,web_embedded"]
     retry_options["extractor_args"] = extractor_args
-    retry_options["js_runtimes"] = {"node": {}}
+    retry_options["js_runtimes"] = {"deno": {}}
     if drop_cookie:
         retry_options.pop("cookiefile", None)
     return retry_options
@@ -744,7 +744,7 @@ class YtDlp(TaskListener):
 
         options = {"usenetrc": True, "cookiefile": cookie_to_use}
         if _is_youtube_link(self.link):
-            options["js_runtimes"] = {"node": {}}
+            options["js_runtimes"] = {"deno": {}}
         if opt:
             for key, value in opt.items():
                 if key in SITE_OPTION_KEYS:
