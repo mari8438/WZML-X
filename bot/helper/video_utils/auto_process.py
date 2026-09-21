@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from contextlib import suppress
 from asyncio import create_subprocess_exec
 from asyncio.subprocess import PIPE
 from os import path as ospath, walk
@@ -425,6 +426,29 @@ async def _smart_merge_directory(listener, root):
     batches = []
     warnings = []
     for (_, season), group_items in groups.items():
+        # ZIP releases sometimes contain both a normal episode and a V2 copy.
+        # Merging both wastes space and produces an incorrect episode range.
+        deduped = {}
+        for item in group_items:
+            episode = str(item["meta"].get("episode") or "").strip().lower()
+            if not episode:
+                deduped[f"path:{item['path']}"] = item
+                continue
+            key = f"episode:{episode}"
+            previous = deduped.get(key)
+            if previous is None or item["size"] > previous["size"]:
+                if previous is not None:
+                    warnings.append(
+                        f"Duplicate episode removed: {ospath.basename(previous['path'])}; "
+                        f"kept {ospath.basename(item['path'])}"
+                    )
+                deduped[key] = item
+            else:
+                warnings.append(
+                    f"Duplicate episode removed: {ospath.basename(item['path'])}; "
+                    f"kept {ospath.basename(previous['path'])}"
+                )
+        group_items = list(deduped.values())
         group_items.sort(key=lambda i: _episode_no(i["meta"].get("episode")))
         current, current_size = [], 0
         for item in group_items:
@@ -696,7 +720,8 @@ async def _merge_batch(listener, root, batch):
         await ffmpeg._ffmpeg_progress()
         _, stderr = await listener.subproc.communicate()
     process = listener.subproc
-    await remove(list_path)
+    with suppress(FileNotFoundError):
+        await remove(list_path)
     if process.returncode != 0 or not await aiopath.exists(output):
         LOGGER.error(f"Auto merge failed: {stderr.decode(errors='ignore')}")
         return None
