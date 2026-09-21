@@ -31,11 +31,18 @@ def _is_youtube_reload_error(error):
     return "page needs to be reloaded" in str(error).lower()
 
 
+def _is_youtube_auth_error(error):
+    text = str(error).lower()
+    return "sign in to confirm" in text or "cookies are no longer valid" in text
+
+
 def _youtube_reload_options(options):
     retry_options = options.copy()
     extractor_args = dict(retry_options.get("extractor_args") or {})
     extractor_args["youtube"] = ["player_client=default,web_embedded"]
     retry_options["extractor_args"] = extractor_args
+    retry_options["js_runtimes"] = {"node": {}}
+    retry_options.pop("cookiefile", None)
     return retry_options
 
 
@@ -183,7 +190,8 @@ class YoutubeDLHelper:
                 result = ydl.extract_info(link_for_meta, download=False)
         except Exception as e:
             if not (
-                _is_youtube_link(link_for_meta) and _is_youtube_reload_error(e)
+                _is_youtube_link(link_for_meta)
+                and (_is_youtube_reload_error(e) or _is_youtube_auth_error(e))
             ):
                 return self._on_download_error(str(e))
             LOGGER.warning(
