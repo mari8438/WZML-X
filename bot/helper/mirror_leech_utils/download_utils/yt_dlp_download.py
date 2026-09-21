@@ -36,13 +36,14 @@ def _is_youtube_auth_error(error):
     return "sign in to confirm" in text or "cookies are no longer valid" in text
 
 
-def _youtube_reload_options(options):
+def _youtube_reload_options(options, drop_cookie=False):
     retry_options = options.copy()
     extractor_args = dict(retry_options.get("extractor_args") or {})
     extractor_args["youtube"] = ["player_client=default,web_embedded"]
     retry_options["extractor_args"] = extractor_args
     retry_options["js_runtimes"] = {"node": {}}
-    retry_options.pop("cookiefile", None)
+    if drop_cookie:
+        retry_options.pop("cookiefile", None)
     return retry_options
 
 
@@ -198,7 +199,9 @@ class YoutubeDLHelper:
                 "YouTube asked to reload the page; retrying metadata with "
                 "the web_embedded player client"
             )
-            self.opts = _youtube_reload_options(self.opts)
+            self.opts = _youtube_reload_options(
+                self.opts, drop_cookie=_is_youtube_auth_error(e)
+            )
             try:
                 with YoutubeDL(self.opts) as ydl:
                     result = ydl.extract_info(link_for_meta, download=False)

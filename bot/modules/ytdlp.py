@@ -59,7 +59,7 @@ def _is_youtube_auth_error(error):
     return "sign in to confirm" in text or "cookies are no longer valid" in text
 
 
-def _youtube_reload_options(options):
+def _youtube_reload_options(options, drop_cookie=False):
     """Create a fresh YouTube client configuration for one safe retry.
 
     Logged-in cookies can make yt-dlp select `tv_downgraded`, which currently
@@ -72,7 +72,8 @@ def _youtube_reload_options(options):
     extractor_args["youtube"] = ["player_client=default,web_embedded"]
     retry_options["extractor_args"] = extractor_args
     retry_options["js_runtimes"] = {"node": {}}
-    retry_options.pop("cookiefile", None)
+    if drop_cookie:
+        retry_options.pop("cookiefile", None)
     return retry_options
 
 
