@@ -24,6 +24,7 @@ from ..ext_utils.media_utils import (
     extract_metadata_from_filename,
     format_clean_poster_title,
 )
+from ..ext_utils.performance import get_ffmpeg_threads
 from ..telegram_helper.message_utils import edit_message, send_file, send_message
 from .video_tools import (
     VIDEO_EXTENSIONS,
