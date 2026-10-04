@@ -319,6 +319,7 @@ async def load_settings():
             "HAPPYFAPPY_USERNAME",
             "HAPPYFAPPY_PASSWORD",
             "HAPPYFAPPY_ANNOUNCE_URL",
+            "HAPPYFAPPY_COOKIE_FILE",
             "HAPPYFAPPY_CATEGORY",
             "HAPPYFAPPY_TAGS",
             "HAPPYFAPPY_ANONYMOUS",
@@ -326,6 +327,8 @@ async def load_settings():
         ):
             if secret_value := environ.get(secret_key):
                 Config.set(secret_key, secret_value)
+        if not getattr(Config, "HAPPYFAPPY_COOKIE_FILE", ""):
+            Config.set("HAPPYFAPPY_COOKIE_FILE", "/usr/src/app/secrets/happyfappy.cookies.txt")
 
         if pf_dict:
             for key, value in pf_dict.items():
