@@ -923,11 +923,16 @@ def _happyfappy_tags(title, summary):
 async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
     if not TorrentManager.qbittorrent:
         raise RuntimeError("qBittorrent is unavailable; refusing to seed")
+    if not await aiopath.isfile(source_path):
+        raise RuntimeError(f"qBittorrent source file is missing: {source_path}")
+    source_size = await aiopath.getsize(source_path)
     from aioqbt.api import AddFormBuilder
     form = AddFormBuilder.with_client(TorrentManager.qbittorrent)
     async with aiopen(torrent_path, "rb") as torrent:
         data = await torrent.read()
     tag = f"happyfappy-{int(time())}"
+    existing = await TorrentManager.qbittorrent.torrents.info()
+    existing_hashes = {str(getattr(item, "hash", "")) for item in existing}
     form = form.include_file(data).savepath(ospath.dirname(source_path)).tags([tag])
     try:
         await TorrentManager.qbittorrent.torrents.add(form.build())
@@ -946,22 +951,68 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
         source_name = ospath.basename(source_path)
         torrents = [
             item for item in all_torrents
-            if getattr(item, "name", "") == source_name
-            or getattr(item, "content_path", "") == source_path
+            if str(getattr(item, "hash", "")) not in existing_hashes
+            and getattr(item, "name", "") == source_name
+            and getattr(item, "content_path", "") == source_path
         ]
     if not torrents:
         raise RuntimeError("qBittorrent did not report the uploaded torrent")
+    if len(torrents) > 1:
+        raise RuntimeError("qBittorrent reported multiple matching torrents; refusing ambiguous seed")
     torrent_hash = torrents[0].hash
+    reported_size = int(getattr(torrents[0], "size", 0) or 0)
+    if reported_size and reported_size != source_size:
+        raise RuntimeError(
+            f"qBittorrent source size mismatch: file={source_size} bytes, torrent={reported_size} bytes"
+        )
     if status_msg:
-        await _edit_progress(status_msg, "Create Torrent: hash-checking in qBittorrent...")
+        await _edit_progress(
+            status_msg,
+            f"Create Torrent: hash-checking in qBittorrent... <code>{get_readable_file_size(source_size)}</code>",
+        )
     await TorrentManager.qbittorrent.torrents.recheck([torrent_hash])
-    for _ in range(90):
+    last_report = 0
+    last_state = "unknown"
+    last_progress = 0.0
+    for _ in range(180):
+        if not await aiopath.isfile(source_path):
+            raise RuntimeError(f"qBittorrent source disappeared during hash-check: {source_path}")
         checked = await TorrentManager.qbittorrent.torrents.info(hashes=[torrent_hash])
-        if checked and float(getattr(checked[0], "progress", 0) or 0) >= 0.999:
-            break
+        if checked:
+            state = str(getattr(checked[0], "state", "unknown"))
+            progress = float(getattr(checked[0], "progress", 0) or 0)
+            amount_left = int(getattr(checked[0], "amount_left", 0) or 0)
+            last_state, last_progress = state, progress
+            now = time()
+            if now - last_report >= 5:
+                LOGGER.info(
+                    "qBittorrent hash-check: hash=%s state=%s progress=%.3f amount_left=%s path=%s",
+                    torrent_hash,
+                    state,
+                    progress,
+                    amount_left,
+                    source_path,
+                )
+                if status_msg:
+                    await _edit_progress(
+                        status_msg,
+                        f"Create Torrent: hash-checking... {progress * 100:.1f}% "
+                        f"(<code>{escape(state)}</code>)",
+                    )
+                last_report = now
+            if state in {"missingFiles", "error"}:
+                raise RuntimeError(
+                    f"qBittorrent hash-check failed: state={state}, progress={progress:.3f}, "
+                    f"path={source_path}"
+                )
+            if progress >= 0.999 and amount_left == 0:
+                break
         await sleep(2)
     else:
-        raise RuntimeError("qBittorrent hash-check did not reach 100%; refusing to seed")
+        raise RuntimeError(
+            f"qBittorrent hash-check stalled: state={last_state}, progress={last_progress:.3f}, "
+            f"source={source_path}, size={source_size} bytes"
+        )
     await TorrentManager.qbittorrent.torrents.start([torrent_hash])
     return torrent_hash
 
