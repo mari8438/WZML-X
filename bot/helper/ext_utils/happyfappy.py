@@ -193,15 +193,21 @@ class HappyFappyClient:
                 f"HappyFappy did not confirm the torrent upload "
                 f"(HTTP {response.status_code}, final URL {response.url}){suffix}"
             )
+        page = response.text.replace(r"\/", "/")
         links = re.findall(
-            r"(?:href|data-href)=[\"']([^\"']*torrents\.php\?[^\"']*(?:action=download|download)[^\"']*)",
-            response.text,
+            r"(?:https?://[^\"'<>\s]+)?/?torrents\.php\?[^\"'<>\s]+",
+            page,
             re.I,
         )
         for link in links:
             candidate = urljoin(f"{self.base_url}/", unescape(link))
             parsed = urlsplit(candidate)
-            if parsed.scheme == "https" and parsed.netloc.lower().endswith("happyfappy.net"):
+            if (
+                parsed.scheme == "https"
+                and parsed.netloc.lower().endswith("happyfappy.net")
+                and parsed.path.lower() == "/torrents.php"
+                and re.search(r"(?:^|&)action=download(?:&|$)", parsed.query, re.I)
+            ):
                 self.uploaded_torrent_url = candidate
                 break
         return str(response.url)
