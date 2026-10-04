@@ -105,7 +105,25 @@ class HappyFappyClient:
         response, parser = await self._get_form(f"{self.base_url}/upload.php")
         if "/login" in str(response.url) or 'name="username"' in response.text:
             raise HappyFappyError("HappyFappy session is not authenticated")
+        self._upload_html = response.text
         return parser.fields
+
+    def _category_value(self, category):
+        value = str(category or "").strip()
+        if not value or value.isdigit():
+            return value
+        match = re.search(r'<select[^>]+id=["\']category["\'][^>]*>(.*?)</select>', self._upload_html, re.I | re.S)
+        if match:
+            options = re.findall(
+                r'<option[^>]+value=["\']([^"\']+)["\'][^>]*>(.*?)</option>',
+                match.group(1),
+                re.I | re.S,
+            )
+            normalized = re.sub(r"\s+", " ", value).strip().casefold()
+            for option_value, label in options:
+                if re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", label)).strip().casefold() == normalized:
+                    return option_value
+        raise HappyFappyError(f"Unknown HappyFappy category: {value}")
 
     async def check_dupe(self, torrent_path):
         fields = await self._upload_form()
@@ -134,8 +152,8 @@ class HappyFappyClient:
         fields = await self._upload_form()
         fields.update(
             {
-                "submit": "Upload torrent",
-                "category": category,
+                "submit": "true",
+                "category": self._category_value(category),
                 "title": title,
                 "taglist": tags,
                 "image": image_url,
@@ -150,6 +168,10 @@ class HappyFappyClient:
                 files={"file_input": (ospath.basename(torrent_path), torrent, "application/x-bittorrent")},
             )
         response.raise_for_status()
-        if "/torrents.php" not in str(response.url):
+        success_marker = bool(
+            re.search(r"torrent\s+(?:uploaded|added)|upload\s+successful|thanks\s+for\s+uploading", response.text, re.I)
+            or re.search(r"class=[\"'][^\"']*(?:success|alert-success|successbox)", response.text, re.I)
+        )
+        if "/torrents.php" not in str(response.url) and not success_marker:
             raise HappyFappyError("HappyFappy did not confirm the torrent upload")
         return str(response.url)
