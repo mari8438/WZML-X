@@ -1,9 +1,11 @@
 from html import escape
+from json import dump, load
 from os import path as ospath
 from re import sub as re_sub
 from shlex import split as shlex_split
 from shutil import copy2
-from asyncio import sleep
+from asyncio import Event, gather, sleep, wait_for
+from io import BytesIO
 from time import time
 from urllib.parse import unquote, urlsplit
 
@@ -12,9 +14,12 @@ from aiofiles.os import listdir, makedirs, path as aiopath
 from aioshutil import rmtree
 from httpx import AsyncClient
 from PIL import Image, ImageDraw, ImageFont, ImageOps
+from pyrogram.filters import create
+from pyrogram.handlers import CallbackQueryHandler
 
 from .. import LOGGER
 from ..core.config_manager import Config
+from ..core.tg_client import TgClient
 from ..helper.ext_utils.bot_utils import cmd_exec, new_task, sync_to_async
 from ..helper.ext_utils.happyfappy import HappyFappyClient
 from ..helper.ext_utils.media_utils import (
@@ -150,7 +155,53 @@ def _safe_local_path(value):
     return value
 
 
-async def _download_hstream_link(link, out_dir, status_msg):
+async def _confirm_hstream_stream(message, episode):
+    token = f"ctorrent_hs_{message.from_user.id}_{int(time() * 1000)}"
+    choices = {}
+    lines = [f"<b>{escape(episode.title)}</b>", "Choose the HStream quality to download:"]
+    for index, stream in enumerate(episode.streams):
+        choices[str(index)] = stream
+        lines.append(
+            f"{index + 1}. <code>{escape(stream.label)}</code> "
+            f"{escape(stream.resolution)} {escape(stream.codec)} {escape(stream.bit)}"
+        )
+    from ..helper.telegram_helper.button_build import ButtonMaker
+
+    buttons = ButtonMaker()
+    for index, stream in enumerate(episode.streams):
+        buttons.data_button(stream.label[:24], f"{token}:{index}")
+    buttons.data_button("Cancel", f"{token}:cancel")
+    prompt = await send_message(message, "\n".join(lines), reply_markup=buttons.build_menu(2))
+    event = Event()
+    result = [None]
+
+    async def callback(_, query):
+        if query.from_user.id != message.from_user.id or not query.data.startswith(f"{token}:"):
+            return
+        await query.answer()
+        value = query.data.split(":", 1)[1]
+        result[0] = choices.get(value) if value != "cancel" else False
+        event.set()
+
+    handler = TgClient.bot.add_handler(
+        CallbackQueryHandler(callback, filters=create(lambda _, __, update: update.data.startswith(token)))
+    )
+    try:
+        await wait_for(event.wait(), timeout=120)
+    except TimeoutError:
+        result[0] = None
+    finally:
+        TgClient.bot.remove_handler(*handler)
+    if result[0] is None:
+        await edit_message(prompt, "HStream quality confirmation timed out; download cancelled.")
+    elif result[0] is False:
+        await edit_message(prompt, "HStream download cancelled by owner.")
+    else:
+        await edit_message(prompt, f"Confirmed: <code>{escape(result[0].label)}</code>. Download starting.")
+    return result[0]
+
+
+async def _download_hstream_link(link, out_dir, status_msg, message):
     parsed = urlsplit(link)
     if parsed.netloc.lower().split(":", 1)[0] not in {"hstream.moe", "www.hstream.moe"}:
         raise RuntimeError("HappyFappy mode accepts Hstream.moe episode URLs only")
@@ -163,7 +214,9 @@ async def _download_hstream_link(link, out_dir, status_msg):
         episode = await resolver.resolve(HstreamCatalogItem(slug, 0, slug))
     if not episode.streams or not any(stream.urls for stream in episode.streams):
         raise RuntimeError("Hstream returned no playable video stream")
-    stream = max(episode.streams, key=lambda item: int(str(item.resolution).rstrip("p") or 0))
+    stream = await _confirm_hstream_stream(message, episode)
+    if not stream:
+        raise RuntimeError("HStream quality was not confirmed by the owner")
     stream_url = stream.urls[0]
     output = await _unique_path(out_dir, _safe_name(episode.title, "hstream_release") + ".mkv")
     await _edit_progress(status_msg, "Create Torrent: downloading Hstream video...")
@@ -176,6 +229,22 @@ async def _download_hstream_link(link, out_dir, status_msg):
     )
     if code != 0 or not await aiopath.exists(output):
         raise RuntimeError(stderr or stdout or "Hstream video download failed")
+    metadata_path = f"{output}.hstream.json"
+    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+        dump(
+            {
+                "title": episode.title,
+                "year": episode.year,
+                "description": episode.description,
+                "genres": episode.genres,
+                "portrait_url": episode.portrait_url,
+                "landscape_url": episode.landscape_url,
+                "sample_urls": episode.sample_urls,
+                "source_url": episode.source_url,
+            },
+            metadata_file,
+            ensure_ascii=False,
+        )
     return output
 
 
@@ -190,7 +259,7 @@ async def _resolve_source(message, status_msg, hstream_only=False):
     value = next((item for item in args[1:] if not item.startswith("--")), "")
     if value.startswith(("http://", "https://")):
         if hstream_only:
-            return await _download_hstream_link(value, storage_dir, status_msg)
+            return await _download_hstream_link(value, storage_dir, status_msg, message)
         return await _download_link(value, storage_dir, status_msg)
     if hstream_only:
         raise RuntimeError("HappyFappy mode requires an Hstream.moe episode URL")
@@ -581,14 +650,117 @@ async def _write_description(source_path, title, summary, image_links=None, temp
     return desc_path
 
 
+def _read_hstream_metadata(source_path):
+    metadata_path = f"{source_path}.hstream.json"
+    try:
+        with open(metadata_path, encoding="utf-8") as metadata_file:
+            value = load(metadata_file)
+        return value if isinstance(value, dict) else {}
+    except (OSError, TypeError, ValueError):
+        return {}
+
+
+async def _create_hstream_contact_sheet(metadata, title, output_dir):
+    urls = [str(url).strip() for url in metadata.get("sample_urls", [])[:12] if str(url).strip()]
+    if not urls:
+        return ""
+    sample_dir = await _unique_path(output_dir, f"{_safe_name(title, 'hstream')}_samples")
+    await makedirs(sample_dir, exist_ok=True)
+    async with AsyncClient(
+        follow_redirects=True,
+        timeout=45,
+        verify=False,
+        headers={"Referer": metadata.get("source_url", "https://hstream.moe/")},
+    ) as client:
+        async def fetch(index, url):
+            try:
+                response = await client.get(url)
+                response.raise_for_status()
+                with Image.open(BytesIO(response.content)) as image:
+                    target = ospath.join(sample_dir, f"{index:02d}.jpg")
+                    image.convert("RGB").save(target, "JPEG", quality=92, optimize=True)
+                    return target
+            except Exception as error:
+                LOGGER.warning("Hstream screenshot %s failed: %s", index + 1, error)
+                return ""
+
+        screenshots = [item for item in await gather(*(fetch(i, url) for i, url in enumerate(urls))) if item]
+    if len(screenshots) < 12:
+        return ""
+    output = await _unique_path(output_dir, f"{_safe_name(title, 'hstream')}_12screens.jpg")
+    cols, rows, cell_w, cell_h, gap = 4, 3, 320, 180, 10
+    canvas = Image.new("RGB", (cols * cell_w + (cols + 1) * gap, rows * cell_h + (rows + 1) * gap), "#101218")
+    for index, screenshot in enumerate(screenshots[:12]):
+        with Image.open(screenshot) as image:
+            image = ImageOps.contain(image.convert("RGB"), (cell_w, cell_h), Image.Resampling.LANCZOS)
+            frame = Image.new("RGB", (cell_w, cell_h), "#000000")
+            frame.paste(image, ((cell_w - image.width) // 2, (cell_h - image.height) // 2))
+        canvas.paste(frame, (gap + (index % cols) * (cell_w + gap), gap + (index // cols) * (cell_h + gap)))
+    canvas.save(output, "JPEG", quality=94, optimize=True)
+    return output
+
+
+async def _download_image(url, output_path):
+    if not str(url or "").startswith(("http://", "https://")):
+        return ""
+    try:
+        async with AsyncClient(follow_redirects=True, timeout=30) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+        async with aiopen(output_path, "wb") as image_file:
+            await image_file.write(response.content)
+        return output_path
+    except Exception:
+        return ""
+
+
 async def _send_artifacts(message, source_path, torrent_path, trackers, send=True, image_links=None, template_preset=None):
     size = await aiopath.getsize(source_path)
+    hstream_metadata = _read_hstream_metadata(source_path)
     title, _, _ = format_clean_poster_title(ospath.basename(source_path))
-    title = title or ospath.splitext(ospath.basename(source_path))[0]
+    title = hstream_metadata.get("title") or title or ospath.splitext(ospath.basename(source_path))[0]
     summary = await _probe_summary(source_path)
-    thumb = await get_video_thumbnail(source_path, None)
-    sheet = await _create_contact_sheet_with_header(source_path, summary, title)
+    summary["title"] = title
+    hstream_description = str(hstream_metadata.get("description") or "").strip()
+    genres = [
+        str(value).strip()
+        for value in hstream_metadata.get("genres", [])
+        if str(value).strip() and "rape" not in str(value).casefold()
+    ]
+    summary["genres"] = genres
+    summary["year"] = str(hstream_metadata.get("year") or "")
+    if hstream_description and genres:
+        hstream_description += f" Genres include {', '.join(genres)}."
+    cover_path = await _download_image(
+        hstream_metadata.get("portrait_url") or hstream_metadata.get("landscape_url"),
+        ospath.join(ospath.dirname(source_path), f"{_safe_name(title, 'hstream')}.hstream-cover.jpg"),
+    )
+    thumb = cover_path or await get_video_thumbnail(source_path, None)
+    if hstream_metadata.get("sample_urls"):
+        sheet = await _create_hstream_contact_sheet(
+            hstream_metadata, title, str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
+        )
+        if not sheet:
+            raise RuntimeError("Could not create the required 12-image HStream contact sheet")
+    else:
+        sheet = await _create_contact_sheet_with_header(source_path, summary, title)
     desc_path = await _write_description(source_path, title, summary, image_links, template_preset)
+    if hstream_description:
+        template = await _load_bbcode_template(template_preset)
+        rendered = template
+        values = {
+            "title": title,
+            "description": hstream_description,
+            "media_info": _compact_media_info(summary),
+            "mediainfo": _compact_media_info(summary),
+            "thumbnail_link": (image_links or {}).get("thumbnail", ""),
+            "contact_sheet_link": (image_links or {}).get("contact_sheet", ""),
+            "screenshots_link": (image_links or {}).get("contact_sheet", ""),
+        }
+        for key, value in values.items():
+            rendered = rendered.replace("{" + key + "}", str(value or ""))
+        async with aiopen(desc_path, "w", encoding="utf-8") as desc_file:
+            await desc_file.write(rendered.rstrip() + "\n")
 
     if send and thumb:
         await send_file(message, thumb, "HD video thumbnail")
@@ -620,8 +792,19 @@ async def _send_artifacts(message, source_path, torrent_path, trackers, send=Tru
 
 def _happyfappy_tags(title, summary):
     raw = str(getattr(Config, "HAPPYFAPPY_TAGS", "") or "")
-    tags = [item.strip() for item in raw.replace(",", " ").split() if item.strip()]
-    for value in (summary.get("resolution"), summary.get("video"), summary.get("dynamic_range"), str(summary.get("title", "")).rsplit(".", 1)[-1]):
+    tags = [
+        item.strip()
+        for item in raw.replace(",", " ").split()
+        if item.strip() and "rape" not in item.casefold()
+    ]
+    for value in (
+        summary.get("resolution"),
+        summary.get("video"),
+        summary.get("dynamic_range"),
+        summary.get("year"),
+        *summary.get("genres", []),
+        str(summary.get("title", "")).rsplit(".", 1)[-1],
+    ):
         if value and value.lower() not in {item.lower() for item in tags}:
             tags.append(value)
     return " ".join(tags)
