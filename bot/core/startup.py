@@ -313,6 +313,20 @@ async def load_settings():
         if config_dict:
             Config.load_dict(config_dict)
 
+        # Keep HappyFappy credentials and the personal announce URL server-only.
+        # They must override MongoDB's older/blank values without being persisted.
+        for secret_key in (
+            "HAPPYFAPPY_USERNAME",
+            "HAPPYFAPPY_PASSWORD",
+            "HAPPYFAPPY_ANNOUNCE_URL",
+            "HAPPYFAPPY_CATEGORY",
+            "HAPPYFAPPY_TAGS",
+            "HAPPYFAPPY_ANONYMOUS",
+            "HAPPYFAPPY_AUTO_UPLOAD",
+        ):
+            if secret_value := environ.get(secret_key):
+                Config.set(secret_key, secret_value)
+
         if pf_dict:
             for key, value in pf_dict.items():
                 if value:
