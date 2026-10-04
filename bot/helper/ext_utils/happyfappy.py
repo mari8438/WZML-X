@@ -217,6 +217,7 @@ class HappyFappyClient:
                 files={"file_input": (ospath.basename(torrent_path), torrent, "application/x-bittorrent")},
             )
         response.raise_for_status()
+        recent_text = ""
         success_marker = bool(
             re.search(
                 r"(?:your\s+)?torrent\s+(?:has\s+been\s+)?(?:uploaded|added)|"
@@ -226,6 +227,16 @@ class HappyFappyClient:
             )
             or re.search(r"class=[\"'][^\"']*(?:success|alert-success|successbox)", response.text, re.I)
         )
+        if not success_marker:
+            recent = await self.client.get(f"{self.base_url}/torrents.php")
+            recent.raise_for_status()
+            recent_text = recent.text
+            recent_plain = re.sub(r"<[^>]+>", " ", unescape(recent_text))
+            recent_plain = re.sub(r"\s+", " ", recent_plain).casefold()
+            success_marker = bool(
+                str(title or "").strip().casefold() in recent_plain
+                and re.search(r"torrents\.php\?[^\"'<>\s]*\bid=\d+", recent_text, re.I)
+            )
         if "/torrents.php" not in str(response.url) and not success_marker:
             visible = re.sub(r"<[^>]+>", " ", response.text)
             visible = re.sub(r"\s+", " ", visible).strip()
@@ -242,9 +253,11 @@ class HappyFappyClient:
             )
         self._capture_download_link(response.text, title)
         if not self.uploaded_torrent_url:
-            recent = await self.client.get(f"{self.base_url}/torrents.php")
-            recent.raise_for_status()
-            self._capture_download_link(recent.text, title)
+            if not recent_text:
+                recent = await self.client.get(f"{self.base_url}/torrents.php")
+                recent.raise_for_status()
+                recent_text = recent.text
+            self._capture_download_link(recent_text, title)
             if not self.uploaded_torrent_url:
                 detail_url = self._find_torrent_detail_url(recent.text, title)
                 if detail_url:
