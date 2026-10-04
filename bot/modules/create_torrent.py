@@ -942,7 +942,9 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         else:
             positive, _ = await client.check_dupe(torrent_path)
             if positive:
-                source_removed = await _remove_failed_happyfappy_source(source_path)
+                source_removed = False
+                if getattr(Config, "HAPPYFAPPY_DELETE_SOURCE_ON_FAILURE", False):
+                    source_removed = await _remove_failed_happyfappy_source(source_path)
                 await send_message(
                     message,
                     "HappyFappy dupe check found a possible match. Upload stopped."
@@ -1103,7 +1105,11 @@ async def create_torrent(_, message):
             await edit_message(status_msg, "Create Torrent: completed.")
     except Exception as e:
         source_removed = False
-        if happyfappy_mode and not artifacts.get("happyfappy_accepted"):
+        if (
+            happyfappy_mode
+            and not artifacts.get("happyfappy_accepted")
+            and getattr(Config, "HAPPYFAPPY_DELETE_SOURCE_ON_FAILURE", False)
+        ):
             source_removed = await _remove_failed_happyfappy_source(source_path)
         suffix = "\nOriginal source deleted after failure." if source_removed else ""
         await edit_message(status_msg, f"Create Torrent failed:\n<code>{escape(str(e))}</code>{suffix}")
