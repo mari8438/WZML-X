@@ -31,7 +31,7 @@ from ..helper.ext_utils.media_utils import (
     get_video_thumbnail,
     take_ss,
 )
-from ..helper.ext_utils.pixhost import upload_image
+from ..helper.ext_utils.pixhost import upload_image_details
 from ..core.torrent_manager import TorrentManager
 from ..helper.ext_utils.status_utils import get_readable_file_size
 from ..helper.telegram_helper.message_utils import edit_message, send_file, send_message
@@ -892,9 +892,13 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         raise RuntimeError("Pixhost upload requires both a thumbnail and contact sheet")
     if status_msg:
         await _edit_progress(status_msg, "Create Torrent: uploading cover and 12-image contact sheet to Pixhost...")
+    cover = await upload_image_details(artifacts["thumb"])
+    contact_sheet = await upload_image_details(artifacts["sheet"])
     links = {
-        "thumbnail": await upload_image(artifacts["thumb"]),
-        "contact_sheet": await upload_image(artifacts["sheet"]),
+        "thumbnail": cover["thumbnail"],
+        "thumbnail_page": cover["page"],
+        "contact_sheet": contact_sheet["thumbnail"],
+        "contact_sheet_page": contact_sheet["page"],
     }
     tags = _happyfappy_tags(artifacts["title"], artifacts["summary"])
     if len(tags.split()) < 5:
@@ -939,7 +943,7 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
             torrent_path,
             artifacts["title"],
             tags,
-            links["thumbnail"],
+            links["thumbnail_page"],
             description,
             getattr(Config, "HAPPYFAPPY_CATEGORY", ""),
             bool(getattr(Config, "HAPPYFAPPY_ANONYMOUS", False)),

@@ -30,7 +30,24 @@ def validate_pixhost_url(value):
     return parsed.geturl()
 
 
-async def upload_image(path, content_type=1, max_th_size=500, client=None):
+def validate_pixhost_page_url(value):
+    parsed = urlsplit(str(value or "").strip())
+    host = (parsed.hostname or "").lower()
+    if (
+        parsed.scheme != "https"
+        or not any(host == item or host.endswith(f".{item}") for item in PIXHOST_HOSTS)
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or not parsed.path.lower().startswith("/show/")
+        or not ospath.splitext(parsed.path)[1].lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"}
+    ):
+        raise PixhostError("Pixhost returned an invalid image page URL")
+    return parsed.geturl()
+
+
+async def upload_image_details(path, content_type=1, max_th_size=500, client=None):
     size = ospath.getsize(path)
     if size > MAX_IMAGE_BYTES:
         raise PixhostError(f"Image exceeds the Pixhost 10 MB limit: {ospath.basename(path)}")
@@ -50,7 +67,10 @@ async def upload_image(path, content_type=1, max_th_size=500, client=None):
             )
         response.raise_for_status()
         payload = response.json()
-        return validate_pixhost_url(payload.get("th_url"))
+        return {
+            "thumbnail": validate_pixhost_url(payload.get("th_url")),
+            "page": validate_pixhost_page_url(payload.get("show_url")),
+        }
     except PixhostError:
         raise
     except Exception as exc:
@@ -58,3 +78,8 @@ async def upload_image(path, content_type=1, max_th_size=500, client=None):
     finally:
         if owns_client:
             await client.aclose()
+
+
+async def upload_image(path, content_type=1, max_th_size=500, client=None):
+    details = await upload_image_details(path, content_type, max_th_size, client)
+    return details["thumbnail"]
