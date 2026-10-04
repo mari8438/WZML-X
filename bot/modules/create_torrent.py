@@ -902,6 +902,7 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
     artifacts["desc_path"] = await _write_description(
         source_path, artifacts["title"], artifacts["summary"], links, "happyfappy"
     )
+    await send_file(message, artifacts["desc_path"], "Final HappyFappy BBCode with Pixhost image links")
     client = HappyFappyClient(
         getattr(Config, "HAPPYFAPPY_URL", "https://www.happyfappy.net"),
         Config.HAPPYFAPPY_USERNAME,
@@ -1052,7 +1053,12 @@ async def create_torrent(_, message):
                 piece_length=getattr(Config, "CTORRENT_PIECE_LENGTH", 23),
             )
             artifacts = await _send_artifacts(
-                message, source_path, torrent_path, trackers, send=True
+                message,
+                source_path,
+                torrent_path,
+                trackers,
+                send=False,
+                template_preset="happyfappy",
             )
             upload_url = await _publish_happyfappy(
                 message,
