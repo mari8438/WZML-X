@@ -18,6 +18,7 @@ services:
       - ./logs:/usr/src/app/logs
       - ./rclone:/usr/src/app/rclone
       - ./thumbnails:/usr/src/app/thumbnails
+      - ./torrents:/usr/src/app/torrents
       - ./secrets:/usr/src/app/secrets:ro
       - tunnel_data:/data:ro
     ports:

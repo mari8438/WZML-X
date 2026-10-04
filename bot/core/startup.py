@@ -329,6 +329,10 @@ async def load_settings():
                 Config.set(secret_key, secret_value)
         if not getattr(Config, "HAPPYFAPPY_COOKIE_FILE", ""):
             Config.set("HAPPYFAPPY_COOKIE_FILE", "/usr/src/app/secrets/happyfappy.cookies.txt")
+        # Keep create-torrent sources on the persistent Docker-mounted volume.
+        storage_dir = str(getattr(Config, "CTORRENT_STORAGE_DIR", "") or "")
+        if storage_dir.startswith("/root/") or storage_dir == "/downloads":
+            Config.set("CTORRENT_STORAGE_DIR", "/usr/src/app/torrents/seeding")
 
         if pf_dict:
             for key, value in pf_dict.items():
