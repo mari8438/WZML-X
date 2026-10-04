@@ -11,7 +11,7 @@ from time import time
 from urllib.parse import unquote, urlsplit
 
 from aiofiles import open as aiopen
-from aiofiles.os import listdir, makedirs, path as aiopath
+from aiofiles.os import listdir, makedirs, path as aiopath, remove as aioremove
 from aioshutil import rmtree
 from httpx import AsyncClient
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -871,6 +871,18 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
     return torrent_hash
 
 
+async def _remove_failed_happyfappy_source(source_path):
+    if not source_path or not await aiopath.exists(source_path):
+        return False
+    try:
+        await aioremove(source_path)
+        LOGGER.warning("Removed failed HappyFappy source: %s", ospath.basename(source_path))
+        return True
+    except OSError as error:
+        LOGGER.error("Could not remove failed HappyFappy source %s: %s", source_path, error)
+        return False
+
+
 async def _publish_happyfappy(message, source_path, torrent_path, artifacts, status_msg=None, skip_dupe=False):
     required = ("HAPPYFAPPY_ANNOUNCE_URL", "HAPPYFAPPY_USERNAME", "HAPPYFAPPY_PASSWORD")
     missing = [key for key in required if not str(getattr(Config, key, "") or "").strip()]
@@ -894,6 +906,7 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         getattr(Config, "HAPPYFAPPY_URL", "https://www.happyfappy.net"),
         Config.HAPPYFAPPY_USERNAME,
         Config.HAPPYFAPPY_PASSWORD,
+        getattr(Config, "HAPPYFAPPY_COOKIE_FILE", ""),
     )
     try:
         if status_msg:
@@ -901,7 +914,13 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         await client.login()
         positive, _ = await client.check_dupe(torrent_path)
         if positive and not skip_dupe:
-            await send_message(message, "HappyFappy dupe check found a possible match. Upload stopped; use --skip-dupe only after owner review.")
+            source_removed = await _remove_failed_happyfappy_source(source_path)
+            await send_message(
+                message,
+                "HappyFappy dupe check found a possible match. Upload stopped; "
+                "use --skip-dupe only after owner review."
+                + (" Original source deleted." if source_removed else ""),
+            )
             return None
         if positive:
             LOGGER.warning("Owner-approved HappyFappy dupe override for %s", ospath.basename(torrent_path))
@@ -962,6 +981,8 @@ async def _send_folder_artifacts(message, folder_path, torrent_path, trackers):
 @new_task
 async def create_torrent(_, message):
     status_msg = await send_message(message, "Create Torrent: preparing source...")
+    source_path = None
+    happyfappy_mode = False
     try:
         command_text = message.text or message.caption or ""
         command_tokens = set(command_text.split())
@@ -1046,4 +1067,8 @@ async def create_torrent(_, message):
             await _send_artifacts(message, source_path, torrent_path, trackers)
             await edit_message(status_msg, "Create Torrent: completed.")
     except Exception as e:
-        await edit_message(status_msg, f"Create Torrent failed:\n<code>{escape(str(e))}</code>")
+        source_removed = False
+        if happyfappy_mode:
+            source_removed = await _remove_failed_happyfappy_source(source_path)
+        suffix = "\nOriginal source deleted after failure." if source_removed else ""
+        await edit_message(status_msg, f"Create Torrent failed:\n<code>{escape(str(e))}</code>{suffix}")
