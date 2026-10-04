@@ -173,5 +173,17 @@ class HappyFappyClient:
             or re.search(r"class=[\"'][^\"']*(?:success|alert-success|successbox)", response.text, re.I)
         )
         if "/torrents.php" not in str(response.url) and not success_marker:
-            raise HappyFappyError("HappyFappy did not confirm the torrent upload")
+            visible = re.sub(r"<[^>]+>", " ", response.text)
+            visible = re.sub(r"\s+", " ", visible).strip()
+            hints = re.findall(
+                r"[^.]{0,80}(?:error|invalid|must|required|not allowed|rejected|failed|warning)[^.]{0,180}",
+                visible,
+                re.I,
+            )
+            detail = " | ".join(dict.fromkeys(item.strip() for item in hints))[:700]
+            suffix = f": {detail}" if detail else ""
+            raise HappyFappyError(
+                f"HappyFappy did not confirm the torrent upload "
+                f"(HTTP {response.status_code}, final URL {response.url}){suffix}"
+            )
         return str(response.url)
