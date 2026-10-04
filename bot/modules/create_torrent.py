@@ -1,4 +1,5 @@
 from html import escape
+import re
 from json import dump, load
 from os import path as ospath
 from re import sub as re_sub
@@ -199,6 +200,85 @@ async def _confirm_hstream_stream(message, episode):
         await edit_message(prompt, "HStream download cancelled by owner.")
     else:
         await edit_message(prompt, f"Confirmed: <code>{escape(result[0].label)}</code>. Download starting.")
+    return result[0]
+
+
+async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_client):
+    """Wait for the owner to send the accepted HappyFappy .torrent file."""
+    prompt = await send_message(
+        message,
+        "HappyFappy accepted the upload, but its torrent link could not be retrieved. "
+        "Please send the accepted .torrent file or its HappyFappy torrent URL here within 3 minutes. "
+        "The source will be preserved.",
+    )
+    event = Event()
+    result = [None]
+    manual_path = f"{destination}.manual"
+
+    async def receive(_, incoming):
+        document = getattr(incoming, "document", None)
+        filename = str(getattr(document, "file_name", "") or "")
+        text = str(getattr(incoming, "text", "") or getattr(incoming, "caption", "") or "")
+        link_match = re.search(r"https://(?:www\.)?happyfappy\.net/torrents\.php\?[^\s<>]+", text, re.I)
+        if link_match:
+            candidate = link_match.group(0).rstrip(".,)>")
+            parsed = urlsplit(candidate)
+            if re.search(r"(?:^|&)action=download(?:&|$)", parsed.query, re.I):
+                happyfappy_client.uploaded_torrent_url = candidate
+                result[0] = "link"
+                event.set()
+                return
+        if (
+            not document
+            or incoming.from_user is None
+            or incoming.from_user.id != message.from_user.id
+            or not filename.lower().endswith(".torrent")
+        ):
+            return
+        downloaded = await incoming.download(file_name=manual_path)
+        if not downloaded or not await aiopath.isfile(manual_path):
+            return
+        async with aiopen(manual_path, "rb") as torrent_file:
+            header = await torrent_file.read(4096)
+        if b"announce" not in header and b"info" not in header:
+            return
+        await sync_to_async(copy2, manual_path, destination)
+        await aioremove(manual_path)
+        result[0] = destination
+        event.set()
+
+    handler = TgClient.bot.add_handler(
+        MessageHandler(
+            receive,
+            filters=create(
+                lambda _, __, update: bool(
+                    getattr(update, "document", None)
+                    and getattr(getattr(update, "from_user", None), "id", None)
+                    == message.from_user.id
+                )
+            ),
+        )
+    )
+    try:
+        await wait_for(event.wait(), timeout=180)
+    except TimeoutError:
+        pass
+    finally:
+        TgClient.bot.remove_handler(*handler)
+    if result[0]:
+        if result[0] == "link":
+            try:
+                await happyfappy_client.download_uploaded_torrent(destination)
+            except HappyFappyError:
+                result[0] = None
+        if result[0]:
+            await edit_message(prompt, "Manual HappyFappy torrent received. Starting qBittorrent verification...")
+        else:
+            await edit_message(prompt, "The manual torrent URL could not be downloaded; using the local fallback.")
+        if status_msg and result[0]:
+            await _edit_progress(status_msg, "Create Torrent: manual HappyFappy torrent received; hash-checking...")
+    else:
+        await edit_message(prompt, "Manual torrent wait timed out; keeping the source and using local fallback.")
     return result[0]
 
 
@@ -977,8 +1057,9 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
             if status_msg:
                 await _edit_progress(
                     status_msg,
-                    "Create Torrent: official torrent link unavailable; using local torrent fallback...",
+                    "Create Torrent: official link unavailable; waiting for owner torrent...",
                 )
+            await _wait_for_manual_torrent(message, torrent_path, status_msg, client)
     finally:
         await client.close()
     torrent_hash = await _seed_with_qbit(torrent_path, source_path, status_msg)
