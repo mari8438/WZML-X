@@ -963,6 +963,9 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
             bool(getattr(Config, "HAPPYFAPPY_ANONYMOUS", False)),
         )
         artifacts["happyfappy_accepted"] = True
+        if status_msg:
+            await _edit_progress(status_msg, "Create Torrent: downloading the accepted HappyFappy torrent...")
+        await client.download_uploaded_torrent(torrent_path)
     finally:
         await client.close()
     torrent_hash = await _seed_with_qbit(torrent_path, source_path, status_msg)

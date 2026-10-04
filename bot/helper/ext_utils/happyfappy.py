@@ -1,8 +1,9 @@
 import re
+from html import unescape
 from html.parser import HTMLParser
 from os import path as ospath
 from json import load as json_load
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from httpx import AsyncClient
 
@@ -67,6 +68,7 @@ class HappyFappyClient:
             cookies=_cookie_file(cookie_file),
             headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36"},
         )
+        self.uploaded_torrent_url = ""
 
     async def close(self):
         await self.client.aclose()
@@ -191,4 +193,26 @@ class HappyFappyClient:
                 f"HappyFappy did not confirm the torrent upload "
                 f"(HTTP {response.status_code}, final URL {response.url}){suffix}"
             )
+        links = re.findall(
+            r"(?:href|data-href)=[\"']([^\"']*torrents\.php\?[^\"']*(?:action=download|download)[^\"']*)",
+            response.text,
+            re.I,
+        )
+        for link in links:
+            candidate = urljoin(f"{self.base_url}/", unescape(link))
+            parsed = urlsplit(candidate)
+            if parsed.scheme == "https" and parsed.netloc.lower().endswith("happyfappy.net"):
+                self.uploaded_torrent_url = candidate
+                break
         return str(response.url)
+
+    async def download_uploaded_torrent(self, destination):
+        if not self.uploaded_torrent_url:
+            raise HappyFappyError("HappyFappy accepted the upload but did not provide its download link")
+        response = await self.client.get(self.uploaded_torrent_url)
+        response.raise_for_status()
+        content = response.content
+        if len(content) < 32 or b"announce" not in content[:4096]:
+            raise HappyFappyError("HappyFappy download link did not return a torrent file")
+        with open(destination, "wb") as torrent:
+            torrent.write(content)
