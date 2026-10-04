@@ -201,18 +201,25 @@ class TorrentManager:
             aria2_options[key] = value
 
 
+def _clean_aria2_name(name):
+    """Remove URL query fragments that can become part of a local filename."""
+    value = str(name or "")
+    cleaned = value.split("?", 1)[0].strip()
+    return cleaned or value
+
+
 def aria2_name(download_info):
     if "bittorrent" in download_info and download_info["bittorrent"].get("info"):
-        return download_info["bittorrent"]["info"]["name"]
+        return _clean_aria2_name(download_info["bittorrent"]["info"]["name"])
     elif download_info.get("files"):
         if download_info["files"][0]["path"].startswith("[METADATA]"):
             return download_info["files"][0]["path"]
         file_path = download_info["files"][0]["path"]
         dir_path = download_info["dir"]
         if file_path.startswith(dir_path):
-            return Path(file_path[len(dir_path) + 1 :]).parts[0]
+            return _clean_aria2_name(Path(file_path[len(dir_path) + 1 :]).parts[0])
         else:
-            return Path(file_path).name
+            return _clean_aria2_name(Path(file_path).name)
     else:
         return ""
 
