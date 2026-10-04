@@ -1,6 +1,7 @@
 import re
 from html.parser import HTMLParser
 from os import path as ospath
+from json import load as json_load
 from urllib.parse import urljoin
 
 from httpx import AsyncClient
@@ -27,12 +28,45 @@ class HappyFappyError(RuntimeError):
     pass
 
 
+def _cookie_file(path):
+    cookies = {}
+    if not path or not ospath.isfile(path):
+        return cookies
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as cookie_file:
+            for raw_line in cookie_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 7:
+                    domain, name, value = parts[0].lower(), parts[5], parts[6]
+                    if "happyfappy.net" in domain:
+                        cookies[name] = value
+                elif line.startswith("{"):
+                    cookie_file.seek(0)
+                    payload = json_load(cookie_file)
+                    for item in payload if isinstance(payload, list) else []:
+                        domain = str(item.get("domain", "")).lower()
+                        if "happyfappy.net" in domain and item.get("name"):
+                            cookies[item["name"]] = item.get("value", "")
+                    break
+    except (OSError, TypeError, ValueError):
+        return {}
+    return cookies
+
+
 class HappyFappyClient:
-    def __init__(self, base_url, username, password, timeout=60):
+    def __init__(self, base_url, username, password, cookie_file="", timeout=60):
         self.base_url = base_url.rstrip("/")
         self.username = username
         self.password = password
-        self.client = AsyncClient(timeout=timeout, follow_redirects=True)
+        self.client = AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            cookies=_cookie_file(cookie_file),
+            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36"},
+        )
 
     async def close(self):
         await self.client.aclose()
@@ -45,6 +79,9 @@ class HappyFappyClient:
         return response, parser
 
     async def login(self, login_path="/login"):
+        upload_response, _ = await self._get_form(f"{self.base_url}/upload.php")
+        if "/login" not in str(upload_response.url) and 'name="username"' not in upload_response.text:
+            return
         login_url = urljoin(f"{self.base_url}/", login_path.lstrip("/"))
         response, parser = await self._get_form(login_url)
         if "/logout" in response.text:
