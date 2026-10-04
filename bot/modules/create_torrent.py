@@ -171,7 +171,7 @@ async def _confirm_hstream_stream(message, episode):
     for index, stream in enumerate(episode.streams):
         buttons.data_button(stream.label[:24], f"{token}:{index}")
     buttons.data_button("Cancel", f"{token}:cancel")
-    prompt = await send_message(message, "\n".join(lines), reply_markup=buttons.build_menu(2))
+    prompt = await send_message(message, "\n".join(lines), buttons.build_menu(2))
     event = Event()
     result = [None]
 
