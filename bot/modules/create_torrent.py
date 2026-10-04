@@ -216,6 +216,8 @@ async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_
     manual_path = f"{destination}.manual"
 
     async def receive(_, incoming):
+        if incoming.from_user is None or incoming.from_user.id != message.from_user.id:
+            return
         document = getattr(incoming, "document", None)
         filename = str(getattr(document, "file_name", "") or "")
         text = str(getattr(incoming, "text", "") or getattr(incoming, "caption", "") or "")
@@ -230,14 +232,13 @@ async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_
                     await sync_to_async(copy2, manual_path, destination)
                     await aioremove(manual_path)
                     result[0] = "link"
+                    LOGGER.info("Received and downloaded owner-provided HappyFappy torrent link")
                     event.set()
                 except HappyFappyError:
                     happyfappy_client.uploaded_torrent_url = ""
                 return
         if (
             not document
-            or incoming.from_user is None
-            or incoming.from_user.id != message.from_user.id
             or not filename.lower().endswith(".torrent")
         ):
             return
@@ -251,6 +252,7 @@ async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_
         await sync_to_async(copy2, manual_path, destination)
         await aioremove(manual_path)
         result[0] = destination
+        LOGGER.info("Received owner-provided HappyFappy torrent file")
         event.set()
 
     handler = TgClient.bot.add_handler(
@@ -263,7 +265,8 @@ async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_
                     == message.from_user.id
                 )
             ),
-        )
+        ),
+        group=-1,
     )
     try:
         await wait_for(event.wait(), timeout=180)
@@ -279,6 +282,7 @@ async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_
         if status_msg and result[0]:
             await _edit_progress(status_msg, "Create Torrent: manual HappyFappy torrent received; hash-checking...")
     else:
+        LOGGER.warning("Timed out waiting for owner-provided HappyFappy torrent file or link")
         await edit_message(prompt, "Manual torrent wait timed out; keeping the source and using local fallback.")
     return result[0]
 
