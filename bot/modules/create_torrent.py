@@ -608,9 +608,13 @@ Contact Sheet: {contact_sheet_link}""",
 [b]Description[/b]
 {description}
 
-[b]Media Info[/b]
+[b]Genres[/b]
+{genres}
+
+[b]Media Information[/b]
 [code]{media_info}[/code]
 
+[center][b]Contact Sheet — {title}[/b][/center]
 [center][img]{contact_sheet_link}[/img][/center]""",
 }
 
@@ -635,6 +639,7 @@ async def _write_description(source_path, title, summary, image_links=None, temp
     values = {
         "title": title,
         "description": description,
+        "genres": ", ".join(summary.get("genres", [])) or "Not specified.",
         "media_info": media_info,
         "mediainfo": media_info,
         "thumbnail_link": image_links.get("thumbnail", ""),
@@ -751,6 +756,7 @@ async def _send_artifacts(message, source_path, torrent_path, trackers, send=Tru
         values = {
             "title": title,
             "description": hstream_description,
+            "genres": ", ".join(genres) or "Not specified.",
             "media_info": _compact_media_info(summary),
             "mediainfo": _compact_media_info(summary),
             "thumbnail_link": (image_links or {}).get("thumbnail", ""),
