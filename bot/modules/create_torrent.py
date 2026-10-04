@@ -909,21 +909,27 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         getattr(Config, "HAPPYFAPPY_COOKIE_FILE", ""),
     )
     try:
+        skip_configured = bool(getattr(Config, "HAPPYFAPPY_SKIP_DUPE", True))
         if status_msg:
-            await _edit_progress(status_msg, "Create Torrent: checking HappyFappy login and duplicates...")
-        await client.login()
-        positive, _ = await client.check_dupe(torrent_path)
-        if positive and not skip_dupe:
-            source_removed = await _remove_failed_happyfappy_source(source_path)
-            await send_message(
-                message,
-                "HappyFappy dupe check found a possible match. Upload stopped; "
-                "use --skip-dupe only after owner review."
-                + (" Original source deleted." if source_removed else ""),
+            await _edit_progress(
+                status_msg,
+                "Create Torrent: checking HappyFappy login..."
+                if skip_configured
+                else "Create Torrent: checking HappyFappy login and duplicates...",
             )
-            return None
-        if positive:
-            LOGGER.warning("Owner-approved HappyFappy dupe override for %s", ospath.basename(torrent_path))
+        await client.login()
+        if skip_configured or skip_dupe:
+            LOGGER.warning("Owner-configured HappyFappy dupe check skip for %s", ospath.basename(torrent_path))
+        else:
+            positive, _ = await client.check_dupe(torrent_path)
+            if positive:
+                source_removed = await _remove_failed_happyfappy_source(source_path)
+                await send_message(
+                    message,
+                    "HappyFappy dupe check found a possible match. Upload stopped."
+                    + (" Original source deleted." if source_removed else ""),
+                )
+                return None
         async with aiopen(artifacts["desc_path"], encoding="utf-8") as desc_file:
             description = await desc_file.read()
         if status_msg:
