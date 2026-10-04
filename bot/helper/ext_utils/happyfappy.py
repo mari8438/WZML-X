@@ -44,22 +44,29 @@ class HappyFappyClient:
         parser.feed(response.text)
         return response, parser
 
-    async def login(self, login_path="/login.php"):
+    async def login(self, login_path="/login"):
         login_url = urljoin(f"{self.base_url}/", login_path.lstrip("/"))
         response, parser = await self._get_form(login_url)
         if "/logout" in response.text:
             return
         data = dict(parser.fields)
-        data.update({"username": self.username, "password": self.password})
-        data.setdefault("login", "Log in")
+        data.update(
+            {
+                "username": self.username,
+                "password": self.password,
+                "cinfo": "auth",
+                "submit": "login",
+            }
+        )
         response = await self.client.post(login_url, data=data)
         response.raise_for_status()
-        if "/logout" not in response.text:
+        upload_response, _ = await self._get_form(f"{self.base_url}/upload.php")
+        if "/login" in str(upload_response.url) or 'name="username"' in upload_response.text:
             raise HappyFappyError("HappyFappy login failed or requires CAPTCHA/2FA")
 
     async def _upload_form(self):
         response, parser = await self._get_form(f"{self.base_url}/upload.php")
-        if "/logout" not in response.text:
+        if "/login" in str(response.url) or 'name="username"' in response.text:
             raise HappyFappyError("HappyFappy session is not authenticated")
         return parser.fields
 

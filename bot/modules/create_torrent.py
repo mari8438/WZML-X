@@ -4,7 +4,8 @@ from os import path as ospath
 from re import sub as re_sub
 from shlex import split as shlex_split
 from shutil import copy2
-from asyncio import Event, gather, sleep, wait_for
+from asyncio import Event, create_subprocess_exec, gather, sleep, wait_for
+from asyncio.subprocess import PIPE
 from io import BytesIO
 from time import time
 from urllib.parse import unquote, urlsplit
@@ -220,15 +221,33 @@ async def _download_hstream_link(link, out_dir, status_msg, message):
     stream_url = stream.urls[0]
     output = await _unique_path(out_dir, _safe_name(episode.title, "hstream_release") + ".mkv")
     await _edit_progress(status_msg, "Create Torrent: downloading Hstream video...")
-    stdout, stderr, code = await cmd_exec(
-        [
-            "yt-dlp", "--no-playlist", "--no-check-certificates",
-            "--referer", link, "--merge-output-format", "mkv",
-            "-f", "bv*+ba/b", "-o", output, stream_url,
-        ]
+    process = await create_subprocess_exec(
+        "yt-dlp", "--newline", "--no-playlist", "--no-check-certificates",
+        "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._total_bytes_str)s",
+        "--referer", link, "--merge-output-format", "mkv",
+        "-f", "bv*+ba/b", "-o", output, stream_url,
+        stdout=PIPE,
+        stderr=PIPE,
     )
+    last_update = 0
+    while line := await process.stdout.readline():
+        text = line.decode(errors="ignore").strip()
+        if not text.startswith("download:"):
+            continue
+        fields = text.removeprefix("download:").split("|", 3)
+        if len(fields) != 4 or time() - last_update < 5:
+            continue
+        percent, speed, eta, total = fields
+        await _edit_progress(
+            status_msg,
+            "Create Torrent: downloading Hstream video...",
+            extra=f"Quality: <code>{escape(stream.label)}</code>\nProgress: <code>{escape(percent)}</code>\nSpeed: <code>{escape(speed)}</code>\nETA: <code>{escape(eta)}</code>\nTotal: <code>{escape(total)}</code>",
+        )
+        last_update = time()
+    stderr = (await process.stderr.read()).decode(errors="ignore")
+    code = await process.wait()
     if code != 0 or not await aiopath.exists(output):
-        raise RuntimeError(stderr or stdout or "Hstream video download failed")
+        raise RuntimeError(stderr or "Hstream video download failed")
     metadata_path = f"{output}.hstream.json"
     with open(metadata_path, "w", encoding="utf-8") as metadata_file:
         dump(
@@ -816,7 +835,7 @@ def _happyfappy_tags(title, summary):
     return " ".join(tags)
 
 
-async def _seed_with_qbit(torrent_path, source_path):
+async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
     if not TorrentManager.qbittorrent:
         raise RuntimeError("qBittorrent is unavailable; refusing to seed")
     from aioqbt.api import AddFormBuilder
@@ -834,6 +853,8 @@ async def _seed_with_qbit(torrent_path, source_path):
     if not torrents:
         raise RuntimeError("qBittorrent did not report the uploaded torrent")
     torrent_hash = torrents[0].hash
+    if status_msg:
+        await _edit_progress(status_msg, "Create Torrent: hash-checking in qBittorrent...")
     await TorrentManager.qbittorrent.torrents.recheck([torrent_hash])
     for _ in range(90):
         checked = await TorrentManager.qbittorrent.torrents.info(hashes=[torrent_hash])
@@ -846,13 +867,15 @@ async def _seed_with_qbit(torrent_path, source_path):
     return torrent_hash
 
 
-async def _publish_happyfappy(message, source_path, torrent_path, artifacts, skip_dupe=False):
+async def _publish_happyfappy(message, source_path, torrent_path, artifacts, status_msg=None, skip_dupe=False):
     required = ("HAPPYFAPPY_ANNOUNCE_URL", "HAPPYFAPPY_USERNAME", "HAPPYFAPPY_PASSWORD")
     missing = [key for key in required if not str(getattr(Config, key, "") or "").strip()]
     if missing:
         raise RuntimeError(f"HappyFappy is not configured: {', '.join(missing)}")
     if not artifacts["thumb"] or not artifacts["sheet"]:
         raise RuntimeError("Pixhost upload requires both a thumbnail and contact sheet")
+    if status_msg:
+        await _edit_progress(status_msg, "Create Torrent: uploading cover and 12-image contact sheet to Pixhost...")
     links = {
         "thumbnail": await upload_image(artifacts["thumb"]),
         "contact_sheet": await upload_image(artifacts["sheet"]),
@@ -869,6 +892,8 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, ski
         Config.HAPPYFAPPY_PASSWORD,
     )
     try:
+        if status_msg:
+            await _edit_progress(status_msg, "Create Torrent: checking HappyFappy login and duplicates...")
         await client.login()
         positive, _ = await client.check_dupe(torrent_path)
         if positive and not skip_dupe:
@@ -878,6 +903,8 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, ski
             LOGGER.warning("Owner-approved HappyFappy dupe override for %s", ospath.basename(torrent_path))
         async with aiopen(artifacts["desc_path"], encoding="utf-8") as desc_file:
             description = await desc_file.read()
+        if status_msg:
+            await _edit_progress(status_msg, "Create Torrent: submitting approved release to HappyFappy...")
         upload_url = await client.submit(
             torrent_path,
             artifacts["title"],
@@ -889,7 +916,7 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, ski
         )
     finally:
         await client.close()
-    torrent_hash = await _seed_with_qbit(torrent_path, source_path)
+    torrent_hash = await _seed_with_qbit(torrent_path, source_path, status_msg)
     await send_message(message, f"HappyFappy accepted the torrent: <code>{escape(upload_url)}</code>\nSeeding started: <code>{torrent_hash}</code>")
     return upload_url
 
@@ -997,7 +1024,12 @@ async def create_torrent(_, message):
                 message, source_path, torrent_path, trackers, send=True
             )
             upload_url = await _publish_happyfappy(
-                message, source_path, torrent_path, artifacts, skip_dupe=skip_dupe
+                message,
+                source_path,
+                torrent_path,
+                artifacts,
+                status_msg=status_msg,
+                skip_dupe=skip_dupe,
             )
             await edit_message(
                 status_msg,
