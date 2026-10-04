@@ -225,8 +225,14 @@ async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_
             parsed = urlsplit(candidate)
             if re.search(r"(?:^|&)action=download(?:&|$)", parsed.query, re.I):
                 happyfappy_client.uploaded_torrent_url = candidate
-                result[0] = "link"
-                event.set()
+                try:
+                    await happyfappy_client.download_uploaded_torrent(manual_path)
+                    await sync_to_async(copy2, manual_path, destination)
+                    await aioremove(manual_path)
+                    result[0] = "link"
+                    event.set()
+                except HappyFappyError:
+                    happyfappy_client.uploaded_torrent_url = ""
                 return
         if (
             not document
@@ -266,11 +272,6 @@ async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_
     finally:
         TgClient.bot.remove_handler(*handler)
     if result[0]:
-        if result[0] == "link":
-            try:
-                await happyfappy_client.download_uploaded_torrent(destination)
-            except HappyFappyError:
-                result[0] = None
         if result[0]:
             await edit_message(prompt, "Manual HappyFappy torrent received. Starting qBittorrent verification...")
         else:
