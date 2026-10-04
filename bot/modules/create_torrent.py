@@ -634,7 +634,11 @@ Contact Sheet: {contact_sheet_link}""",
 [code]{media_info}[/code]
 
 [center][b]Contact Sheet — {title}[/b][/center]
-[center][img]{contact_sheet_link}[/img][/center]""",
+[center][url={contact_sheet_link}][img]{contact_sheet_link}[/img][/url][/center]
+
+[b]Image Links[/b]
+Cover: [url={thumbnail_link}]{thumbnail_link}[/url]
+Contact Sheet: [url={contact_sheet_link}]{contact_sheet_link}[/url]""",
 }
 
 
