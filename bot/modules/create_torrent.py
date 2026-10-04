@@ -853,7 +853,21 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
     except Exception as exc:
         if not await TorrentManager.qbittorrent.torrents.info(tag=tag):
             raise RuntimeError(f"qBittorrent add failed: {exc}") from exc
-    torrents = await TorrentManager.qbittorrent.torrents.info(tag=tag)
+    torrents = []
+    for _ in range(15):
+        torrents = await TorrentManager.qbittorrent.torrents.info(tag=tag)
+        if torrents:
+            break
+        # qBittorrent can acknowledge the add before its tag index is ready.
+        await sleep(1)
+    if not torrents:
+        all_torrents = await TorrentManager.qbittorrent.torrents.info()
+        source_name = ospath.basename(source_path)
+        torrents = [
+            item for item in all_torrents
+            if getattr(item, "name", "") == source_name
+            or getattr(item, "content_path", "") == source_path
+        ]
     if not torrents:
         raise RuntimeError("qBittorrent did not report the uploaded torrent")
     torrent_hash = torrents[0].hash
@@ -948,6 +962,7 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
             getattr(Config, "HAPPYFAPPY_CATEGORY", ""),
             bool(getattr(Config, "HAPPYFAPPY_ANONYMOUS", False)),
         )
+        artifacts["happyfappy_accepted"] = True
     finally:
         await client.close()
     torrent_hash = await _seed_with_qbit(torrent_path, source_path, status_msg)
@@ -994,6 +1009,7 @@ async def create_torrent(_, message):
     status_msg = await send_message(message, "Create Torrent: preparing source...")
     source_path = None
     happyfappy_mode = False
+    artifacts = {}
     try:
         command_text = message.text or message.caption or ""
         command_tokens = set(command_text.split())
@@ -1084,7 +1100,7 @@ async def create_torrent(_, message):
             await edit_message(status_msg, "Create Torrent: completed.")
     except Exception as e:
         source_removed = False
-        if happyfappy_mode:
+        if happyfappy_mode and not artifacts.get("happyfappy_accepted"):
             source_removed = await _remove_failed_happyfappy_source(source_path)
         suffix = "\nOriginal source deleted after failure." if source_removed else ""
         await edit_message(status_msg, f"Create Torrent failed:\n<code>{escape(str(e))}</code>{suffix}")
