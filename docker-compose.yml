@@ -4,6 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    env_file:
+      - path: ./secrets/happyfappy.env
+        required: false
     environment:
       TZ: Asia/Kolkata
       PYTHONUNBUFFERED: "1"

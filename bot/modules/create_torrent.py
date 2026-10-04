@@ -3,6 +3,7 @@ from os import path as ospath
 from re import sub as re_sub
 from shlex import split as shlex_split
 from shutil import copy2
+from asyncio import sleep
 from time import time
 from urllib.parse import unquote, urlsplit
 
@@ -12,8 +13,10 @@ from aioshutil import rmtree
 from httpx import AsyncClient
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+from .. import LOGGER
 from ..core.config_manager import Config
 from ..helper.ext_utils.bot_utils import cmd_exec, new_task, sync_to_async
+from ..helper.ext_utils.happyfappy import HappyFappyClient
 from ..helper.ext_utils.media_utils import (
     format_clean_poster_title,
     get_release_description,
@@ -22,6 +25,8 @@ from ..helper.ext_utils.media_utils import (
     get_video_thumbnail,
     take_ss,
 )
+from ..helper.ext_utils.pixhost import upload_image
+from ..core.torrent_manager import TorrentManager
 from ..helper.ext_utils.status_utils import get_readable_file_size
 from ..helper.telegram_helper.message_utils import edit_message, send_file, send_message
 
@@ -145,14 +150,50 @@ def _safe_local_path(value):
     return value
 
 
-async def _resolve_source(message, status_msg):
+async def _download_hstream_link(link, out_dir, status_msg):
+    parsed = urlsplit(link)
+    if parsed.netloc.lower().split(":", 1)[0] not in {"hstream.moe", "www.hstream.moe"}:
+        raise RuntimeError("HappyFappy mode accepts Hstream.moe episode URLs only")
+    from ..helper.ext_utils.hstream_resolver import HstreamCatalogItem, HstreamResolver
+
+    slug = parsed.path.rstrip("/").rsplit("/", 1)[-1]
+    if not slug or parsed.path.rstrip("/").split("/")[-2:-1] != ["hentai"]:
+        raise RuntimeError("Use an Hstream episode URL such as https://hstream.moe/hentai/<slug>")
+    async with HstreamResolver() as resolver:
+        episode = await resolver.resolve(HstreamCatalogItem(slug, 0, slug))
+    if not episode.streams or not any(stream.urls for stream in episode.streams):
+        raise RuntimeError("Hstream returned no playable video stream")
+    stream = max(episode.streams, key=lambda item: int(str(item.resolution).rstrip("p") or 0))
+    stream_url = stream.urls[0]
+    output = await _unique_path(out_dir, _safe_name(episode.title, "hstream_release") + ".mkv")
+    await _edit_progress(status_msg, "Create Torrent: downloading Hstream video...")
+    stdout, stderr, code = await cmd_exec(
+        [
+            "yt-dlp", "--no-playlist", "--no-check-certificates",
+            "--referer", link, "--merge-output-format", "mkv",
+            "-f", "bv*+ba/b", "-o", output, stream_url,
+        ]
+    )
+    if code != 0 or not await aiopath.exists(output):
+        raise RuntimeError(stderr or stdout or "Hstream video download failed")
+    return output
+
+
+async def _resolve_source(message, status_msg, hstream_only=False):
     storage_dir = str(Config.CTORRENT_STORAGE_DIR or "/usr/src/app/torrents/seeding")
     await makedirs(storage_dir, exist_ok=True)
     text = message.text or message.caption or ""
-    args = text.split(maxsplit=1)
-    value = args[1].strip() if len(args) > 1 else ""
+    try:
+        args = shlex_split(text)
+    except ValueError:
+        args = text.split()
+    value = next((item for item in args[1:] if not item.startswith("--")), "")
     if value.startswith(("http://", "https://")):
+        if hstream_only:
+            return await _download_hstream_link(value, storage_dir, status_msg)
         return await _download_link(value, storage_dir, status_msg)
+    if hstream_only:
+        raise RuntimeError("HappyFappy mode requires an Hstream.moe episode URL")
     if value and (local_path := _safe_local_path(value)) and await aiopath.exists(local_path):
         if local_path.startswith(storage_dir.rstrip("/") + "/"):
             return local_path
@@ -186,17 +227,24 @@ def _parse_folder_mode(message):
     return folder_name, links
 
 
-async def _make_torrent(source_path):
+async def _make_torrent(source_path, private=None, trackers=None, piece_length=None):
     output_dir = str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
     await makedirs(output_dir, exist_ok=True)
     torrent_name = f"{ospath.basename(source_path).strip()}.torrent"
     torrent_path = await _unique_path(output_dir, _safe_name(torrent_name, "release.torrent"))
     cmd = ["mktorrent", "-o", torrent_path]
-    if Config.CTORRENT_PRIVATE:
+    private = Config.CTORRENT_PRIVATE if private is None else private
+    if private:
         cmd.append("-p")
-    trackers = _tracker_list()
+    trackers = _tracker_list() if trackers is None else trackers
     if trackers:
         cmd.extend(["-a", ",".join(trackers)])
+    piece_length = piece_length or getattr(Config, "CTORRENT_PIECE_LENGTH", 23)
+    try:
+        piece_length = max(14, min(int(piece_length), 24))
+    except (TypeError, ValueError):
+        piece_length = 23
+    cmd.extend(["-l", str(piece_length)])
     cmd.append(source_path)
     stdout, stderr, code = await cmd_exec(cmd)
     if code != 0 or not await aiopath.exists(torrent_path):
@@ -484,28 +532,45 @@ Screenshots: {screenshots_link}""",
 
 Thumbnail: {thumbnail_link}
 Contact Sheet: {contact_sheet_link}""",
+    "happyfappy": """[center][b][size=5]{title}[/size][/b][/center]
+
+[center][img]{thumbnail_link}[/img][/center]
+
+[b]Description[/b]
+{description}
+
+[b]Media Info[/b]
+[code]{media_info}[/code]
+
+[center][img]{contact_sheet_link}[/img][/center]""",
 }
 
 
-async def _load_bbcode_template():
+async def _load_bbcode_template(preset=None):
     template_path = str(getattr(Config, "CTORRENT_BBCODE_TEMPLATE_PATH", "") or "").strip()
     if template_path and await aiopath.exists(template_path):
         async with aiopen(template_path, encoding="utf-8", errors="ignore") as f:
             return await f.read()
-    preset = str(getattr(Config, "CTORRENT_BBCODE_TEMPLATE", "anime_release") or "anime_release").strip().lower()
+    preset = str(preset or getattr(Config, "CTORRENT_BBCODE_TEMPLATE", "anime_release") or "anime_release").strip().lower()
     return BBCODE_TEMPLATES.get(preset) or BBCODE_TEMPLATES["anime_release"]
 
 
-async def _write_description(source_path, title, summary):
+async def _write_description(source_path, title, summary, image_links=None, template_preset=None):
     output_dir = str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
     media_info = _compact_media_info(summary)
     description = await get_release_description(title)
-    template = await _load_bbcode_template()
+    if not description or not str(description).strip():
+        description = f"{title} is a video release with the media details listed below."
+    template = await _load_bbcode_template(template_preset)
+    image_links = image_links or {}
     values = {
         "title": title,
         "description": description,
         "media_info": media_info,
         "mediainfo": media_info,
+        "thumbnail_link": image_links.get("thumbnail", ""),
+        "contact_sheet_link": image_links.get("contact_sheet", ""),
+        "screenshots_link": image_links.get("contact_sheet", ""),
     }
     rendered = template
     for key, value in values.items():
@@ -516,26 +581,27 @@ async def _write_description(source_path, title, summary):
     return desc_path
 
 
-async def _send_artifacts(message, source_path, torrent_path, trackers):
+async def _send_artifacts(message, source_path, torrent_path, trackers, send=True, image_links=None, template_preset=None):
     size = await aiopath.getsize(source_path)
     title, _, _ = format_clean_poster_title(ospath.basename(source_path))
     title = title or ospath.splitext(ospath.basename(source_path))[0]
     summary = await _probe_summary(source_path)
     thumb = await get_video_thumbnail(source_path, None)
     sheet = await _create_contact_sheet_with_header(source_path, summary, title)
-    desc_path = await _write_description(source_path, title, summary)
+    desc_path = await _write_description(source_path, title, summary, image_links, template_preset)
 
-    if thumb:
+    if send and thumb:
         await send_file(message, thumb, "HD video thumbnail")
-    else:
+    elif send:
         await send_message(message, "Create Torrent: HD thumbnail failed, continuing.")
 
-    if sheet:
+    if send and sheet:
         await send_file(message, sheet, "15 screenshot contact sheet")
-    else:
+    elif send:
         await send_message(message, "Create Torrent: contact sheet failed, continuing.")
 
-    await send_file(message, desc_path, "BBCode description")
+    if send:
+        await send_file(message, desc_path, "BBCode description")
 
     caption = (
         "<b>Created Torrent</b>\n"
@@ -547,7 +613,96 @@ async def _send_artifacts(message, source_path, torrent_path, trackers):
         f"Trackers: <code>{len(trackers)}</code>\n"
         f"Mode: <code>{'Private' if Config.CTORRENT_PRIVATE else 'Public'}</code>"
     )
-    await send_file(message, torrent_path, caption)
+    if send:
+        await send_file(message, torrent_path, caption)
+    return {"title": title, "summary": summary, "thumb": thumb, "sheet": sheet, "desc_path": desc_path}
+
+
+def _happyfappy_tags(title, summary):
+    raw = str(getattr(Config, "HAPPYFAPPY_TAGS", "") or "")
+    tags = [item.strip() for item in raw.replace(",", " ").split() if item.strip()]
+    for value in (summary.get("resolution"), summary.get("video"), summary.get("dynamic_range"), str(summary.get("title", "")).rsplit(".", 1)[-1]):
+        if value and value.lower() not in {item.lower() for item in tags}:
+            tags.append(value)
+    return " ".join(tags)
+
+
+async def _seed_with_qbit(torrent_path, source_path):
+    if not TorrentManager.qbittorrent:
+        raise RuntimeError("qBittorrent is unavailable; refusing to seed")
+    from aioqbt.api import AddFormBuilder
+    form = AddFormBuilder.with_client(TorrentManager.qbittorrent)
+    async with aiopen(torrent_path, "rb") as torrent:
+        data = await torrent.read()
+    tag = f"happyfappy-{int(time())}"
+    form = form.include_file(data).savepath(ospath.dirname(source_path)).tags([tag])
+    try:
+        await TorrentManager.qbittorrent.torrents.add(form.build())
+    except Exception as exc:
+        if not await TorrentManager.qbittorrent.torrents.info(tag=tag):
+            raise RuntimeError(f"qBittorrent add failed: {exc}") from exc
+    torrents = await TorrentManager.qbittorrent.torrents.info(tag=tag)
+    if not torrents:
+        raise RuntimeError("qBittorrent did not report the uploaded torrent")
+    torrent_hash = torrents[0].hash
+    await TorrentManager.qbittorrent.torrents.recheck([torrent_hash])
+    for _ in range(90):
+        checked = await TorrentManager.qbittorrent.torrents.info(hashes=[torrent_hash])
+        if checked and float(getattr(checked[0], "progress", 0) or 0) >= 0.999:
+            break
+        await sleep(2)
+    else:
+        raise RuntimeError("qBittorrent hash-check did not reach 100%; refusing to seed")
+    await TorrentManager.qbittorrent.torrents.start([torrent_hash])
+    return torrent_hash
+
+
+async def _publish_happyfappy(message, source_path, torrent_path, artifacts, skip_dupe=False):
+    required = ("HAPPYFAPPY_ANNOUNCE_URL", "HAPPYFAPPY_USERNAME", "HAPPYFAPPY_PASSWORD")
+    missing = [key for key in required if not str(getattr(Config, key, "") or "").strip()]
+    if missing:
+        raise RuntimeError(f"HappyFappy is not configured: {', '.join(missing)}")
+    if not artifacts["thumb"] or not artifacts["sheet"]:
+        raise RuntimeError("Pixhost upload requires both a thumbnail and contact sheet")
+    links = {
+        "thumbnail": await upload_image(artifacts["thumb"]),
+        "contact_sheet": await upload_image(artifacts["sheet"]),
+    }
+    tags = _happyfappy_tags(artifacts["title"], artifacts["summary"])
+    if len(tags.split()) < 5:
+        raise RuntimeError("HappyFappy needs at least five meaningful tags; set HAPPYFAPPY_TAGS")
+    artifacts["desc_path"] = await _write_description(
+        source_path, artifacts["title"], artifacts["summary"], links, "happyfappy"
+    )
+    client = HappyFappyClient(
+        getattr(Config, "HAPPYFAPPY_URL", "https://www.happyfappy.net"),
+        Config.HAPPYFAPPY_USERNAME,
+        Config.HAPPYFAPPY_PASSWORD,
+    )
+    try:
+        await client.login()
+        positive, _ = await client.check_dupe(torrent_path)
+        if positive and not skip_dupe:
+            await send_message(message, "HappyFappy dupe check found a possible match. Upload stopped; use --skip-dupe only after owner review.")
+            return None
+        if positive:
+            LOGGER.warning("Owner-approved HappyFappy dupe override for %s", ospath.basename(torrent_path))
+        async with aiopen(artifacts["desc_path"], encoding="utf-8") as desc_file:
+            description = await desc_file.read()
+        upload_url = await client.submit(
+            torrent_path,
+            artifacts["title"],
+            tags,
+            links["thumbnail"],
+            description,
+            getattr(Config, "HAPPYFAPPY_CATEGORY", ""),
+            bool(getattr(Config, "HAPPYFAPPY_ANONYMOUS", False)),
+        )
+    finally:
+        await client.close()
+    torrent_hash = await _seed_with_qbit(torrent_path, source_path)
+    await send_message(message, f"HappyFappy accepted the torrent: <code>{escape(upload_url)}</code>\nSeeding started: <code>{torrent_hash}</code>")
+    return upload_url
 
 
 async def _send_folder_artifacts(message, folder_path, torrent_path, trackers):
@@ -588,8 +743,18 @@ async def _send_folder_artifacts(message, folder_path, torrent_path, trackers):
 async def create_torrent(_, message):
     status_msg = await send_message(message, "Create Torrent: preparing source...")
     try:
+        command_text = message.text or message.caption or ""
+        command_tokens = set(command_text.split())
+        happyfappy_mode = "--happyfappy" in command_tokens
+        skip_dupe = "--skip-dupe" in command_tokens
+        if happyfappy_mode and message.from_user.id != Config.OWNER_ID:
+            await edit_message(status_msg, "HappyFappy publishing is owner-only.")
+            return
         folder_mode = _parse_folder_mode(message)
         if folder_mode:
+            if happyfappy_mode:
+                await edit_message(status_msg, "HappyFappy mode currently supports one video per upload; folder mode remains available for manual upload.")
+                return
             folder_name, links = folder_mode
             if not links:
                 await edit_message(
@@ -617,7 +782,7 @@ async def create_torrent(_, message):
             await edit_message(status_msg, "Create Torrent folder mode: completed.")
             return
 
-        source_path = await _resolve_source(message, status_msg)
+        source_path = await _resolve_source(message, status_msg, hstream_only=happyfappy_mode)
         if not source_path:
             await edit_message(
                 status_msg,
@@ -629,8 +794,31 @@ async def create_torrent(_, message):
             "Create Torrent: generating thumbnail, contact sheet, and torrent...",
             extra=f"Source: <code>{escape(ospath.basename(source_path))}</code>",
         )
-        torrent_path, trackers = await _make_torrent(source_path)
-        await _send_artifacts(message, source_path, torrent_path, trackers)
-        await edit_message(status_msg, "Create Torrent: completed.")
+        if happyfappy_mode:
+            announce = str(getattr(Config, "HAPPYFAPPY_ANNOUNCE_URL", "") or "").strip()
+            if not announce:
+                raise RuntimeError("HAPPYFAPPY_ANNOUNCE_URL is required for a private torrent")
+            torrent_path, trackers = await _make_torrent(
+                source_path,
+                private=True,
+                trackers=[announce],
+                piece_length=getattr(Config, "CTORRENT_PIECE_LENGTH", 23),
+            )
+            artifacts = await _send_artifacts(
+                message, source_path, torrent_path, trackers, send=True
+            )
+            upload_url = await _publish_happyfappy(
+                message, source_path, torrent_path, artifacts, skip_dupe=skip_dupe
+            )
+            await edit_message(
+                status_msg,
+                "Create Torrent HappyFappy mode: completed."
+                if upload_url
+                else "Create Torrent HappyFappy mode: stopped after dupe review.",
+            )
+        else:
+            torrent_path, trackers = await _make_torrent(source_path)
+            await _send_artifacts(message, source_path, torrent_path, trackers)
+            await edit_message(status_msg, "Create Torrent: completed.")
     except Exception as e:
         await edit_message(status_msg, f"Create Torrent failed:\n<code>{escape(str(e))}</code>")

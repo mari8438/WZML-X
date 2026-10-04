@@ -1,5 +1,7 @@
 .venv/*
 config.py
+secrets/*.env
+secrets/*.secret
 token.pickle
 credentials.json
 rclone.conf
