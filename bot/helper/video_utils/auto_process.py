@@ -545,7 +545,19 @@ def _clean_filename(name):
     return name[:180].strip()
 
 
-def _batch_name(listener, batch):
+def _fallback_batch_name(listener, batch):
+    """Return a safe output name when metadata-based naming fails."""
+    try:
+        task_id = str(getattr(listener, "mid", "task"))
+        source = ospath.splitext(ospath.basename(batch[0]["path"]))[0]
+        source = _clean_filename(source)[:80]
+    except Exception:
+        task_id, source = "task", "video"
+    source = source or "video"
+    return f"{_clean_filename(f'merged_{task_id}_{source}') or 'merged_video'}.mkv"
+
+
+def _build_batch_name(listener, batch):
     first = batch[0]
     last = batch[-1]
     meta = first["meta"].copy()
@@ -579,6 +591,19 @@ def _batch_name(listener, batch):
         base = meta.get("title") or "Merged"
     base = _clean_filename(f"{range_tag} {base}")
     return f"{base}.mkv"
+
+
+def _batch_name(listener, batch):
+    try:
+        name = _build_batch_name(listener, batch)
+        if not name or name == ".mkv":
+            raise ValueError("empty merge output name")
+        return name
+    except Exception as exc:
+        LOGGER.warning(
+            "Auto merge name generation failed; using fallback: %s", exc
+        )
+        return _fallback_batch_name(listener, batch)
 
 
 async def _write_planner(listener, root, batches, limit, warnings):
