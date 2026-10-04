@@ -23,6 +23,7 @@ def validate_pixhost_url(value):
         or parsed.password
         or parsed.query
         or parsed.fragment
+        or not parsed.path.lower().startswith("/thumbs/")
         or not ospath.splitext(parsed.path)[1].lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"}
     ):
         raise PixhostError("Pixhost returned an invalid direct image URL")
