@@ -114,14 +114,14 @@ class HappyFappyClient:
         page = str(page or "").replace(r"\/", "/")
         matches = list(
             re.finditer(
-                r"(?:https?://[^\"'<>\s]+)?/?torrents\.php\?[^\"'<>\s]+",
+                r"/?torrents\.php\?[^\"'<>\s]+",
                 page,
                 re.I,
             )
         )
         normalized_title = re.sub(r"\s+", " ", str(title or "")).strip().casefold()
         for match in matches:
-            window = page[max(0, match.start() - 900) : match.end() + 900]
+            window = page[max(0, match.start() - 5000) : match.end() + 5000]
             plain = re.sub(r"<[^>]+>", " ", unescape(window))
             plain = re.sub(r"\s+", " ", plain).casefold()
             if normalized_title and normalized_title not in plain:
