@@ -138,6 +138,25 @@ class HappyFappyClient:
                 return True
         return False
 
+    def _find_torrent_detail_url(self, page, title=""):
+        page = str(page or "").replace(r"\/", "/")
+        normalized_title = re.sub(r"\s+", " ", str(title or "")).strip().casefold()
+        for match in re.finditer(r"/?torrents\.php\?[^\"'<>\s]*\bid=\d+[^\"'<>\s]*", page, re.I):
+            window = page[max(0, match.start() - 5000) : match.end() + 5000]
+            plain = re.sub(r"<[^>]+>", " ", unescape(window))
+            plain = re.sub(r"\s+", " ", plain).casefold()
+            if normalized_title and normalized_title not in plain:
+                continue
+            candidate = urljoin(f"{self.base_url}/", unescape(match.group(0)))
+            parsed = urlsplit(candidate)
+            if (
+                parsed.scheme == "https"
+                and parsed.netloc.lower().endswith("happyfappy.net")
+                and not re.search(r"(?:^|&)action=download(?:&|$)", parsed.query, re.I)
+            ):
+                return candidate
+        return ""
+
     def _category_value(self, category):
         value = str(category or "").strip()
         if not value or value.isdigit():
@@ -226,6 +245,12 @@ class HappyFappyClient:
             recent = await self.client.get(f"{self.base_url}/torrents.php")
             recent.raise_for_status()
             self._capture_download_link(recent.text, title)
+            if not self.uploaded_torrent_url:
+                detail_url = self._find_torrent_detail_url(recent.text, title)
+                if detail_url:
+                    detail = await self.client.get(detail_url)
+                    detail.raise_for_status()
+                    self._capture_download_link(detail.text, title)
         return str(response.url)
 
     async def download_uploaded_torrent(self, destination):
