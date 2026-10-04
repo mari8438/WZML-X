@@ -17,7 +17,7 @@ from aioshutil import rmtree
 from httpx import AsyncClient
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pyrogram.filters import create
-from pyrogram.handlers import CallbackQueryHandler
+from pyrogram.handlers import CallbackQueryHandler, MessageHandler
 
 from .. import LOGGER
 from ..core.config_manager import Config
