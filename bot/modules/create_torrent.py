@@ -22,7 +22,7 @@ from .. import LOGGER
 from ..core.config_manager import Config
 from ..core.tg_client import TgClient
 from ..helper.ext_utils.bot_utils import cmd_exec, new_task, sync_to_async
-from ..helper.ext_utils.happyfappy import HappyFappyClient
+from ..helper.ext_utils.happyfappy import HappyFappyClient, HappyFappyError
 from ..helper.ext_utils.media_utils import (
     format_clean_poster_title,
     get_release_description,
@@ -967,7 +967,18 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         artifacts["happyfappy_accepted"] = True
         if status_msg:
             await _edit_progress(status_msg, "Create Torrent: downloading the accepted HappyFappy torrent...")
-        await client.download_uploaded_torrent(torrent_path)
+        try:
+            await client.download_uploaded_torrent(torrent_path)
+        except HappyFappyError as error:
+            LOGGER.warning(
+                "HappyFappy official torrent link unavailable; using the local private torrent: %s",
+                error,
+            )
+            if status_msg:
+                await _edit_progress(
+                    status_msg,
+                    "Create Torrent: official torrent link unavailable; using local torrent fallback...",
+                )
     finally:
         await client.close()
     torrent_hash = await _seed_with_qbit(torrent_path, source_path, status_msg)
