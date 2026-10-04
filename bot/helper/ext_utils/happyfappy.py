@@ -110,6 +110,34 @@ class HappyFappyClient:
         self._upload_html = response.text
         return parser.fields
 
+    def _capture_download_link(self, page, title=""):
+        page = str(page or "").replace(r"\/", "/")
+        matches = list(
+            re.finditer(
+                r"(?:https?://[^\"'<>\s]+)?/?torrents\.php\?[^\"'<>\s]+",
+                page,
+                re.I,
+            )
+        )
+        normalized_title = re.sub(r"\s+", " ", str(title or "")).strip().casefold()
+        for match in matches:
+            window = page[max(0, match.start() - 900) : match.end() + 900]
+            plain = re.sub(r"<[^>]+>", " ", unescape(window))
+            plain = re.sub(r"\s+", " ", plain).casefold()
+            if normalized_title and normalized_title not in plain:
+                continue
+            candidate = urljoin(f"{self.base_url}/", unescape(match.group(0)))
+            parsed = urlsplit(candidate)
+            if (
+                parsed.scheme == "https"
+                and parsed.netloc.lower().endswith("happyfappy.net")
+                and parsed.path.lower() == "/torrents.php"
+                and re.search(r"(?:^|&)action=download(?:&|$)", parsed.query, re.I)
+            ):
+                self.uploaded_torrent_url = candidate
+                return True
+        return False
+
     def _category_value(self, category):
         value = str(category or "").strip()
         if not value or value.isdigit():
@@ -193,23 +221,11 @@ class HappyFappyClient:
                 f"HappyFappy did not confirm the torrent upload "
                 f"(HTTP {response.status_code}, final URL {response.url}){suffix}"
             )
-        page = response.text.replace(r"\/", "/")
-        links = re.findall(
-            r"(?:https?://[^\"'<>\s]+)?/?torrents\.php\?[^\"'<>\s]+",
-            page,
-            re.I,
-        )
-        for link in links:
-            candidate = urljoin(f"{self.base_url}/", unescape(link))
-            parsed = urlsplit(candidate)
-            if (
-                parsed.scheme == "https"
-                and parsed.netloc.lower().endswith("happyfappy.net")
-                and parsed.path.lower() == "/torrents.php"
-                and re.search(r"(?:^|&)action=download(?:&|$)", parsed.query, re.I)
-            ):
-                self.uploaded_torrent_url = candidate
-                break
+        self._capture_download_link(response.text, title)
+        if not self.uploaded_torrent_url:
+            recent = await self.client.get(f"{self.base_url}/torrents.php")
+            recent.raise_for_status()
+            self._capture_download_link(recent.text, title)
         return str(response.url)
 
     async def download_uploaded_torrent(self, destination):
