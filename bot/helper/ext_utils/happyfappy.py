@@ -169,7 +169,12 @@ class HappyFappyClient:
             )
         response.raise_for_status()
         success_marker = bool(
-            re.search(r"torrent\s+(?:uploaded|added)|upload\s+successful|thanks\s+for\s+uploading", response.text, re.I)
+            re.search(
+                r"(?:your\s+)?torrent\s+(?:has\s+been\s+)?(?:uploaded|added)|"
+                r"upload\s+successful|thanks\s+for\s+uploading",
+                response.text,
+                re.I,
+            )
             or re.search(r"class=[\"'][^\"']*(?:success|alert-success|successbox)", response.text, re.I)
         )
         if "/torrents.php" not in str(response.url) and not success_marker:
