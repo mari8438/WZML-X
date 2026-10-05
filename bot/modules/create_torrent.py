@@ -969,6 +969,17 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
         raise RuntimeError(
             f"qBittorrent source size mismatch: file={source_size} bytes, torrent={reported_size} bytes"
         )
+    reported_path = str(getattr(torrents[0], "content_path", "") or "")
+    expected_dir = ospath.dirname(source_path)
+    reported_dir = str(getattr(torrents[0], "save_path", "") or "")
+    if reported_path and reported_path != source_path:
+        raise RuntimeError(
+            f"qBittorrent content path mismatch: expected={source_path}, reported={reported_path}"
+        )
+    if reported_dir and reported_dir != expected_dir:
+        raise RuntimeError(
+            f"qBittorrent save path mismatch: expected={expected_dir}, reported={reported_dir}"
+        )
     if status_msg:
         await _edit_progress(
             status_msg,
@@ -978,6 +989,8 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
     last_report = 0
     last_state = "unknown"
     last_progress = 0.0
+    last_progress_at = time()
+    recheck_retries = 0
     for _ in range(180):
         if not await aiopath.isfile(source_path):
             raise RuntimeError(f"qBittorrent source disappeared during hash-check: {source_path}")
@@ -986,6 +999,8 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
             state = str(getattr(checked[0], "state", "unknown"))
             progress = float(getattr(checked[0], "progress", 0) or 0)
             amount_left = int(getattr(checked[0], "amount_left", 0) or 0)
+            if progress > last_progress or amount_left < source_size:
+                last_progress_at = time()
             last_state, last_progress = state, progress
             now = time()
             if now - last_report >= 5:
@@ -1011,6 +1026,25 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
                 )
             if progress >= 0.999 and amount_left == 0:
                 break
+            if (
+                state in {"checkingResumeData", "checkingDL"}
+                and recheck_retries < 2
+                and time() - last_progress_at >= 30
+            ):
+                recheck_retries += 1
+                LOGGER.warning(
+                    "qBittorrent hash-check stalled; pausing and retrying recheck "
+                    "(%s/2): hash=%s state=%s progress=%.3f path=%s",
+                    recheck_retries,
+                    torrent_hash,
+                    state,
+                    progress,
+                    source_path,
+                )
+                await TorrentManager.qbittorrent.torrents.pause([torrent_hash])
+                await sleep(1)
+                await TorrentManager.qbittorrent.torrents.recheck([torrent_hash])
+                last_progress_at = time()
         await sleep(2)
     else:
         raise RuntimeError(
