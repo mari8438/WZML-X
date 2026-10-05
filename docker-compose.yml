@@ -16,6 +16,7 @@ services:
       - ./accounts:/usr/src/app/accounts
       - ./downloads:/usr/src/app/downloads
       - ./logs:/usr/src/app/logs
+      - ./configs:/usr/src/app/configs
       - ./rclone:/usr/src/app/rclone
       - ./thumbnails:/usr/src/app/thumbnails
       - ./torrents:/usr/src/app/torrents

@@ -19,7 +19,7 @@ from .bot_utils import update_user_ldata
 from .db_handler import database
 from .performance import resources_overloaded
 
-BOT_UPLOAD_LIMIT = 2097152000
+BOT_UPLOAD_LIMIT = TgClient.NON_PREMIUM_SPLIT_SIZE
 
 USER_BOT_TOKEN_KEY = "USER_UPLOAD_BOT_TOKEN"
 USER_BOT_META_KEY = "USER_UPLOAD_BOT_META"

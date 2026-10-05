@@ -32,7 +32,10 @@ class TgClient:
     ID = 0
     PARTITION = ""
     IS_PREMIUM_USER = False
-    MAX_SPLIT_SIZE = 2097152000
+    # Keep a small safety margin below Telegram's hard media limits.
+    NON_PREMIUM_SPLIT_SIZE = 2097152000 - (16 * 1024 * 1024)
+    PREMIUM_SPLIT_SIZE = 4194304000 - (16 * 1024 * 1024)
+    MAX_SPLIT_SIZE = NON_PREMIUM_SPLIT_SIZE
 
     @classmethod
     def wztgClient(cls, *args, proxy=None, **kwargs):
@@ -238,7 +241,7 @@ class TgClient:
             await cls.user.start()
             cls.IS_PREMIUM_USER = cls.user.me.is_premium
             if cls.IS_PREMIUM_USER:
-                cls.MAX_SPLIT_SIZE = 4194304000
+                cls.MAX_SPLIT_SIZE = cls.PREMIUM_SPLIT_SIZE
             uname = cls.user.me.username or cls.user.me.first_name
             LOGGER.info(f"WZ User : [{uname}] Started!")
         except FloodWait as e:
@@ -247,7 +250,7 @@ class TgClient:
         except Exception as e:
             LOGGER.error(f"Failed to start client from USER_SESSION_STRING. {e}")
             cls.IS_PREMIUM_USER = False
-            cls.MAX_SPLIT_SIZE = 2097152000
+            cls.MAX_SPLIT_SIZE = cls.NON_PREMIUM_SPLIT_SIZE
             cls.user = None
 
     @classmethod
@@ -264,7 +267,7 @@ class TgClient:
                 await cls.user.start()
                 cls.IS_PREMIUM_USER = cls.user.me.is_premium
                 if cls.IS_PREMIUM_USER:
-                    cls.MAX_SPLIT_SIZE = 4194304000
+                    cls.MAX_SPLIT_SIZE = cls.PREMIUM_SPLIT_SIZE
                 uname = cls.user.me.username or cls.user.me.first_name
                 LOGGER.info(f"WZ User : [{uname}] Started!")
             except FloodWait as e:
@@ -275,7 +278,7 @@ class TgClient:
             except Exception as e:
                 LOGGER.error(f"Failed to start client from USER_SESSION_STRING. {e}")
                 cls.IS_PREMIUM_USER = False
-                cls.MAX_SPLIT_SIZE = 2097152000
+                cls.MAX_SPLIT_SIZE = cls.NON_PREMIUM_SPLIT_SIZE
                 cls.user = None
 
     @classmethod

@@ -603,9 +603,19 @@ class TaskConfig:
                 and "EQUAL_SPLITS" not in self.user_dict
             )
             self.max_split_size = (
-                TgClient.MAX_SPLIT_SIZE if self.user_transmission else 2097152000
+                TgClient.MAX_SPLIT_SIZE
+                if self.user_transmission
+                else TgClient.NON_PREMIUM_SPLIT_SIZE
             )
             self.split_size = min(self.split_size, self.max_split_size)
+            LOGGER.info(
+                "Telegram upload limits: premium=%s user_transmission=%s "
+                "split_size=%s max_split_size=%s",
+                TgClient.IS_PREMIUM_USER,
+                self.user_transmission,
+                self.split_size,
+                self.max_split_size,
+            )
 
             if not self.as_doc:
                 self.as_doc = (
