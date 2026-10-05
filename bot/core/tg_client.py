@@ -242,6 +242,11 @@ class TgClient:
             cls.IS_PREMIUM_USER = cls.user.me.is_premium
             if cls.IS_PREMIUM_USER:
                 cls.MAX_SPLIT_SIZE = cls.PREMIUM_SPLIT_SIZE
+            LOGGER.info(
+                "Telegram user session premium=%s; max upload split=%s bytes",
+                cls.IS_PREMIUM_USER,
+                cls.MAX_SPLIT_SIZE,
+            )
             uname = cls.user.me.username or cls.user.me.first_name
             LOGGER.info(f"WZ User : [{uname}] Started!")
         except FloodWait as e:
@@ -268,6 +273,11 @@ class TgClient:
                 cls.IS_PREMIUM_USER = cls.user.me.is_premium
                 if cls.IS_PREMIUM_USER:
                     cls.MAX_SPLIT_SIZE = cls.PREMIUM_SPLIT_SIZE
+                LOGGER.info(
+                    "Telegram user session premium=%s; max upload split=%s bytes",
+                    cls.IS_PREMIUM_USER,
+                    cls.MAX_SPLIT_SIZE,
+                )
                 uname = cls.user.me.username or cls.user.me.first_name
                 LOGGER.info(f"WZ User : [{uname}] Started!")
             except FloodWait as e:
