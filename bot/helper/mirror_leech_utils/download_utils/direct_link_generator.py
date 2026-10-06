@@ -161,6 +161,10 @@ def direct_link_generator(link):
         return debrid_link(link)
     elif "yadi.sk" in link or "disk.yandex." in link:
         return yandex_disk(link)
+    elif "gdflix" in domain:
+        return gdflix(link)
+    elif "hubcloud" in domain:
+        return hubcloud(link)
     elif "buzzheavier.com" in domain:
         return buzzheavier(link)
     elif "devuploads" in domain:
@@ -348,6 +352,84 @@ def direct_link_generator(link):
         raise DirectDownloadLinkException(f"ERROR: R.I.P {domain}")
     else:
         raise DirectDownloadLinkException(f"No Direct link function found for {link}")
+
+
+def _hubcloud_links(session, url):
+    try:
+        tree = HTML(session.get(url).text)
+        generated = tree.xpath("//a[@id='download']/@href")
+        if generated:
+            tree = HTML(session.get(generated[0]).text)
+        return [
+            link
+            for link in tree.xpath("//a[contains(@class, 'btn-lg')]/@href")
+            if link.startswith("http") and "vdplay" not in link
+        ]
+    except Exception:
+        return []
+
+
+def _first_alive_download(session, links):
+    fallback = ""
+    for link in links:
+        try:
+            response = session.head(link, timeout=20)
+            if inner := parse_qs(urlparse(response.url).query).get("link"):
+                link = inner[0]
+                response = session.head(link, timeout=20)
+            if response.status_code < 400 and "text/html" not in response.headers.get(
+                "content-type", ""
+            ):
+                return link
+            fallback = fallback or link
+        except Exception:
+            continue
+    return fallback
+
+
+def hubcloud(url):
+    with CurlSession(impersonate="chrome") as session:
+        if link := _first_alive_download(session, _hubcloud_links(session, url)):
+            return link
+    raise DirectDownloadLinkException("ERROR: File Not Found or Expired")
+
+
+def gdflix(url):
+    with CurlSession(impersonate="chrome") as session:
+        response = session.get(url)
+        tree = HTML(response.text)
+        if "/pack/" in url:
+            host = f"https://{urlparse(response.url).netloc}"
+            details = {
+                "contents": [],
+                "title": (tree.xpath("//title/text()") or [""])[0]
+                .split("|")[-1]
+                .strip(),
+                "total_size": 0,
+            }
+            for link in tree.xpath("//a[starts-with(@href, '/file/')]"):
+                name, _, size = " ".join(link.itertext()).strip().rpartition("[")
+                details["contents"].append(
+                    {
+                        "path": "",
+                        "filename": name.strip(),
+                        "url": gdflix(f"{host}{link.attrib['href']}"),
+                    }
+                )
+                details["total_size"] += speed_string_to_bytes(size.strip("] "))
+            if not details["contents"]:
+                raise DirectDownloadLinkException("ERROR: No files found in pack")
+            return details
+        instant = tree.xpath("//a[contains(@href, 'instant')]/@href")
+        if not instant:
+            raise DirectDownloadLinkException("ERROR: Instant DL link not found")
+        response = session.get(instant[0], allow_redirects=False)
+        location = response.headers.get("location", "").strip()
+        if not location:
+            raise DirectDownloadLinkException("ERROR: File Not Found or Expired")
+        if link := parse_qs(urlparse(location).query).get("url"):
+            return link[0]
+        return location
 
 
 def get_captcha_token(session, params):
