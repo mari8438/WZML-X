@@ -385,6 +385,9 @@ def _hubcloud_links(session, url):
             return
         if "vdplay" in link.lower() or any(item in host for item in blocked_hosts):
             return
+        if "pixeldrain" in host and parsed.path.startswith("/u/"):
+            file_id = parsed.path.rsplit("/", 1)[-1]
+            link = f"{parsed.scheme}://{parsed.netloc}/api/file/{file_id}?download"
         if link not in links:
             links.append(link)
 
