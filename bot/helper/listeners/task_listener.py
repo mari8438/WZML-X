@@ -305,7 +305,13 @@ class TaskListener(TaskConfig):
             process_auto_pipeline,
         )
 
-        if getattr(self, "zip_merge", False) and await aiopath.isdir(up_path):
+        # Multipart archives must be joined before extraction.  ``-j`` is the
+        # user-facing join option, while ``-zm`` is used by multi-item zip
+        # workflows; support both paths here so ``-j -e`` works for files such
+        # as archive.zip.zip.001/.002/.003.
+        if (
+            getattr(self, "zip_merge", False) or getattr(self, "join", False)
+        ) and await aiopath.isdir(up_path):
             joined = await join_split_zip_files(up_path)
             if joined:
                 self.extract = True
