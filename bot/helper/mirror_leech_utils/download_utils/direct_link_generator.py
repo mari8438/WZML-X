@@ -8,7 +8,7 @@ from re import findall, match, search
 from requests import Session, post, get
 from requests.adapters import HTTPAdapter
 from time import sleep, time
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse
 from urllib3.util.retry import Retry
 from uuid import uuid4
 from base64 import b64decode, b64encode
@@ -355,18 +355,65 @@ def direct_link_generator(link):
 
 
 def _hubcloud_links(session, url):
+    """Collect HubCloud mirrors, including the generated FSL/10Gbps page.
+
+    HubCloud's video page now sends users through a ``sportverse.cc``
+    generator before rendering the mirror buttons.  The old scraper stopped
+    at the video page and consequently reported an expired file.  Follow only
+    HubCloud's own generator pages and download buttons; advertisement links
+    on those pages are intentionally ignored.
+    """
+    pending = [url]
+    visited = set()
+    links = []
+    blocked_hosts = (
+        "winexch",
+        "bonuscaf",
+        "adsboosters",
+        "a-ads.com",
+        "tinyurl.com",
+        "bit.ly",
+    )
+
+    def add_link(value, base):
+        if not value:
+            return
+        link = urljoin(base, value.strip())
+        parsed = urlparse(link)
+        host = parsed.netloc.lower()
+        if parsed.scheme not in ("http", "https") or not host:
+            return
+        if "vdplay" in link.lower() or any(item in host for item in blocked_hosts):
+            return
+        if link not in links:
+            links.append(link)
+
     try:
-        tree = HTML(session.get(url).text)
-        generated = tree.xpath("//a[@id='download']/@href")
-        if generated:
-            tree = HTML(session.get(generated[0]).text)
-        return [
-            link
-            for link in tree.xpath("//a[contains(@class, 'btn-lg')]/@href")
-            if link.startswith("http") and "vdplay" not in link
-        ]
+        while pending and len(visited) < 4:
+            page = pending.pop(0)
+            if page in visited:
+                continue
+            visited.add(page)
+            response = session.get(page, timeout=30)
+            content_type = response.headers.get("content-type", "").lower()
+            if response.url not in visited and "text/html" not in content_type:
+                add_link(response.url, page)
+                continue
+
+            tree = HTML(response.text)
+            for generated in tree.xpath(
+                "//a[@id='download']/@href | "
+                "//a[contains(@href, '/hubcloud.php')]/@href"
+            ):
+                generated_url = urljoin(response.url, generated)
+                if generated_url not in visited and generated_url not in pending:
+                    pending.append(generated_url)
+
+            for mirror in tree.xpath("//a[contains(@class, 'btn-lg')]/@href"):
+                add_link(mirror, response.url)
     except Exception:
-        return []
+        return links
+    return links
 
 
 def _first_alive_download(session, links):
