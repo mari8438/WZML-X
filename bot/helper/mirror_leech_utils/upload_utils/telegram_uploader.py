@@ -670,18 +670,31 @@ class TelegramUploader:
                                 for subkey, msgs in list(value.items()):
                                     if len(msgs) > 1:
                                         await self._send_media_group(subkey, key, msgs)
-                    if self._listener.hybrid_leech and self._listener.user_transmission:
-                        self._user_session = f_size > 2097152000
-                        if self._user_session:
-                            self._sent_msg = await TgClient.user.get_messages(
-                                chat_id=self._sent_msg.chat.id,
-                                message_ids=self._sent_msg.id,
+                    # Auto-merged episodes can exceed Telegram's bot limit even
+                    # when each input episode was smaller.  Route every file
+                    # above the bot limit through the Premium user session.
+                    if f_size > TgClient.NON_PREMIUM_SPLIT_SIZE:
+                        if not TgClient.user or not TgClient.IS_PREMIUM_USER:
+                            raise ValueError(
+                                "Merged file exceeds Telegram's 2 GB bot limit, "
+                                "but the Premium user session is unavailable"
                             )
-                        else:
-                            self._sent_msg = await self._listener.client.get_messages(
-                                chat_id=self._sent_msg.chat.id,
-                                message_ids=self._sent_msg.id,
-                            )
+                        self._user_session = True
+                        self._sent_msg = await TgClient.user.get_messages(
+                            chat_id=self._sent_msg.chat.id,
+                            message_ids=self._sent_msg.id,
+                        )
+                        LOGGER.info(
+                            "Using Premium user session for large upload: %s (%s bytes)",
+                            file_,
+                            f_size,
+                        )
+                    elif self._listener.hybrid_leech and self._listener.user_transmission:
+                        self._user_session = False
+                        self._sent_msg = await self._listener.client.get_messages(
+                            chat_id=self._sent_msg.chat.id,
+                            message_ids=self._sent_msg.id,
+                        )
                     self._last_msg_in_group = False
                     self._last_uploaded = 0
                     await self._upload_file(cap_mono, file_, f_path)
