@@ -1380,7 +1380,16 @@ def terabox(url):
 
 def filepress(url):
     try:
-        url = get(f"https://filebee.xyz/file/{url.split('/')[-1]}").url
+        response = get(
+            f"https://filebee.xyz/file/{url.split('/')[-1]}",
+            headers={"User-Agent": user_agent},
+            timeout=30,
+        )
+        if response.status_code >= 400:
+            raise DirectDownloadLinkException(
+                f"ERROR: FilePress returned HTTP {response.status_code}"
+            )
+        url = response.url
         raw = urlparse(url)
         json_data = {
             "id": raw.path.split("/")[-1],
@@ -1391,6 +1400,7 @@ def filepress(url):
             api,
             headers={"Referer": f"{raw.scheme}://{raw.hostname}"},
             json=json_data,
+            timeout=30,
         ).json()
         json_data2 = {
             "id": res2["data"],
@@ -1401,12 +1411,17 @@ def filepress(url):
             api2,
             headers={"Referer": f"{raw.scheme}://{raw.hostname}"},
             json=json_data2,
+            timeout=30,
         ).json()
+    except DirectDownloadLinkException:
+        raise
     except Exception as e:
         raise DirectDownloadLinkException(f"ERROR: {e.__class__.__name__}") from e
 
     if "data" not in res:
-        raise DirectDownloadLinkException(f"ERROR: {res['statusText']}")
+        raise DirectDownloadLinkException(
+            f"ERROR: {res.get('statusText', 'FilePress download link unavailable')}"
+        )
     return f"https://drive.google.com/uc?id={res['data']}&export=download"
 
 
