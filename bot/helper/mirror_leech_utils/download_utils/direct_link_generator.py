@@ -325,8 +325,6 @@ def direct_link_generator(link):
         ]
     ):
         return linkBox(link)
-    elif "filepress." in domain or domain.startswith("filepress"):
-        return filepress(link)
     elif is_share_link(link):
         return filepress(link) if "filepress" in domain else sharer_scraper(link)
     elif any(
