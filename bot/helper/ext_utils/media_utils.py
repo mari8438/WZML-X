@@ -2424,6 +2424,7 @@ async def extract_metadata_from_filename(filename, filepath=None):
         metadata["resolution"] = stream_info["resolution"]
     if stream_info.get("bit") and not metadata["bit"]:
         metadata["bit"] = stream_info["bit"]
+    metadata["title"] = clean_part_suffix(metadata["title"])
     if not metadata["title"] or metadata["title"].lower() == "unknown":
         metadata["title"] = _clean_title_from_filename(filename)
 
@@ -2432,6 +2433,7 @@ async def extract_metadata_from_filename(filename, filepath=None):
         filename,
         metadata.get("year") or None,
     )
+    metadata["title"] = clean_part_suffix(metadata["title"])
     if not metadata["title"] or metadata["title"].lower() == "unknown":
         metadata["title"] = _clean_title_from_filename(filename)
     if metadata.get("lib") and metadata["title"].lower() == metadata["lib"].lower():
@@ -2632,6 +2634,13 @@ def is_hash_like_title(value):
     return bool(re.fullmatch(r"[a-fA-F0-9]{12,}", text))
 
 
+def clean_part_suffix(value):
+    """Remove a trailing file-split marker from lookup/display titles."""
+    value = str(value or "")
+    value = re.sub(r"(?i)\s*[-_. ]+part\s*\d+\s*$", "", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
 def _first_caption_line(value):
     text = str(value or "").strip()
     if not text:
@@ -2761,7 +2770,9 @@ def format_clean_poster_title(raw_title, rename_regex=None):
         )
         if _looks_like_anime_name(raw_title, title):
             title = re.sub(r"\s+\d{1,4}$", "", title).strip()
-        title = _final_clean(re.sub(r"\s+", " ", title).strip(" -._"))
+        title = clean_part_suffix(
+            _final_clean(re.sub(r"\s+", " ", title).strip(" -._"))
+        )
         if title:
             return title, season, year
 

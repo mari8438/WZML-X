@@ -38,7 +38,7 @@ from ..helper.ext_utils.hstream_translation import (
     HstreamTranslator,
     translate_subtitle,
 )
-from ..helper.ext_utils.media_utils import get_video_thumbnail
+from ..helper.ext_utils.media_utils import clean_part_suffix, get_video_thumbnail
 from ..helper.poster_engine.engine import POSTER_TEMPLATE_COUNT, render_poster_option
 from ..helper.telegram_helper.bot_commands import BotCommands
 from ..helper.telegram_helper.message_utils import edit_message, send_message
@@ -187,7 +187,7 @@ def _split_description(description, limit=3000):
 
 
 def _poster_caption(episode, tamil_available):
-    title = escape(episode.title, quote=False)
+    title = escape(clean_part_suffix(episode.title), quote=False)
     year = escape(episode.year, quote=False)
     views = f"{episode.views:,}" if episode.views else "N/A"
     genres = _genre_hashtags(episode.genres)
@@ -746,8 +746,9 @@ async def _prepare_episode(
             sample_collage,
         )
     resolution, bit, codec = _quality_summary(episode.streams)
+    display_title = clean_part_suffix(episode.title)
     poster_metadata = {
-        "title": episode.title,
+        "title": display_title,
         "year": episode.year,
         "description": episode.description,
         "plot": episode.description,
@@ -761,7 +762,7 @@ async def _prepare_episode(
         "landscape_url": episode.landscape_url,
         "portrait_url": episode.portrait_url,
         "poster_url": episode.portrait_url,
-        "filename": episode.title,
+        "filename": display_title,
         "brand": "Anime Starfall",
     }
     owner_settings = user_data.get(owner_id, {})

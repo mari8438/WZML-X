@@ -19,6 +19,7 @@ from ..ext_utils.media_utils import (
     apply_caption_word_replace,
     build_caption_metadata,
     choose_media_title_seed,
+    clean_part_suffix,
     extract_metadata_from_filename,
     format_clean_poster_title,
     get_final_poster_url,
@@ -85,6 +86,7 @@ def _clean_search_title(filename, extracted=""):
             cleaned,
         )
         cleaned = sub(r"\s+", " ", cleaned).strip(" -_.")
+        cleaned = clean_part_suffix(cleaned)
         if len(findall(r"[A-Za-z0-9]", cleaned)) >= 2:
             return cleaned
     return _clean_title_from_filename(filename)
