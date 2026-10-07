@@ -599,16 +599,16 @@ def _build_batch_name(listener, batch):
 
 
 def _batch_name(listener, batch):
-    # Keep the first source name for auto-merged files.  This avoids applying
-    # the normal auto-rename/template pipeline to merged output and preserves
-    # the release's original naming.
     try:
-        name = ospath.basename(batch[0]["path"])
-        if name:
-            return name
-    except (IndexError, KeyError, TypeError):
-        pass
-    return _fallback_batch_name(listener, batch)
+        name = _build_batch_name(listener, batch)
+        if not name or name == ".mkv":
+            raise ValueError("empty merge output name")
+        return name
+    except Exception as exc:
+        LOGGER.warning(
+            "Auto merge name generation failed; using fallback: %s", exc
+        )
+        return _fallback_batch_name(listener, batch)
 
 
 async def _write_planner(listener, root, batches, limit, warnings):
