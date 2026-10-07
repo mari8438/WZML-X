@@ -599,16 +599,16 @@ def _build_batch_name(listener, batch):
 
 
 def _batch_name(listener, batch):
+    # Keep the first source name for auto-merged files.  This avoids applying
+    # the normal auto-rename/template pipeline to merged output and preserves
+    # the release's original naming.
     try:
-        name = _build_batch_name(listener, batch)
-        if not name or name == ".mkv":
-            raise ValueError("empty merge output name")
-        return name
-    except Exception as exc:
-        LOGGER.warning(
-            "Auto merge name generation failed; using fallback: %s", exc
-        )
-        return _fallback_batch_name(listener, batch)
+        name = ospath.basename(batch[0]["path"])
+        if name:
+            return name
+    except (IndexError, KeyError, TypeError):
+        pass
+    return _fallback_batch_name(listener, batch)
 
 
 async def _write_planner(listener, root, batches, limit, warnings):
@@ -677,14 +677,21 @@ async def _compatible(files):
 
 
 async def _merge_batch(listener, root, batch):
-    output = ospath.join(root, _batch_name(listener, batch))
-    if await aiopath.exists(output):
-        await remove(output)
+    final_output = ospath.join(root, _batch_name(listener, batch))
     if len(batch) == 1:
         src = batch[0]["path"]
-        if src != output:
-            await rename(src, output)
-        return output
+        if src != final_output:
+            await rename(src, final_output)
+        return final_output
+
+    # The requested output name is the first input name.  Encode to a hidden
+    # temporary file first so FFmpeg can still read every input, then replace
+    # the first source with the completed merged file.
+    output = ospath.join(
+        root, f".wzml_merge_{listener.mid}_{len(batch)}.mkv"
+    )
+    if await aiopath.exists(output):
+        await remove(output)
 
     list_path = ospath.join(root, f"concat_{listener.mid}_{len(batch)}.txt")
     async with aiopen(list_path, "w", encoding="utf-8") as f:
@@ -756,7 +763,11 @@ async def _merge_batch(listener, root, batch):
     if process.returncode != 0 or not await aiopath.exists(output):
         LOGGER.error(f"Auto merge failed: {stderr.decode(errors='ignore')}")
         return None
-    return output
+    if final_output != output:
+        if await aiopath.exists(final_output):
+            await remove(final_output)
+        await rename(output, final_output)
+    return final_output
 
 
 async def _remove_non_outputs(root, outputs, planner_path):
