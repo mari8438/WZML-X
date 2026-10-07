@@ -420,6 +420,11 @@ async def _smart_merge_directory(listener, root):
     groups = {}
     for item in items:
         title = (item["meta"].get("title") or "Unknown").strip().lower()
+        # Some releases use ``Title E001`` instead of ``Title S01E001``.
+        # The filename parser keeps that marker in the title, which otherwise
+        # creates one merge group per episode. Normalize it for grouping while
+        # retaining the original metadata for output naming.
+        title = re.sub(r"\s+e(?:pisode)?\s*0*\d{1,4}\s*$", "", title)
         season = item["meta"].get("season") or "1"
         groups.setdefault((title, season), []).append(item)
 
