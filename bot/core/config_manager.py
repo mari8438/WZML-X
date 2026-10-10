@@ -519,6 +519,5 @@ class BinConfig:
     ARIA2_NAME = bin_name(0)
     QBIT_NAME = bin_name(1)
     FFMPEG_NAME = bin_name(2)
-    MKVMERGE_NAME = "mkvmerge"
     RCLONE_NAME = bin_name(3)
     SABNZBD_NAME = bin_name(4)
