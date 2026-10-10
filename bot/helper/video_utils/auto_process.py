@@ -165,6 +165,7 @@ async def process_auto_pipeline(listener, up_path, gid):
     auto_order = bool_setting(listener, "AUTO_ORDER")
     remove_streams = bool_setting(listener, "AUTO_REMOVE_STREAMS")
     auto_merge = bool_setting(listener, "AUTO_MERGE")
+    auto_intro_video = bool_setting(listener, "AUTO_INTRO_VIDEO")
     auto_intro = bool_setting(listener, "AUTO_INTRO_SUBTITLE")
     listener._auto_process_total = (
         (1 if auto_vt else 0)
@@ -172,6 +173,7 @@ async def process_auto_pipeline(listener, up_path, gid):
         + (len(videos) if _has_keep_filters(listener) and not remove_streams else 0)
         + (len(videos) if remove_streams else 0)
         + (1 if auto_merge and await aiopath.isdir(up_path) else 0)
+        + (len(videos) if auto_intro_video else 0)
         + (len(videos) if auto_intro else 0)
     )
     if not _quiet_messages():
@@ -194,6 +196,9 @@ async def process_auto_pipeline(listener, up_path, gid):
     if auto_merge and await aiopath.isdir(up_path):
         up_path = await _smart_merge_directory(listener, up_path)
 
+    if auto_intro_video:
+        up_path = await _auto_intro_video(listener, up_path)
+
     if auto_intro:
         up_path = await _auto_intro(listener, up_path)
 
@@ -207,6 +212,8 @@ async def process_auto_finish_pipeline(listener, up_path, gid):
         return up_path
     listener._process_gid = gid
     listener._auto_process_step = 0
+    if bool_setting(listener, "AUTO_INTRO_VIDEO"):
+        up_path = await _auto_intro_video(listener, up_path)
     if bool_setting(listener, "AUTO_INTRO_SUBTITLE"):
         up_path = await _auto_intro(listener, up_path)
     return up_path
@@ -402,6 +409,65 @@ async def _auto_intro(listener, up_path):
         await send_message(
             listener.message,
             f"Auto Process: intro subtitle finished for <code>{changed}</code> file(s).",
+        )
+    return up_path
+
+
+async def _auto_intro_video(listener, up_path):
+    """Prepend the configured intro video to every MKV/MP4 output safely."""
+    intro = str(_user_value(listener, "AUTO_INTRO_VIDEO_PATH") or "").strip()
+    if not intro or not await aiopath.isfile(intro):
+        LOGGER.warning("Auto intro video skipped: file not found: %s", intro or "<empty>")
+        return up_path
+
+    targets = await _video_files(up_path)
+    changed = 0
+    for video in targets:
+        if ospath.abspath(video) == ospath.abspath(intro):
+            continue
+        await _next_process_step(listener, "Prepending intro video", video)
+        output = f"{video}.intro-{listener.mid}.tmp{ospath.splitext(video)[1]}"
+        list_path = f"{video}.intro-{listener.mid}.ffconcat"
+        if await aiopath.exists(output):
+            await remove(output)
+        async with aiopen(list_path, "w", encoding="utf-8") as file:
+            intro_ref = intro.replace("\\", "/").replace("'", "'\\''")
+            video_ref = video.replace("\\", "/").replace("'", "'\\''")
+            await file.write(
+                "ffconcat version 1.0\n"
+                f"file '{intro_ref}'\n"
+                f"file '{video_ref}'\n"
+            )
+
+        # Stream-copy only: no scaling, transcoding, or quality loss. FFmpeg
+        # will reject incompatible stream layouts and the source is retained.
+        command = [
+            BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "concat", "-safe", "0", "-i", list_path,
+            "-c", "copy", output,
+        ]
+        result = await cmd_exec(command)
+        if result[2] != 0 or not await aiopath.isfile(output):
+            LOGGER.error(
+                "Auto intro failed for %s: %s",
+                video,
+                (result[1] or result[0] or "unknown ffmpeg error")[-1200:],
+            )
+            with suppress(OSError):
+                await remove(output)
+            with suppress(OSError):
+                await remove(list_path)
+            continue
+        await remove(video)
+        await rename(output, video)
+        with suppress(OSError):
+            await remove(list_path)
+        changed += 1
+
+    if changed and _quiet_messages():
+        await send_message(
+            listener.message,
+            f"Auto Process: intro video prepended to <code>{changed}</code> file(s).",
         )
     return up_path
 
