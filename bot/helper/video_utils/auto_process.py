@@ -453,6 +453,21 @@ async def _probe_media_streams(path):
         return []
 
 
+async def _probe_duration(path):
+    result = await cmd_exec(
+        [
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", path,
+        ]
+    )
+    if result[2] != 0:
+        return 0.0
+    try:
+        return float((result[0] or "0").strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
 async def _cached_intro_for_video(listener, intro, video, cache_dir):
     streams = await _probe_media_streams(video)
     intro_streams = await _probe_media_streams(intro)
@@ -549,6 +564,13 @@ async def _auto_intro_video(listener, up_path):
         if ospath.abspath(video) == ospath.abspath(intro):
             continue
         await _next_process_step(listener, "Prepending intro video", video)
+        source_duration = await _probe_duration(video)
+        intro_duration = await _probe_duration(intro)
+        LOGGER.info(
+            "Auto intro input: %s source=%.3fs intro=%.3fs expected=%.3fs",
+            ospath.basename(video), source_duration, intro_duration,
+            source_duration + intro_duration,
+        )
         encoded_intro, encode_reason = await _cached_intro_for_video(
             listener, intro, video, cache_dir
         )
@@ -615,6 +637,12 @@ async def _auto_intro_video(listener, up_path):
             continue
         await remove(video)
         await rename(output, video)
+        merged_duration = await _probe_duration(video)
+        LOGGER.info(
+            "Auto intro output: %s duration=%.3fs delta=%.3fs cache=%s",
+            ospath.basename(video), merged_duration,
+            merged_duration - source_duration, encoded_intro or "none",
+        )
         with suppress(OSError):
             await remove(list_path)
         changed += 1
