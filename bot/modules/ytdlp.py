@@ -331,6 +331,14 @@ class SiteSelection:
             if result:
                 return result
             await self._show_mx_videos()
+        elif self.site_data["type"] == "ullu":
+            return {
+                "link": self.site_data["download_url"],
+                "qual": "best",
+                "name": self.site_data.get("title") or "Ullu Video",
+                "thumb": self.site_data.get("thumbnail") or "",
+                "options": self.site_data.get("options") or {},
+            }
         await self._event_handler()
         if not self.listener.is_cancelled and self._reply_to:
             await delete_message(self._reply_to)
@@ -474,7 +482,10 @@ class SiteSelection:
             "name": self.site_data["title"],
             "thumb": self.site_data.get("thumbnail") or "",
             "site": "mx",
-            "options": {"allow_multiple_audio_streams": len(audio_ids) > 1},
+            "options": {
+                **(self.site_data.get("options") or {}),
+                "allow_multiple_audio_streams": len(audio_ids) > 1,
+            },
         }
 
 

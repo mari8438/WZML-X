@@ -205,6 +205,7 @@ AUTO_REMOVE_STREAMS = False
 AUTO_KEEP_AUDIO_LANGS = ""  # Example: tam,ta,tamil
 AUTO_KEEP_SUBTITLE_LANGS = ""  # Example: eng,en,english
 AUTO_MERGE = False
+AUTO_KEEP_SOURCE = True  # Keep original source files after Auto Merge; False uploads/sends merged files only
 AUTO_MERGE_SAFETY_MB = 150
 AUTO_INTRO_SUBTITLE = False
 AUTO_METADATA = True

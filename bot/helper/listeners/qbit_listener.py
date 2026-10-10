@@ -95,6 +95,18 @@ async def _on_download_complete(tor):
                         await remove(f"{path}/{f.name}")
                     except Exception:
                         pass
+        # qBittorrent keeps the torrent-relative path, which is important for
+        # releases whose file names are only "01.mkv" and whose Season/OVA/
+        # Special identity lives in the parent folder.
+        try:
+            task.listener.torrent_file_names = [
+                str(getattr(item, "name", "") or "")
+                for item in await TorrentManager.qbittorrent.torrents.files(ext_hash)
+                if getattr(item, "name", "")
+            ]
+        except Exception as e:
+            task.listener.torrent_file_names = []
+            LOGGER.warning(f"Failed to read qBittorrent file metadata: {e}")
         if keep_bq_files:
             await _remove_torrent(ext_hash, tag, delete_files=False)
         await task.listener.on_download_complete()

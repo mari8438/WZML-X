@@ -1454,6 +1454,7 @@ async def _enrich_template_metadata(metadata, filename, filepath=None, extra=Non
         "file_name", "file_size", "file_caption", "languages", "language", "subtitles",
         "duration", "ott", "source", "resolution", "name", "title", "year", "quality",
         "season", "episode", "audio", "lib", "extension", "shortsub",
+        "content_type", "content_group", "group_tag", "episode_detected",
         "shortlang", "part", "raw_name", "link", "vcodec", "codec", "acodec",
         "audio_codec", "audio_channels", "audio_bitrate", "hdr",
         "dynamic_range", "release_group", "group", "DS4K", "bit", "size",
@@ -2171,12 +2172,32 @@ async def extract_metadata_from_filename(filename, filepath=None):
         "range": "",
         "date": "",
         "episode_name": "",
+        "content_type": "other",
+        "content_group": "other",
+        "episode_detected": False,
     }
 
     pattern = (
         r"^\[(?:" + "|".join(re.escape(tag) for tag in UPLOADER_TAGS) + r")\]\s*"
     )
     clean_filename = re.sub(pattern, "", filename, flags=re.IGNORECASE).strip()
+
+    # Keep the relative torrent path in the input. qBittorrent commonly puts
+    # the season/type in a parent directory while the file only contains a
+    # bare episode number.
+    content_source = clean_filename.replace("\\", "/")
+    ova_match = re.search(r"(?<![A-Za-z0-9])(?:OVA|OAV)(?![A-Za-z0-9])", content_source, re.IGNORECASE)
+    special_match = re.search(
+        r"(?<![A-Za-z0-9])(?:SPECIALS?|SP|NCOP|NCED)(?![A-Za-z0-9])",
+        content_source,
+        re.IGNORECASE,
+    )
+    if ova_match:
+        metadata["content_type"] = "ova"
+        metadata["content_group"] = "ova"
+    elif special_match:
+        metadata["content_type"] = "special"
+        metadata["content_group"] = "special"
 
     merge_range = re.search(
         r"^\[S0*(\d{1,2})-EP\(\s*(\d{1,4})\s*-\s*(\d{1,4})\s*\)\]",
@@ -2189,6 +2210,7 @@ async def extract_metadata_from_filename(filename, filepath=None):
         metadata["end"] = merge_range.group(3).zfill(2)
         metadata["episode"] = f"{metadata['start']}-{metadata['end']}"
         metadata["range"] = f"EP({metadata['episode']})"
+        metadata["episode_detected"] = True
 
     date_match = re.search(
         r"(?<!\d)((?:\d{2}|\d{4})[._-]\d{2}[._-]\d{2})(?!\d)",
@@ -2223,6 +2245,7 @@ async def extract_metadata_from_filename(filename, filepath=None):
                     4 if ep_num >= 1000 else 3 if ep_num >= 100 else 2
                 )
                 episode_found = True
+                metadata["episode_detected"] = True
             elif (
                 len(title_match.groups()) == 2
                 and pat
@@ -2268,11 +2291,19 @@ async def extract_metadata_from_filename(filename, filepath=None):
             metadata["title"] = base_title
 
     season_match = re.search(
-        r"(?<![A-Za-z0-9])(?:[Ss]eason[\s\.\-]*|[Ss])0*(\d{1,2})(?![A-Za-z0-9])",
+        r"(?<![A-Za-z0-9])(?:[Ss]eason[\s\.\-]*|[Ss])0*(\d{1,2})"
+        r"(?=(?:[\s\.\-]*[Ee]0*\d{1,4})|(?:[\s\.\-/\\]|$))",
         filename,
     )
     if season_match:
         metadata["season"] = season_match.group(1)
+
+    if metadata["content_type"] == "other" and season_match:
+        metadata["content_type"] = "normal"
+    if metadata["content_type"] == "normal":
+        metadata["content_group"] = f"season-{int(metadata['season'])}"
+    elif metadata["content_type"] in {"ova", "special"}:
+        metadata["season"] = ""
 
     if metadata.get("date") and not metadata.get("episode_name"):
         after_date = clean_filename[date_match.end():] if date_match else ""
@@ -2341,6 +2372,7 @@ async def extract_metadata_from_filename(filename, filepath=None):
                             4 if ep_num >= 1000 else 3 if ep_num >= 100 else 2
                         )
                         episode_found = True
+                        metadata["episode_detected"] = True
                         break
                 except ValueError:
                     continue
@@ -2357,6 +2389,7 @@ async def extract_metadata_from_filename(filename, filepath=None):
                     metadata["episode"] = str(ep_num).zfill(
                         4 if ep_num >= 1000 else 3 if ep_num >= 100 else 2
                     )
+                    metadata["episode_detected"] = True
 
     resolution_match = re.search(r"(\d{3,4}p|4K|2160p)", filename, re.IGNORECASE)
     if resolution_match:
@@ -2384,6 +2417,29 @@ async def extract_metadata_from_filename(filename, filepath=None):
         if chapter_match:
             metadata["chapter"] = chapter_match.group(1).zfill(3)
             break
+
+    if metadata["content_type"] in {"ova", "special"} and not metadata["episode_detected"]:
+        type_episode = re.search(
+            r"(?<![A-Za-z0-9])(?:OVA|OAV|SPECIALS?|SP|NCOP|NCED)[\s._-]*0*(\d{1,4})",
+            content_source,
+            re.IGNORECASE,
+        )
+        if type_episode:
+            number = int(type_episode.group(1))
+            metadata["episode"] = str(number).zfill(2)
+            metadata["episode_detected"] = True
+
+    if metadata["content_type"] == "other":
+        metadata["content_group"] = "other"
+
+    if metadata["content_type"] == "normal":
+        metadata["group_tag"] = f"S{int(metadata['season']):02d}"
+    elif metadata["content_type"] == "ova":
+        metadata["group_tag"] = "OVA"
+    elif metadata["content_type"] == "special":
+        metadata["group_tag"] = "SPECIAL"
+    else:
+        metadata["group_tag"] = "OTHER"
 
     year_match = re.search(r"\b(19\d{2}|20[0-3]\d)\b", filename)
     if year_match:
@@ -3148,33 +3204,64 @@ async def get_final_poster_url(raw_filename, as_doc=False, rename_regex=None):
     return None
 
 
-async def get_landscape_provider_thumbnail_url(raw_filename, rename_regex=None):
-    """Return the legacy provider artwork flow for automatic thumbnails.
+def _thumbnail_lookup_context(raw_filename, rename_regex=None):
+    title, season, year = format_clean_poster_title(raw_filename, rename_regex)
+    raw = str(raw_filename or "")
+    group_match = re.search(
+        r"(?<![A-Za-z0-9])(?:OVA|OAV|SPECIALS?|SP|NCOP|NCED)(?![A-Za-z0-9])",
+        raw,
+        re.IGNORECASE,
+    )
+    group = group_match.group(0).upper() if group_match else ""
+    if group:
+        title = re.sub(
+            r"(?<![A-Za-z0-9])(?:OVA|OAV|SPECIALS?|SP|NCOP|NCED)"
+            r"(?:[\s._-]*0*\d{1,4})?(?![A-Za-z0-9])",
+            " ",
+            title,
+            flags=re.IGNORECASE,
+        )
+        title = re.sub(r"\s+", " ", title).strip(" -._")
+        season = None
+        lookup_title = f"{title} {'OVA' if group in {'OVA', 'OAV'} else 'Special'}"
+    else:
+        lookup_title = title
+    return lookup_title, title, season, year, group
 
-    Manual artwork and poster search can use season-aware matching. Automatic
-    thumbnails deliberately retain the long-standing series lookup: it has a
-    much better success rate for release names which do not map exactly to a
-    TMDb season record.
-    """
-    title, _, year = format_clean_poster_title(raw_filename, rename_regex)
-    if not title or len(title.strip()) < 2 or is_hash_like_title(title):
+
+async def get_landscape_provider_thumbnail_url(raw_filename, rename_regex=None):
+    """Return group-aware artwork for automatic thumbnails."""
+    lookup_title, fallback_title, season, year, group = _thumbnail_lookup_context(
+        raw_filename, rename_regex
+    )
+    if not lookup_title or len(lookup_title.strip()) < 2 or is_hash_like_title(lookup_title):
         return None
-    tmdb_url = await get_tmdb_poster_link(title, year, as_doc=False)
+    tmdb_url = await get_tmdb_poster_link(
+        lookup_title,
+        year,
+        as_doc=False,
+        season=season,
+    )
+    if not tmdb_url and group:
+        tmdb_url = await get_tmdb_poster_link(fallback_title, year, as_doc=False)
     if tmdb_url:
         return tmdb_url
-    return await get_anilist_poster_link(title, as_doc=False)
+    return await get_anilist_poster_link(fallback_title, as_doc=False)
 
 
 async def get_anime_landscape_thumbnail(video_file, raw_filename, duration=None, rename_regex=None, force=False):
-    title, _, _ = format_clean_poster_title(raw_filename, rename_regex)
-    if not force and not _looks_like_anime_name(raw_filename, title):
+    lookup_title, fallback_title, season, year, _ = _thumbnail_lookup_context(
+        raw_filename, rename_regex
+    )
+    if not force and not _looks_like_anime_name(raw_filename, fallback_title):
         return None
 
-    # Preserve the proven automatic anime lookup: AniList banner first, then
-    # normal TMDb artwork. This intentionally avoids season/episode matching.
+    # Prefer season-aware TMDb stills so each season gets its own artwork;
+    # fall back to the anime/series providers when season artwork is absent.
     poster_url = (
-        await get_anilist_poster_link(title, as_doc=False)
-        or await get_tmdb_poster_link(title, as_doc=False)
+        await get_tmdb_poster_link(lookup_title, year, as_doc=False, season=season)
+        or await get_anilist_poster_link(fallback_title, as_doc=False)
+        or await get_tmdb_poster_link(fallback_title, year, as_doc=False)
     )
     if poster_url:
         thumb = await download_image_thumb(poster_url, landscape=True)

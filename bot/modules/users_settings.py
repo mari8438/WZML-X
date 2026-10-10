@@ -1161,6 +1161,7 @@ Current: <b>{escape(template_id)}</b>"""
             ("AUTO_ORDER", "Auto Order"),
             ("AUTO_REMOVE_STREAMS", "Auto Remove Streams"),
             ("AUTO_MERGE", "Auto Merge"),
+            ("AUTO_KEEP_SOURCE", "Keep Source"),
             ("AUTO_INTRO_SUBTITLE", "Intro Subtitle"),
             ("AUTO_METADATA", "Metadata"),
         ]

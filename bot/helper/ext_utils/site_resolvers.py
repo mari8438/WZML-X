@@ -11,14 +11,22 @@ from ...core.config_manager import Config
 LOGGER = getLogger(__name__)
 
 MX_RE = re.compile(r"https?://(?:www\.)?(?:mxplayer\.in|mxplay\.com)/\S+", re.I)
+ULLU_RE = re.compile(
+    r"https?://(?:www\.)?ullu\.app/(?:#/media/|\?titleYearSlug=)([^&#\s]+)",
+    re.I,
+)
 
 
 def is_mx_link(link):
     return bool(MX_RE.search(str(link or "")))
 
 
+def is_ullu_link(link):
+    return bool(ULLU_RE.search(str(link or "")))
+
+
 def is_supported_site(link):
-    return is_mx_link(link)
+    return is_mx_link(link) or is_ullu_link(link)
 
 
 def _fmt_size(size):
@@ -51,6 +59,21 @@ def _unique_formats(items):
 def _extract_formats(download_url):
     with YoutubeDL({"quiet": True, "nocheckcertificate": True}) as ydl:
         return ydl.extract_info(download_url, download=False) or {}
+
+
+def _manifest_url(data):
+    """Return the playable MX manifest URL from the supported API shapes."""
+    for key in ("m3u8_url", "mpd_url", "download_url", "url"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _download_options(info):
+    """Carry CDN request headers from probing into the real yt-dlp download."""
+    headers = info.get("http_headers") or {}
+    return {"http_headers": headers} if headers else {}
 
 
 def _formats_from_info(info):
@@ -105,7 +128,42 @@ async def resolve_external_site(link, options=None):
     options = options or {}
     if is_mx_link(link):
         return await resolve_mx(link, options)
+    if is_ullu_link(link):
+        return await resolve_ullu(link)
     return None
+
+
+def _ullu_canonical_url(link):
+    match = ULLU_RE.search(str(link or ""))
+    if not match:
+        return str(link or "")
+    return f"https://ullu.app/?titleYearSlug={match.group(1)}"
+
+
+async def resolve_ullu(link, options=None):
+    """Resolve Ullu's SPA media links through yt-dlp's generic extractor.
+
+    Hash fragments never reach the server, so the original URL resolves only
+    to the Ullu home page. This keeps the canonical media slug in the URL and
+    does not attempt to bypass authentication or DRM-protected streams.
+    """
+    canonical_url = _ullu_canonical_url(link)
+    info = await to_thread(_extract_formats, canonical_url)
+    if not info:
+        raise ValueError("Ullu video could not be resolved. Login may be required.")
+    videos, audios = _formats_from_info(info)
+    if not videos and not audios:
+        raise ValueError("Ullu did not expose a downloadable non-DRM stream.")
+    return {
+        "type": "ullu",
+        "source_url": link,
+        "download_url": canonical_url,
+        "title": info.get("title") or "Ullu Video",
+        "thumbnail": info.get("thumbnail") or "",
+        "options": _download_options(info),
+        "videos": videos,
+        "audios": audios,
+    }
 
 
 async def resolve_mx(link, options=None):
@@ -141,7 +199,7 @@ async def resolve_mx(link, options=None):
     if data.get("status") is False:
         raise ValueError(data.get("message") or "MX resolver failed.")
 
-    download_url = data.get("m3u8_url") or data.get("mpd_url")
+    download_url = _manifest_url(data)
     if not download_url:
         raise ValueError("MX resolver did not return m3u8_url or mpd_url.")
 
@@ -157,6 +215,7 @@ async def resolve_mx(link, options=None):
         "title": data.get("full_title") or data.get("title") or info.get("title") or "MX Player Video",
         "description": data.get("description") or "",
         "thumbnail": data.get("thumbnail") or info.get("thumbnail") or "",
+        "options": _download_options(info),
         "videos": videos,
         "audios": audios,
     }
@@ -174,6 +233,7 @@ async def _resolve_mx_direct(link):
         "title": info.get("title") or info.get("fulltitle") or "MX Player Video",
         "description": info.get("description") or "",
         "thumbnail": info.get("thumbnail") or "",
+        "options": _download_options(info),
         "videos": videos,
         "audios": audios,
     }

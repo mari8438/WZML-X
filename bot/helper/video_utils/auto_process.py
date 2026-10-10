@@ -413,11 +413,29 @@ async def _smart_merge_directory(listener, root):
 
     items = []
     for path in videos:
-        meta = await extract_metadata_from_filename(ospath.basename(path), path)
-        size = await aiopath.getsize(path)
+        relative_name = _torrent_context_name(listener, root, path)
+        # A torrent may contain samples, corrupt media, or files that disappear
+        # while qBittorrent is finishing. Ignore those candidates so one bad
+        # item cannot abort the valid season/OVA/Special merge batches.
+        try:
+            meta = await extract_metadata_from_filename(relative_name, path)
+            size = await aiopath.getsize(path)
+        except Exception as exc:
+            LOGGER.warning(
+                f"Auto Merge: skipping unusable torrent file "
+                f"{relative_name}: {exc}"
+            )
+            continue
+        meta["source_filename"] = relative_name
         items.append({"path": path, "meta": meta, "size": size})
 
+    if len(items) < 2:
+        return root
+
     groups = {}
+    container_title, _, _ = format_clean_poster_title(
+        getattr(listener, "merge_source_name", "")
+    )
     for item in items:
         title = (item["meta"].get("title") or "Unknown").strip().lower()
         # Some releases use ``Title E001`` instead of ``Title S01E001``.
@@ -425,13 +443,37 @@ async def _smart_merge_directory(listener, root):
         # creates one merge group per episode. Normalize it for grouping while
         # retaining the original metadata for output naming.
         title = re.sub(r"\s+e(?:pisode)?\s*0*\d{1,4}\s*$", "", title)
-        season = item["meta"].get("season") or "1"
-        groups.setdefault((title, season), []).append(item)
+        if container_title:
+            title = container_title.strip().lower()
+        group = item["meta"].get("content_group") or "other"
+        groups.setdefault((title, group), []).append(item)
 
     limit = _merge_limit(listener)
     batches = []
     warnings = []
-    for (_, season), group_items in groups.items():
+    group_order = {"ova": 1000, "special": 1100, "other": 1200}
+    def _group_sort_key(entry):
+        group = entry[0][1]
+        if group.startswith("season-"):
+            try:
+                order = int(group.split("-", 1)[1])
+            except ValueError:
+                order = 1200
+        else:
+            order = group_order.get(group, 1200)
+        return order, entry[0][0]
+
+    ordered_groups = sorted(groups.items(), key=_group_sort_key)
+    for (_, _group), group_items in ordered_groups:
+        undetected = [item for item in group_items if not item["meta"].get("episode_detected")]
+        next_episode = max(
+            [_episode_no(item["meta"].get("episode")) for item in group_items if item["meta"].get("episode_detected")]
+            or [0]
+        ) + 1
+        for item in undetected:
+            item["meta"]["episode"] = str(next_episode).zfill(2)
+            item["meta"]["episode_detected"] = True
+            next_episode += 1
         # ZIP releases sometimes contain both a normal episode and a V2 copy.
         # Merging both wastes space and produces an incorrect episode range.
         deduped = {}
@@ -480,15 +522,42 @@ async def _smart_merge_directory(listener, root):
 
     output_paths = []
     await makedirs(root, exist_ok=True)
-    keep_sources = _has_keep_filters(listener)
+    # Source retention is independent from stream-selection filters. When it
+    # is disabled, the merge output is the only video left for upload/send.
+    keep_sources = bool_setting(listener, "AUTO_KEEP_SOURCE")
     for batch in batches:
         output_paths.extend(await _merge_batch_checked(listener, root, batch, limit, keep_sources))
 
-    if output_paths and not keep_sources:
+    # The uploader walks the whole directory. When source retention is off,
+    # remove every non-output file (including extracted audio/subtitle
+    # sidecars) before handing the directory to Telegram/upload backends.
+    # This also prevents failed merges from falling back to sending originals.
+    if not keep_sources:
         await _remove_non_outputs(root, set(output_paths), planner_path)
+    listener._auto_merge_output_paths = set(output_paths)
     if await aiopath.exists(planner_path):
         await remove(planner_path)
     return root
+
+
+def _torrent_context_name(listener, root, path):
+    """Prefer qBittorrent's relative name when folder context is available."""
+    relative = ospath.relpath(path, root).replace("\\", "/")
+    torrent_names = [
+        str(name).replace("\\", "/")
+        for name in getattr(listener, "torrent_file_names", [])
+        if name
+    ]
+    exact = next(
+        (name for name in torrent_names if name == relative or name.endswith(f"/{relative}")),
+        None,
+    )
+    if exact:
+        return exact
+    same_basename = [
+        name for name in torrent_names if ospath.basename(name) == ospath.basename(relative)
+    ]
+    return same_basename[0] if len(same_basename) == 1 else relative
 
 
 async def _merge_batch_checked(listener, root, batch, limit, keep_sources=False):
@@ -539,7 +608,7 @@ def _episode_text(value):
 
 def _season_text(value):
     try:
-        return str(int(str(value or "1")))
+        return f"{int(str(value or '1')):02d}"
     except ValueError:
         return str(value or "1")
 
@@ -566,11 +635,18 @@ def _build_batch_name(listener, batch):
     first = batch[0]
     last = batch[-1]
     meta = first["meta"].copy()
-    season = _season_text(meta.get("season"))
+    content_type = meta.get("content_type") or "other"
     start = _episode_text(first["meta"].get("episode"))
     end = _episode_text(last["meta"].get("episode"))
     episode_range = f"{start}-{end}"
-    range_tag = f"[S{season}-EP({episode_range})]"
+    if content_type == "normal":
+        range_tag = f"[S{_season_text(meta.get('season'))}-EP({episode_range})]"
+    elif content_type == "ova":
+        range_tag = f"[OVA-EP({episode_range})]"
+    elif content_type == "special":
+        range_tag = f"[SPECIAL-EP({episode_range})]"
+    else:
+        range_tag = f"[EP({episode_range})]"
     template = "{title} {resolution} {bit} {quality} {lib}"
     meta.update(
         {

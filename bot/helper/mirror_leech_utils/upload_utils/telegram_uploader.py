@@ -293,6 +293,15 @@ class TelegramUploader:
             autorename_enabled = bool(autorename_enabled)
         if getattr(self._listener, "skip_auto_rename", False):
             autorename_enabled = False
+        merged_outputs = {
+            ospath.normcase(ospath.abspath(path))
+            for path in getattr(self._listener, "_auto_merge_output_paths", set())
+        }
+        current_path = ospath.normcase(ospath.abspath(self._up_path))
+        # Auto Merge already generated the authoritative Sxx/OVA/SPECIAL name.
+        # Do not let a legacy [S{season}{episode}] template rewrite it.
+        if current_path in merged_outputs:
+            autorename_enabled = False
 
         if autorename_enabled:
             try:
