@@ -23,22 +23,6 @@ from ...core.torrent_manager import TorrentManager
 from .bot_utils import cmd_exec, sync_to_async
 from .exceptions import NotSupportedExtractionArchive
 
-
-_PROTECTED_DOWNLOAD_ROOTS = (
-    ospath.abspath("/usr/src/app/torrents/seeding"),
-)
-
-
-def _is_protected_download_path(opath):
-    """Prevent generic cleanup from ever deleting persistent seed data."""
-    if not opath:
-        return False
-    target = ospath.abspath(opath.rstrip("/"))
-    return any(
-        target == root or target.startswith(f"{root}{ospath.sep}")
-        for root in _PROTECTED_DOWNLOAD_ROOTS
-    )
-
 ARCH_EXT = [
     ".tar.bz2",
     ".tar.gz",
@@ -258,9 +242,6 @@ async def clean_target(opath):
 
 async def clean_download(opath):
     if await aiopath.exists(opath):
-        if _is_protected_download_path(opath):
-            LOGGER.warning("Skipping cleanup of protected seeding path: %s", opath)
-            return
         LOGGER.info(f"Cleaning Download: {opath}")
         try:
             await aiormtree(opath, ignore_errors=True)
