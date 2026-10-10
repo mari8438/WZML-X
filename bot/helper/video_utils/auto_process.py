@@ -248,6 +248,19 @@ async def _auto_order_streams(listener, up_path):
     changed = 0
     for video in await _video_files(up_path):
         audio_tracks, sub_tracks = await probe_streams(video)
+        LOGGER.info(
+            "Auto keep-audio input: %s tracks=%s wanted=%s",
+            ospath.basename(video),
+            [
+                {
+                    "index": track.get("index"),
+                    "lang": track.get("lang"),
+                    "title": track.get("title"),
+                }
+                for track in audio_tracks
+            ],
+            sorted(keep_audio),
+        )
         state = _base_state(str(listener.mid), ospath.basename(video), audio_tracks, sub_tracks)
         state["audio_order_value"] = audio_order or ""
         state["sub_order_value"] = sub_order or ""
@@ -293,6 +306,10 @@ async def _auto_keep_streams(listener, up_path):
                 )
                 continue
             state["keep_audio"] = audio_keep
+            LOGGER.info(
+                "Auto keep-audio selection: %s selected=%s",
+                ospath.basename(video), audio_keep,
+            )
         if keep_sub:
             sub_keep = [
                 t["index"]
@@ -574,7 +591,15 @@ async def _auto_intro_video(listener, up_path):
         encoded_intro, encode_reason = await _cached_intro_for_video(
             listener, intro, video, cache_dir
         )
-        intro_for_merge = encoded_intro or intro
+        if not encoded_intro:
+            LOGGER.warning(
+                "Auto intro skipped for %s: profile-matched intro encode failed: %s",
+                ospath.basename(video), encode_reason or "unknown encoding error",
+            )
+            with suppress(OSError):
+                await remove(f"{video}.intro-{listener.mid}.ffconcat")
+            continue
+        intro_for_merge = encoded_intro
         output = f"{video}.intro-{listener.mid}.tmp{ospath.splitext(video)[1]}"
         list_path = f"{video}.intro-{listener.mid}.ffconcat"
         if await aiopath.exists(output):
@@ -590,7 +615,7 @@ async def _auto_intro_video(listener, up_path):
 
         # MKV is muxed with mkvmerge because it handles Matroska timestamps
         # and appended tracks more reliably. MP4 uses FFmpeg concat copy.
-        if ospath.splitext(video)[1].lower() == ".mkv" and encoded_intro:
+        if ospath.splitext(video)[1].lower() == ".mkv":
             command = [
                 BinConfig.MKVMERGE_NAME, "-o", output,
                 encoded_intro, "+", video,
@@ -635,6 +660,21 @@ async def _auto_intro_video(listener, up_path):
             with suppress(OSError):
                 await remove(list_path)
             continue
+
+        merged_duration = await _probe_duration(output)
+        # A failed concat/mux can still produce a playable-looking tiny file.
+        # Never replace a valid source when the output is materially shorter.
+        if source_duration > 30 and merged_duration + 2 < source_duration:
+            LOGGER.error(
+                "Auto intro rejected truncated output for %s: source=%.3fs output=%.3fs",
+                ospath.basename(video), source_duration, merged_duration,
+            )
+            with suppress(OSError):
+                await remove(output)
+            with suppress(OSError):
+                await remove(list_path)
+            continue
+
         await remove(video)
         await rename(output, video)
         merged_duration = await _probe_duration(video)
