@@ -204,8 +204,6 @@ DEFAULT_VALUES = {
     "AUTO_KEEP_SUBTITLE_LANGS": "eng",
     "AUTO_MERGE": False,
     "AUTO_MERGE_SAFETY_MB": 150,
-    "AUTO_INTRO_VIDEO": True,
-    "AUTO_INTRO_VIDEO_PATH": "/usr/src/app/secrets/intro.mp4",
     "AUTO_INTRO_SUBTITLE": False,
     "AUTO_METADATA": True,
     "AUTO_RENAME": True,
