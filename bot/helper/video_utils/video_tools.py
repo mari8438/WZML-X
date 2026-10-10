@@ -1343,6 +1343,7 @@ async def _mkvmerge_track_filter(listener, input_path, state):
     )
     listener.subname = f"MKV Merge: {ospath.basename(input_path)}"
     listener.subsize = await aiopath.getsize(input_path)
+    listener.progress = True
     result = await cmd_exec(command)
     if result[2] != 0 or not await aiopath.isfile(output):
         LOGGER.error(
