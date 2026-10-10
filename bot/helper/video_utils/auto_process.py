@@ -566,13 +566,19 @@ async def _auto_intro_video(listener, up_path):
                 f"file '{video_ref}'\n"
             )
 
-        # Stream-copy only: no scaling, transcoding, or quality loss. FFmpeg
-        # will reject incompatible stream layouts and the source is retained.
-        command = [
-            BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",
-            "-f", "concat", "-safe", "0", "-i", list_path,
-            "-c", "copy", output,
-        ]
+        # MKV is muxed with mkvmerge because it handles Matroska timestamps
+        # and appended tracks more reliably. MP4 uses FFmpeg concat copy.
+        if ospath.splitext(video)[1].lower() == ".mkv" and encoded_intro:
+            command = [
+                BinConfig.MKVMERGE_NAME, "-o", output,
+                encoded_intro, "+", video,
+            ]
+        else:
+            command = [
+                BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",
+                "-f", "concat", "-safe", "0", "-i", list_path,
+                "-c", "copy", "-avoid_negative_ts", "make_zero", output,
+            ]
         result = await cmd_exec(command)
         if result[2] != 0 or not await aiopath.isfile(output):
             encoded_intro, reason = await _cached_intro_for_video(
@@ -587,7 +593,13 @@ async def _auto_intro_video(listener, up_path):
                         f"file '{encoded_ref}'\n"
                         f"file '{video_ref}'\n"
                     )
-                result = await cmd_exec(command)
+                result = await cmd_exec(
+                    [
+                        BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",
+                        "-f", "concat", "-safe", "0", "-i", list_path,
+                        "-c", "copy", "-avoid_negative_ts", "make_zero", output,
+                    ]
+                )
             else:
                 result = (1, encode_reason or reason, 1)
         if result[2] != 0 or not await aiopath.isfile(output):
