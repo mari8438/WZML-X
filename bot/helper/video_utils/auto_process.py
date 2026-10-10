@@ -1,5 +1,4 @@
 import asyncio
-import hashlib
 import json
 import re
 from contextlib import suppress
@@ -414,124 +413,6 @@ async def _auto_intro(listener, up_path):
     return up_path
 
 
-def _video_encoder(codec):
-    return {
-        "h264": "libx264",
-        "hevc": "libx265",
-        "h265": "libx265",
-        "vp8": "libvpx",
-        "vp9": "libvpx-vp9",
-        "av1": "libaom-av1",
-        "mpeg4": "mpeg4",
-    }.get(str(codec or "").lower())
-
-
-def _audio_encoder(codec):
-    return {
-        "aac": "aac",
-        "ac3": "ac3",
-        "eac3": "eac3",
-        "opus": "libopus",
-        "vorbis": "libvorbis",
-        "mp3": "libmp3lame",
-        "flac": "flac",
-    }.get(str(codec or "").lower())
-
-
-async def _probe_media_streams(path):
-    result = await cmd_exec(
-        [
-            "ffprobe", "-v", "error", "-print_format", "json",
-            "-show_streams", path,
-        ]
-    )
-    if result[2] != 0:
-        return []
-    try:
-        return json.loads(result[0] or "{}").get("streams", [])
-    except json.JSONDecodeError:
-        return []
-
-
-async def _cached_intro_for_video(listener, intro, video, cache_dir):
-    streams = await _probe_media_streams(video)
-    intro_streams = await _probe_media_streams(intro)
-    source_video = next(
-        (item for item in streams if item.get("codec_type") == "video"), None
-    )
-    source_audio = next(
-        (item for item in streams if item.get("codec_type") == "audio"), None
-    )
-    intro_video = next(
-        (item for item in intro_streams if item.get("codec_type") == "video"), None
-    )
-    intro_audio = next(
-        (item for item in intro_streams if item.get("codec_type") == "audio"), None
-    )
-    if not source_video or not intro_video:
-        return "", "Unable to find video streams"
-    if bool(source_audio) != bool(intro_audio):
-        return "", "intro and target audio stream presence differs"
-    video_encoder = _video_encoder(source_video.get("codec_name"))
-    if not video_encoder:
-        return "", f"unsupported target video codec {source_video.get('codec_name')}"
-    audio_encoder = _audio_encoder(source_audio.get("codec_name")) if source_audio else ""
-    if source_audio and not audio_encoder:
-        return "", f"unsupported target audio codec {source_audio.get('codec_name')}"
-
-    profile = {
-        "intro": intro,
-        "intro_size": await aiopath.getsize(intro),
-        "intro_mtime": await aiopath.getmtime(intro),
-        "video": {
-            key: source_video.get(key)
-            for key in ("codec_name", "width", "height", "pix_fmt", "avg_frame_rate", "profile")
-        },
-        "audio": {
-            key: source_audio.get(key)
-            for key in ("codec_name", "sample_rate", "channels")
-        } if source_audio else None,
-    }
-    key = hashlib.sha256(
-        json.dumps(profile, sort_keys=True, default=str).encode()
-    ).hexdigest()[:24]
-    await makedirs(cache_dir, exist_ok=True)
-    cached = ospath.join(cache_dir, f"intro_{key}.mkv")
-    if await aiopath.isfile(cached) and await aiopath.getsize(cached) > 0:
-        return cached, ""
-
-    width = int(source_video.get("width") or 1280)
-    height = int(source_video.get("height") or 720)
-    scale = (
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
-    )
-    temp = f"{cached}.tmp"
-    with suppress(OSError):
-        await remove(temp)
-    command = [
-        BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",
-        "-i", intro, "-map", "0:v:0", "-vf", scale,
-        "-c:v", video_encoder, "-pix_fmt", source_video.get("pix_fmt") or "yuv420p",
-    ]
-    if source_video.get("avg_frame_rate") not in (None, "0/0"):
-        command += ["-r", str(source_video["avg_frame_rate"])]
-    if source_audio:
-        command += [
-            "-map", "0:a:0", "-c:a", audio_encoder,
-            "-ar", str(source_audio.get("sample_rate") or 48000),
-            "-ac", str(source_audio.get("channels") or 2),
-        ]
-    command += ["-shortest", temp]
-    result = await cmd_exec(command)
-    if result[2] != 0 or not await aiopath.isfile(temp):
-        with suppress(OSError):
-            await remove(temp)
-        return "", (result[1] or result[0] or "intro encoding failed")[-800:]
-    await rename(temp, cached)
-    return cached, ""
-
-
 async def _auto_intro_video(listener, up_path):
     """Prepend the configured intro video to every MKV/MP4 output safely."""
     intro = str(_user_value(listener, "AUTO_INTRO_VIDEO_PATH") or "").strip()
@@ -540,10 +421,6 @@ async def _auto_intro_video(listener, up_path):
         return up_path
 
     targets = await _video_files(up_path)
-    cache_dir = str(
-        _user_value(listener, "AUTO_INTRO_VIDEO_CACHE_DIR")
-        or "/usr/src/app/configs/intro_cache"
-    ).strip()
     changed = 0
     for video in targets:
         if ospath.abspath(video) == ospath.abspath(intro):
@@ -571,21 +448,68 @@ async def _auto_intro_video(listener, up_path):
         ]
         result = await cmd_exec(command)
         if result[2] != 0 or not await aiopath.isfile(output):
-            encoded_intro, reason = await _cached_intro_for_video(
-                listener, intro, video, cache_dir
+            # If stream-copy is incompatible, encode the intro and target
+            # together to a common layout as a controlled fallback.
+            probe = await cmd_exec(
+                [
+                    "ffprobe", "-v", "error", "-print_format", "json",
+                    "-show_streams", video,
+                ]
             )
-            if encoded_intro:
-                async with aiopen(list_path, "w", encoding="utf-8") as file:
-                    encoded_ref = encoded_intro.replace("\\", "/").replace("'", "'\\''")
-                    video_ref = video.replace("\\", "/").replace("'", "'\\''")
-                    await file.write(
-                        "ffconcat version 1.0\n"
-                        f"file '{encoded_ref}'\n"
-                        f"file '{video_ref}'\n"
+            try:
+                streams = json.loads(probe[0] or "{}").get("streams", [])
+                source_video = next(
+                    item for item in streams if item.get("codec_type") == "video"
+                )
+                width = int(source_video.get("width") or 1280)
+                height = int(source_video.get("height") or 720)
+                source_audio = any(
+                    item.get("codec_type") == "audio" for item in streams
+                )
+                intro_probe = await cmd_exec(
+                    [
+                        "ffprobe", "-v", "error", "-print_format", "json",
+                        "-show_streams", intro,
+                    ]
+                )
+                intro_streams = json.loads(intro_probe[0] or "{}").get("streams", [])
+                intro_audio = any(
+                    item.get("codec_type") == "audio" for item in intro_streams
+                )
+            except (StopIteration, TypeError, ValueError, json.JSONDecodeError):
+                source_video = None
+
+            if source_video and source_audio == intro_audio:
+                scale = (
+                    f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                    f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+                )
+                if source_audio:
+                    filter_complex = (
+                        f"[0:v]{scale}[intro_v];[1:v]{scale}[source_v];"
+                        "[intro_v][0:a][source_v][1:a]concat=n=2:v=1:a=1[v][a]"
                     )
-                result = await cmd_exec(command)
-            else:
-                result = (1, reason, 1)
+                    fallback_maps = ["-map", "[v]", "-map", "[a]"]
+                else:
+                    filter_complex = (
+                        f"[0:v]{scale}[intro_v];[1:v]{scale}[source_v];"
+                        "[intro_v][source_v]concat=n=2:v=1:a=0[v]"
+                    )
+                    fallback_maps = ["-map", "[v]"]
+                fallback = [
+                    BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", intro, "-i", video,
+                    "-filter_complex", filter_complex,
+                    *fallback_maps,
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                    "-pix_fmt", "yuv420p",
+                ]
+                if source_audio:
+                    fallback += ["-c:a", "aac", "-b:a", "192k"]
+                if ospath.splitext(video)[1].lower() == ".mp4":
+                    fallback += ["-movflags", "+faststart"]
+                fallback.append(output)
+                result = await cmd_exec(fallback)
         if result[2] != 0 or not await aiopath.isfile(output):
             LOGGER.error(
                 "Auto intro failed for %s: %s",
