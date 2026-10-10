@@ -1285,80 +1285,6 @@ async def _send_track_merge_planner(listener, input_path, state, extra_inputs, o
     await send_message(listener.message, "\n".join(lines))
 
 
-async def _mkvmerge_track_filter(listener, input_path, state):
-    """Filter native MKV tracks without re-encoding media streams."""
-    result = await cmd_exec([BinConfig.MKVMERGE_NAME, "-J", input_path])
-    if result[2] != 0:
-        return None
-    try:
-        tracks = json.loads(result[0] or "{}").get("tracks", [])
-    except (TypeError, json.JSONDecodeError):
-        return None
-
-    audio_ids = [item["id"] for item in tracks if item.get("type") == "audio"]
-    subtitle_ids = [item["id"] for item in tracks if item.get("type") == "subtitles"]
-
-    def selected_ids(all_ids, keep_key, remove_key, remove_all=False):
-        if remove_all:
-            return []
-        keep = state.get(keep_key)
-        if keep:
-            return [all_ids[index] for index in keep if index < len(all_ids)]
-        removed = set(state.get(remove_key) or [])
-        if removed:
-            return [track_id for index, track_id in enumerate(all_ids) if index not in removed]
-        return all_ids
-
-    audio_restricted = bool(
-        state.get("keep_audio")
-        or state.get("remove_audio")
-        or state.get("remove_original_audio")
-    )
-    subtitle_restricted = bool(state.get("keep_sub") or state.get("remove_sub"))
-    selected_audio = selected_ids(
-        audio_ids, "keep_audio", "remove_audio", state.get("remove_original_audio")
-    )
-    selected_subtitles = selected_ids(subtitle_ids, "keep_sub", "remove_sub")
-    output = f"{input_path}.mkvmerge.tmp.mkv"
-    command = [BinConfig.MKVMERGE_NAME, "-o", output]
-    if audio_restricted:
-        command.extend(
-            ["--no-audio"]
-            if not selected_audio
-            else ["--audio-tracks", ",".join(map(str, selected_audio))]
-        )
-    if subtitle_restricted:
-        command.extend(
-            ["--no-subtitles"]
-            if not selected_subtitles
-            else ["--subtitle-tracks", ",".join(map(str, selected_subtitles))]
-        )
-    command.append(input_path)
-
-    LOGGER.info(
-        "MKV Merge filtering %s audio=%s subtitles=%s",
-        ospath.basename(input_path),
-        selected_audio if audio_restricted else "all",
-        selected_subtitles if subtitle_restricted else "all",
-    )
-    listener.subname = f"MKV Merge: {ospath.basename(input_path)}"
-    listener.subsize = await aiopath.getsize(input_path)
-    listener.progress = True
-    result = await cmd_exec(command)
-    if result[2] != 0 or not await aiopath.isfile(output):
-        LOGGER.error(
-            "MKV Merge filtering failed for %s: %s",
-            ospath.basename(input_path),
-            (result[1] or result[0] or "unknown error")[-1200:],
-        )
-        with suppress(OSError):
-            await remove(output)
-        return None
-    await remove(input_path)
-    await rename(output, input_path)
-    return input_path
-
-
 async def _execute_vt_pipeline(listener, input_path, state):
     """Run FFmpeg based on user selections from the VT UI."""
     await _refresh_external_tracks(state, input_path)
@@ -1383,20 +1309,6 @@ async def _execute_vt_pipeline(listener, input_path, state):
         listener.user_dict.get("INTRO_SUBTITLE_TEXT")
         or Config.INTRO_SUBTITLE_TEXT
     )
-    native_mkv_filter = (
-        ospath.splitext(input_path)[1].lower() == ".mkv"
-        and not state.get("external_audio")
-        and not state.get("external_sub")
-        and not state.get("merge_audio")
-        and not state.get("merge_sub")
-        and not has_translate
-        and not has_intro
-        and bool(has_removals)
-    )
-    if native_mkv_filter:
-        filtered = await _mkvmerge_track_filter(listener, input_path, state)
-        if filtered:
-            return filtered
     extract_only = bool(has_extractions) and not (
         has_removals
         or has_default_audio

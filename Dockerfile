@@ -90,7 +90,6 @@ RUN sed -i 's/Components: main/Components: main contrib non-free/g' /etc/apt/sou
         libxml2-dev \
         libxslt1-dev \
         mediainfo \
-        mkvtoolnix \
         mktorrent \
         netcat-openbsd \
         nodejs \
