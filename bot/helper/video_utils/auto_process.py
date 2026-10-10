@@ -694,42 +694,55 @@ async def _merge_batch(listener, root, batch):
         await remove(output)
 
     list_path = ospath.join(root, f"concat_{listener.mid}_{len(batch)}.txt")
-    async with aiopen(list_path, "w", encoding="utf-8") as f:
-        for item in batch:
-            safe = item["path"].replace("'", "'\\''")
-            await f.write(f"file '{safe}'\n")
-
-    copy_mode = await _compatible([item["path"] for item in batch])
-    cmd = [
-        BinConfig.FFMPEG_NAME,
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-progress",
-        "pipe:1",
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        list_path,
-    ]
-    if copy_mode:
-        cmd.extend(["-c", "copy", "-threads", str(get_ffmpeg_threads())])
+    use_mkvmerge = all(
+        ospath.splitext(item["path"])[1].lower() == ".mkv" for item in batch
+    )
+    if use_mkvmerge:
+        cmd = [BinConfig.MKVMERGE_NAME, "-o", output, batch[0]["path"]]
+        for item in batch[1:]:
+            cmd.extend(("+", item["path"]))
+        LOGGER.info(
+            "MKV Merge auto-merge: %s file(s) -> %s",
+            len(batch),
+            ospath.basename(output),
+        )
     else:
+        async with aiopen(list_path, "w", encoding="utf-8") as f:
+            for item in batch:
+                safe = item["path"].replace("'", "'\\''")
+                await f.write(f"file '{safe}'\n")
+
+        copy_mode = await _compatible([item["path"] for item in batch])
+        cmd = [
+            BinConfig.FFMPEG_NAME,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-progress",
+            "pipe:1",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            list_path,
+        ]
+        if copy_mode:
+            cmd.extend(["-c", "copy", "-threads", str(get_ffmpeg_threads())])
+        else:
         # Mixed audio layouts are common after ZIP extraction. Re-encoding
         # the entire video made large auto-merge jobs crawl (especially for
         # HEVC/10-bit sources). Keep the video bitstream and normalize only
         # audio; FFmpeg will still reject genuinely incompatible video input
         # instead of silently producing a broken concat.
-        cmd.extend([
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-            "-c:s", "copy", "-threads", str(get_ffmpeg_threads()),
-        ])
-    cmd.extend(["-max_muxing_queue_size", "9999", output])
+            cmd.extend([
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                "-c:s", "copy", "-threads", str(get_ffmpeg_threads()),
+            ])
+        cmd.extend(["-max_muxing_queue_size", "9999", output])
 
-    await _next_process_step(listener, "Merging batch", output)
+    await _next_process_step(listener, "MKV merge" if use_mkvmerge else "Merging batch", output)
     from ... import task_dict, task_dict_lock
     from ..ext_utils.media_utils import FFMpeg, get_media_info
     from ..mirror_leech_utils.status_utils.ffmpeg_status import FFmpegStatus
@@ -743,7 +756,11 @@ async def _merge_batch(listener, root, batch):
         except Exception:
             pass
     ffmpeg._total_time = total_duration
-    listener.subname = ospath.basename(output)
+    listener.subname = (
+        f"MKV Merge: {ospath.basename(output)}"
+        if use_mkvmerge
+        else ospath.basename(output)
+    )
     listener.subsize = sum(item["size"] for item in batch)
     listener.progress = True
     async with task_dict_lock:
@@ -753,10 +770,14 @@ async def _merge_batch(listener, root, batch):
             getattr(listener, "_process_gid", str(listener.mid)),
             "Auto Process",
         )
-    async with ffmpeg_task(listener, "Auto merge"):
+    if use_mkvmerge:
         listener.subproc = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
-        await ffmpeg._ffmpeg_progress()
         _, stderr = await listener.subproc.communicate()
+    else:
+        async with ffmpeg_task(listener, "Auto merge"):
+            listener.subproc = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+            await ffmpeg._ffmpeg_progress()
+            _, stderr = await listener.subproc.communicate()
     process = listener.subproc
     with suppress(FileNotFoundError):
         await remove(list_path)
