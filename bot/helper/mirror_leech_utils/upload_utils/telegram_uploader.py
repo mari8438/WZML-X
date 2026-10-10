@@ -161,6 +161,9 @@ class TelegramUploader:
         if getattr(self._listener, "rss_auto_leech", False):
             self._sent_msg = self._listener.message
             return True
+        if not getattr(Config, "LEECH_START_MSG", True):
+            self._sent_msg = self._listener.message
+            return True
         if self._listener.up_dest:
             msg_link = (
                 self._listener.message.link if self._listener.is_super_chat else ""

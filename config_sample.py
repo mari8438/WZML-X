@@ -303,6 +303,7 @@ BOT_PM = False
 SET_COMMANDS = True
 TIMEZONE = "Asia/Kolkata"
 LEECH_COMPLETE_MSG = True
+LEECH_START_MSG = True
 SEQUENTIAL_LEECH = True
 
 # GDrive Tools
