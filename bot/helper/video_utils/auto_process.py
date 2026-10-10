@@ -549,16 +549,12 @@ async def _auto_intro_video(listener, up_path):
         if ospath.abspath(video) == ospath.abspath(intro):
             continue
         await _next_process_step(listener, "Prepending intro video", video)
-        encoded_intro, encode_reason = await _cached_intro_for_video(
-            listener, intro, video, cache_dir
-        )
-        intro_for_merge = encoded_intro or intro
         output = f"{video}.intro-{listener.mid}.tmp{ospath.splitext(video)[1]}"
         list_path = f"{video}.intro-{listener.mid}.ffconcat"
         if await aiopath.exists(output):
             await remove(output)
         async with aiopen(list_path, "w", encoding="utf-8") as file:
-            intro_ref = intro_for_merge.replace("\\", "/").replace("'", "'\\''")
+            intro_ref = intro.replace("\\", "/").replace("'", "'\\''")
             video_ref = video.replace("\\", "/").replace("'", "'\\''")
             await file.write(
                 "ffconcat version 1.0\n"
@@ -589,7 +585,7 @@ async def _auto_intro_video(listener, up_path):
                     )
                 result = await cmd_exec(command)
             else:
-                result = (1, encode_reason or reason, 1)
+                result = (1, reason, 1)
         if result[2] != 0 or not await aiopath.isfile(output):
             LOGGER.error(
                 "Auto intro failed for %s: %s",
