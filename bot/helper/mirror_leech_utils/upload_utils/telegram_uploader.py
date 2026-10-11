@@ -487,23 +487,31 @@ class TelegramUploader:
             return
         try:
             caption = post.get("caption") or "<b>Poster</b>"
-            target = self._sent_msg or self._listener.message
             poster_followup = caption if len(str(caption)) > 1000 else ""
             media_caption = (
                 f"<b>{escape(str(post.get('title') or self._listener.name)[:900])}</b>"
                 if poster_followup
                 else caption
             )
-            sent = await send_message(target, media_caption, photo=path)
+            # Keep the legacy source->dump flow for files, but do not post the
+            # generated poster into the source group first.  A poster is an
+            # output message, so send it straight to the configured dump.
+            poster_dest = self._listener.leech_dest
+            if poster_dest:
+                sent = await send_message(poster_dest, media_caption, photo=path)
+            else:
+                sent = await send_message(
+                    self._sent_msg or self._listener.message,
+                    media_caption,
+                    photo=path,
+                )
             if sent:
-                self._sent_msg = sent
                 if poster_followup:
                     await self._send_caption_followup(sent, poster_followup)
-                if (
-                    (self._listener.is_super_chat or self._listener.up_dest)
-                    and not self._is_private
-                ):
-                    self._queue_deferred_copy(sent)
+                LOGGER.info(
+                    "Auto poster sent to dump: %s" if poster_dest else "Auto poster sent to upload source",
+                    poster_dest or "source",
+                )
         except Exception as err:
             LOGGER.warning(f"Failed to send auto poster: {err}", exc_info=True)
 
