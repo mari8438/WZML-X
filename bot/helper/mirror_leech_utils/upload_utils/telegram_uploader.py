@@ -153,17 +153,12 @@ class TelegramUploader:
                 attr,
                 self._listener.user_dict.get(key) or getattr(Config, key, default),
             )
-        # Dump forwarding must preserve upload order for every leech task.
-        self._sequential_leech = True
 
         if self._thumb != "none" and not await aiopath.exists(self._thumb):
             self._thumb = None
 
     async def _msg_to_reply(self):
         if getattr(self._listener, "rss_auto_leech", False):
-            self._sent_msg = self._listener.message
-            return True
-        if not getattr(Config, "LEECH_START_MSG", True):
             self._sent_msg = self._listener.message
             return True
         if self._listener.up_dest:
@@ -489,19 +484,14 @@ class TelegramUploader:
             return
         try:
             caption = post.get("caption") or "<b>Poster</b>"
+            target = self._sent_msg or self._listener.message
             poster_followup = caption if len(str(caption)) > 1000 else ""
             media_caption = (
                 f"<b>{escape(str(post.get('title') or self._listener.name)[:900])}</b>"
                 if poster_followup
                 else caption
             )
-            # The upload anchor is the main dump. Forwarding to a user dump
-            # is queued after the poster is created there, just like files.
-            sent = await send_message(
-                self._sent_msg or self._listener.message,
-                media_caption,
-                photo=path,
-            )
+            sent = await send_message(target, media_caption, photo=path)
             if sent:
                 self._sent_msg = sent
                 if poster_followup:
@@ -511,7 +501,6 @@ class TelegramUploader:
                     and not self._is_private
                 ):
                     self._queue_deferred_copy(sent)
-                LOGGER.info("Auto poster uploaded to main dump before forwarding")
         except Exception as err:
             LOGGER.warning(f"Failed to send auto poster: {err}", exc_info=True)
 
