@@ -455,13 +455,13 @@ class TaskConfig:
                 self.user_trans = False
                 self._relax_upload_chat_permissions = True
             elif is_chat_dump_task:
-                self.leech_dest = self.up_dest
-                self.up_dest = f"{self.message.chat.id}"
-                if getattr(self.message, "topic_message", False):
-                    self.up_dest += f"|{self.message.message_thread_id}"
-                self.bot_trans = True
-                self.user_trans = False
-                self._relax_upload_chat_permissions = True
+                # Upload to the global dump first, then forward to the
+                # user/requested dump. Do not use the source group as an
+                # intermediate destination.
+                self.leech_dest = self.up_dest or self.user_dict.get(
+                    "LEECH_DUMP_CHAT"
+                )
+                self.up_dest = Config.LEECH_DUMP_CHAT
             else:
                 self.leech_dest = self.up_dest or self.user_dict.get(
                     "LEECH_DUMP_CHAT"

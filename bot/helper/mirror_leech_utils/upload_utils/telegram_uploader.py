@@ -153,6 +153,8 @@ class TelegramUploader:
                 attr,
                 self._listener.user_dict.get(key) or getattr(Config, key, default),
             )
+        # Dump forwarding must preserve upload order for every leech task.
+        self._sequential_leech = True
 
         if self._thumb != "none" and not await aiopath.exists(self._thumb):
             self._thumb = None
@@ -493,25 +495,23 @@ class TelegramUploader:
                 if poster_followup
                 else caption
             )
-            # Keep the legacy source->dump flow for files, but do not post the
-            # generated poster into the source group first.  A poster is an
-            # output message, so send it straight to the configured dump.
-            poster_dest = self._listener.leech_dest
-            if poster_dest:
-                sent = await send_message(poster_dest, media_caption, photo=path)
-            else:
-                sent = await send_message(
-                    self._sent_msg or self._listener.message,
-                    media_caption,
-                    photo=path,
-                )
+            # The upload anchor is the main dump. Forwarding to a user dump
+            # is queued after the poster is created there, just like files.
+            sent = await send_message(
+                self._sent_msg or self._listener.message,
+                media_caption,
+                photo=path,
+            )
             if sent:
+                self._sent_msg = sent
                 if poster_followup:
                     await self._send_caption_followup(sent, poster_followup)
-                LOGGER.info(
-                    "Auto poster sent to dump: %s" if poster_dest else "Auto poster sent to upload source",
-                    poster_dest or "source",
-                )
+                if (
+                    (self._listener.is_super_chat or self._listener.up_dest)
+                    and not self._is_private
+                ):
+                    self._queue_deferred_copy(sent)
+                LOGGER.info("Auto poster uploaded to main dump before forwarding")
         except Exception as err:
             LOGGER.warning(f"Failed to send auto poster: {err}", exc_info=True)
 
