@@ -28,6 +28,7 @@ from ..helper.ext_utils.happyfappy_transaction import (
     TorrentValidationError,
     source_fingerprint,
     find_duplicate_transaction,
+    find_transaction_by_source_url,
     update_transaction,
     validate_accepted_torrent,
 )
@@ -1081,6 +1082,31 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None, transactio
 async def _remove_failed_happyfappy_source(source_path):
     if not source_path or not await aiopath.exists(source_path):
         return False
+
+
+async def _resume_happyfappy_artifacts(state, source_path):
+    source_name = ospath.basename(source_path)
+    stem = ospath.splitext(source_name)[0]
+    output_dir = str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
+    artifacts = {
+        "title": ospath.splitext(str(state.get("title") or source_name))[0],
+        "summary": await _probe_summary(source_path),
+        "thumb": ospath.join(ospath.dirname(source_path), f"{stem}.hstream-cover.jpg"),
+        "sheet": ospath.join(output_dir, f"{stem}_12screens.jpg"),
+        "desc_path": str(state.get("description_path") or ""),
+    }
+    for key in ("thumb", "sheet", "desc_path"):
+        if not artifacts[key] or not await aiopath.isfile(artifacts[key]):
+            raise RuntimeError(f"Cannot resume HappyFappy transaction; missing {key}: {artifacts[key]}")
+    async with aiopen(artifacts["desc_path"], encoding="utf-8") as desc_file:
+        description = await desc_file.read()
+    image_match = re.search(r"https://[^\s\[\]()]+\.pixhost\.cc/[^\s\[\]()]+", description, re.I)
+    if not image_match:
+        raise RuntimeError("Cannot resume HappyFappy transaction; no Pixhost image link is preserved")
+    image_url = image_match.group(0).rstrip(".,")
+    artifacts["resume"] = True
+    artifacts["resume_image_url"] = image_url
+    return artifacts
     try:
         await aioremove(source_path)
         LOGGER.warning("Removed failed HappyFappy source: %s", ospath.basename(source_path))
@@ -1097,25 +1123,36 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         raise RuntimeError(f"HappyFappy is not configured: {', '.join(missing)}")
     if not artifacts["thumb"] or not artifacts["sheet"]:
         raise RuntimeError("Pixhost upload requires both a thumbnail and contact sheet")
-    if status_msg:
+    if status_msg and not artifacts.get("resume"):
         await _edit_progress(status_msg, "Create Torrent: uploading cover and 12-image contact sheet to Pixhost...")
-    update_transaction(torrent_path, "TORRENT_CREATED", source_path=source_path)
-    cover = await upload_image_details(artifacts["thumb"])
-    contact_sheet = await upload_image_details(artifacts["sheet"])
-    links = {
-        "thumbnail": cover["thumbnail"],
-        "thumbnail_page": cover["page"],
-        "contact_sheet": contact_sheet["thumbnail"],
-        "contact_sheet_page": contact_sheet["page"],
-    }
+    if artifacts.get("resume"):
+        image_url = artifacts["resume_image_url"]
+        links = {
+            "thumbnail": image_url,
+            "thumbnail_page": image_url,
+            "contact_sheet": image_url,
+            "contact_sheet_page": image_url,
+        }
+    else:
+        update_transaction(torrent_path, "TORRENT_CREATED", source_path=source_path)
+        cover = await upload_image_details(artifacts["thumb"])
+        contact_sheet = await upload_image_details(artifacts["sheet"])
+        links = {
+            "thumbnail": cover["thumbnail"],
+            "thumbnail_page": cover["page"],
+            "contact_sheet": contact_sheet["thumbnail"],
+            "contact_sheet_page": contact_sheet["page"],
+        }
     tags = _happyfappy_tags(artifacts["title"], artifacts["summary"])
     if len(tags.split()) < 5:
         raise RuntimeError("HappyFappy needs at least five meaningful tags; set HAPPYFAPPY_TAGS")
-    artifacts["desc_path"] = await _write_description(
-        source_path, artifacts["title"], artifacts["summary"], links, "happyfappy"
-    )
+    if not artifacts.get("resume"):
+        artifacts["desc_path"] = await _write_description(
+            source_path, artifacts["title"], artifacts["summary"], links, "happyfappy"
+        )
     await send_file(message, artifacts["desc_path"], "Final HappyFappy BBCode with Pixhost image links")
-    update_transaction(torrent_path, "ARTWORK_READY", description_path=artifacts["desc_path"])
+    if not artifacts.get("resume"):
+        update_transaction(torrent_path, "ARTWORK_READY", description_path=artifacts["desc_path"])
     client = HappyFappyClient(
         getattr(Config, "HAPPYFAPPY_URL", "https://www.happyfappy.net"),
         Config.HAPPYFAPPY_USERNAME,
@@ -1291,6 +1328,36 @@ async def create_torrent(_, message):
             await _send_folder_artifacts(message, folder_path, torrent_path, trackers)
             await edit_message(status_msg, "Create Torrent folder mode: completed.")
             return
+
+        if happyfappy_mode:
+            resume_state = find_transaction_by_source_url(
+                str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output"),
+                command_text,
+            )
+            if resume_state:
+                source_path = str(resume_state.get("source_path") or "")
+                torrent_path = str(resume_state.get("torrent_path") or "")
+                if not source_path or not torrent_path:
+                    raise RuntimeError("HappyFappy resume transaction is missing source or torrent path")
+                if not await aiopath.isfile(source_path) or not await aiopath.isfile(torrent_path):
+                    raise RuntimeError("HappyFappy resume transaction source or local torrent is missing")
+                source_size = await aiopath.getsize(source_path)
+                if int(resume_state.get("source_size", -1)) != source_size:
+                    raise RuntimeError("HappyFappy resume source size no longer matches the transaction")
+                if resume_state.get("source_hash") != source_fingerprint(source_path):
+                    raise RuntimeError("HappyFappy resume source hash no longer matches the transaction")
+                artifacts = await _resume_happyfappy_artifacts(resume_state, source_path)
+                await _edit_progress(status_msg, "Create Torrent: resuming preserved HappyFappy transaction...")
+                upload_url = await _publish_happyfappy(
+                    message,
+                    source_path,
+                    torrent_path,
+                    artifacts,
+                    status_msg=status_msg,
+                    skip_dupe=skip_dupe,
+                )
+                await edit_message(status_msg, "Create Torrent HappyFappy resume: completed.")
+                return
 
         source_path = await _resolve_source(message, status_msg, hstream_only=happyfappy_mode)
         if not source_path:

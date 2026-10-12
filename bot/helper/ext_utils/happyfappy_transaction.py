@@ -74,6 +74,18 @@ def find_duplicate_transaction(directory, source_url, source_size, source_hash, 
     return None
 
 
+def find_transaction_by_source_url(directory, source_url, stages=("ARTWORK_READY",)):
+    directory = Path(directory)
+    for state_path in directory.glob("*.transaction.json"):
+        try:
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if state.get("source_url") == source_url and state.get("stage") in stages:
+            return state
+    return None
+
+
 def _decode(data, offset=0):
     if offset >= len(data):
         raise TorrentValidationError("invalid bencode: unexpected end")
