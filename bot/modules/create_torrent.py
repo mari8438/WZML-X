@@ -22,7 +22,7 @@ from pyrogram.handlers import CallbackQueryHandler, MessageHandler
 from .. import LOGGER
 from ..core.config_manager import Config
 from ..core.tg_client import TgClient
-from ..helper.ext_utils.bot_utils import cmd_exec, new_task, sync_to_async
+from ..helper.ext_utils.bot_utils import cmd_exec, derive_service_password, new_task, sync_to_async
 from ..helper.ext_utils.happyfappy import HappyFappyClient, HappyFappyError
 from ..helper.ext_utils.happyfappy_transaction import (
     TorrentValidationError,
@@ -69,6 +69,15 @@ def _tracker_list():
         if tracker and tracker not in trackers:
             trackers.append(tracker)
     return trackers
+
+
+def _qbit_webui_url():
+    base_url = str(getattr(Config, "BASE_URL", "") or "").rstrip("/")
+    bot_id = (str(getattr(Config, "BOT_TOKEN", "") or "").split(":", 1)[0] or "0")
+    if not base_url:
+        return ""
+    password = derive_service_password(bot_id, "qbit")
+    return f"{base_url}/qbit/?pass={password}"
 
 
 async def _unique_path(directory, filename):
@@ -988,9 +997,11 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None, transactio
             f"qBittorrent save path mismatch: expected={expected_dir}, reported={reported_dir}"
         )
     if status_msg:
+        qbit_url = _qbit_webui_url()
+        qbit_link = f'\n<a href="{escape(qbit_url)}">Open qBittorrent live status</a>' if qbit_url else ""
         await _edit_progress(
             status_msg,
-            f"Create Torrent: hash-checking in qBittorrent... <code>{get_readable_file_size(source_size)}</code>",
+            f"Create Torrent: hash-checking in qBittorrent... <code>{get_readable_file_size(source_size)}</code>{qbit_link}",
         )
     await TorrentManager.qbittorrent.torrents.recheck([torrent_hash])
     last_report = 0
@@ -1072,6 +1083,13 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None, transactio
                     qbit_hash=torrent_hash,
                     qbit_state=final_state,
                 )
+                if status_msg:
+                    qbit_url = _qbit_webui_url()
+                    qbit_link = f'\n<a href="{escape(qbit_url)}">Open qBittorrent live status</a>' if qbit_url else ""
+                    await _edit_progress(
+                        status_msg,
+                        f"Create Torrent: seeding confirmed — <code>{escape(final_state)}</code>{qbit_link}",
+                    )
                 return torrent_hash
             if final_state in {"error", "missingFiles"}:
                 raise RuntimeError(f"qBittorrent did not start seeding: state={final_state}")
