@@ -1191,7 +1191,10 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
             torrent_path,
             artifacts["title"],
             tags,
-            links["thumbnail_page"],
+            # HappyFappy's cover field must receive the direct image URL.
+            # The Pixhost show/page URL is suitable for BBCode links, but it
+            # is not rendered as the cover image by HappyFappy.
+            links["thumbnail"],
             description,
             getattr(Config, "HAPPYFAPPY_CATEGORY", ""),
             bool(getattr(Config, "HAPPYFAPPY_ANONYMOUS", False)),
