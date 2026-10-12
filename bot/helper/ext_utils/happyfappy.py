@@ -1,9 +1,10 @@
 import re
+import json
 from html import unescape
 from html.parser import HTMLParser
 from os import path as ospath
-from json import load as json_load
-from urllib.parse import urljoin, urlsplit
+from json import load as json_load, loads as json_loads
+from urllib.parse import unquote, urljoin, urlsplit
 
 from httpx import AsyncClient
 
@@ -80,6 +81,15 @@ class HappyFappyClient:
     async def close(self):
         await self.client.aclose()
 
+    def _flash_message(self):
+        try:
+            raw = self.client.cookies.get("flashes", "")
+            payload = json_loads(unquote(raw))
+            messages = [str(item.get("message", "")).strip() for item in payload if isinstance(item, dict)]
+            return " | ".join(item for item in messages if item)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ""
+
     async def _get_form(self, url):
         response = await self.client.get(url)
         response.raise_for_status()
@@ -116,9 +126,19 @@ class HappyFappyClient:
         )
         response = await self.client.post(login_url, data=data)
         response.raise_for_status()
-        upload_response, _ = await self._get_form(f"{self.base_url}/upload.php")
+        try:
+            upload_response, _ = await self._get_form(f"{self.base_url}/upload.php")
+        except Exception as error:
+            flash = self._flash_message()
+            if flash:
+                raise HappyFappyError(f"HappyFappy login rejected: {flash}") from error
+            raise HappyFappyError(
+                "HappyFappy login could not be completed; the site rejected this client or requires browser verification"
+            ) from error
         if "/login" in str(upload_response.url) or 'name="username"' in upload_response.text:
-            raise HappyFappyError("HappyFappy login failed or requires CAPTCHA/2FA")
+            flash = self._flash_message()
+            detail = f": {flash}" if flash else " or requires CAPTCHA/2FA"
+            raise HappyFappyError(f"HappyFappy login failed{detail}")
 
     async def _upload_form(self):
         response, parser = await self._get_form(f"{self.base_url}/upload.php")
