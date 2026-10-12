@@ -24,6 +24,13 @@ from ..core.config_manager import Config
 from ..core.tg_client import TgClient
 from ..helper.ext_utils.bot_utils import cmd_exec, new_task, sync_to_async
 from ..helper.ext_utils.happyfappy import HappyFappyClient, HappyFappyError
+from ..helper.ext_utils.happyfappy_transaction import (
+    TorrentValidationError,
+    source_fingerprint,
+    find_duplicate_transaction,
+    update_transaction,
+    validate_accepted_torrent,
+)
 from ..helper.ext_utils.media_utils import (
     format_clean_poster_title,
     get_release_description,
@@ -258,13 +265,13 @@ async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_
     handler = TgClient.bot.add_handler(
         MessageHandler(
             receive,
-            filters=create(
-                lambda _, __, update: bool(
-                    getattr(update, "document", None)
-                    and getattr(getattr(update, "from_user", None), "id", None)
-                    == message.from_user.id
-                )
-            ),
+                filters=create(
+                    lambda _, __, update: bool(
+                        (getattr(update, "document", None) or getattr(update, "text", None))
+                        and getattr(getattr(update, "from_user", None), "id", None)
+                        == message.from_user.id
+                    )
+                ),
         ),
         group=-1,
     )
@@ -275,15 +282,12 @@ async def _wait_for_manual_torrent(message, destination, status_msg, happyfappy_
     finally:
         TgClient.bot.remove_handler(*handler)
     if result[0]:
-        if result[0]:
-            await edit_message(prompt, "Manual HappyFappy torrent received. Starting qBittorrent verification...")
-        else:
-            await edit_message(prompt, "The manual torrent URL could not be downloaded; using the local fallback.")
+        await edit_message(prompt, "Manual HappyFappy torrent received. Starting qBittorrent verification...")
         if status_msg and result[0]:
             await _edit_progress(status_msg, "Create Torrent: manual HappyFappy torrent received; hash-checking...")
     else:
         LOGGER.warning("Timed out waiting for owner-provided HappyFappy torrent file or link")
-        await edit_message(prompt, "Manual torrent wait timed out; keeping the source and using local fallback.")
+        await edit_message(prompt, "Manual torrent wait timed out; keeping the source. No local fallback will be seeded.")
     return result[0]
 
 
@@ -924,11 +928,13 @@ def _happyfappy_tags(title, summary):
     return " ".join(tags)
 
 
-async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
+async def _seed_with_qbit(torrent_path, source_path, status_msg=None, transaction_torrent_path=None):
+    transaction_torrent_path = transaction_torrent_path or torrent_path
     if not TorrentManager.qbittorrent:
         raise RuntimeError("qBittorrent is unavailable; refusing to seed")
     if not await aiopath.isfile(source_path):
         raise RuntimeError(f"qBittorrent source file is missing: {source_path}")
+    update_transaction(transaction_torrent_path, "HASH_CHECKING", source_path=source_path)
     source_size = await aiopath.getsize(source_path)
     from aioqbt.api import AddFormBuilder
     form = AddFormBuilder.with_client(TorrentManager.qbittorrent)
@@ -1052,7 +1058,24 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None):
             f"source={source_path}, size={source_size} bytes"
         )
     await TorrentManager.qbittorrent.torrents.start([torrent_hash])
-    return torrent_hash
+    final_state = "unknown"
+    for _ in range(30):
+        checked = await TorrentManager.qbittorrent.torrents.info(hashes=[torrent_hash])
+        if checked:
+            final_state = str(getattr(checked[0], "state", "unknown"))
+            amount_left = int(getattr(checked[0], "amount_left", 0) or 0)
+            if amount_left == 0 and final_state in {"uploading", "seeding", "forcedUP", "stalledUP"}:
+                update_transaction(
+                    transaction_torrent_path,
+                    "SEEDING",
+                    qbit_hash=torrent_hash,
+                    qbit_state=final_state,
+                )
+                return torrent_hash
+            if final_state in {"error", "missingFiles"}:
+                raise RuntimeError(f"qBittorrent did not start seeding: state={final_state}")
+        await sleep(2)
+    raise RuntimeError(f"qBittorrent did not reach a seeding state: state={final_state}")
 
 
 async def _remove_failed_happyfappy_source(source_path):
@@ -1076,6 +1099,7 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         raise RuntimeError("Pixhost upload requires both a thumbnail and contact sheet")
     if status_msg:
         await _edit_progress(status_msg, "Create Torrent: uploading cover and 12-image contact sheet to Pixhost...")
+    update_transaction(torrent_path, "TORRENT_CREATED", source_path=source_path)
     cover = await upload_image_details(artifacts["thumb"])
     contact_sheet = await upload_image_details(artifacts["sheet"])
     links = {
@@ -1091,6 +1115,7 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         source_path, artifacts["title"], artifacts["summary"], links, "happyfappy"
     )
     await send_file(message, artifacts["desc_path"], "Final HappyFappy BBCode with Pixhost image links")
+    update_transaction(torrent_path, "ARTWORK_READY", description_path=artifacts["desc_path"])
     client = HappyFappyClient(
         getattr(Config, "HAPPYFAPPY_URL", "https://www.happyfappy.net"),
         Config.HAPPYFAPPY_USERNAME,
@@ -1135,13 +1160,23 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
             bool(getattr(Config, "HAPPYFAPPY_ANONYMOUS", False)),
         )
         artifacts["happyfappy_accepted"] = True
+        update_transaction(
+            torrent_path,
+            "HAPPYFAPPY_ACCEPTED",
+            upload_url=upload_url,
+            torrent_id=client.upload_details.get("torrent_id", ""),
+            download_url=client.upload_details.get("download_url", ""),
+            warnings=client.upload_details.get("warnings", []),
+            validation_errors=client.upload_details.get("validation_errors", []),
+        )
         if status_msg:
             await _edit_progress(status_msg, "Create Torrent: downloading the accepted HappyFappy torrent...")
+        accepted_torrent_path = f"{torrent_path}.accepted.torrent"
         try:
-            await client.download_uploaded_torrent(torrent_path)
+            await client.download_uploaded_torrent(accepted_torrent_path)
         except HappyFappyError as error:
             LOGGER.warning(
-                "HappyFappy official torrent link unavailable; using the local private torrent: %s",
+                "HappyFappy official torrent link unavailable; waiting for owner recovery: %s",
                 error,
             )
             if status_msg:
@@ -1149,10 +1184,30 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
                     status_msg,
                     "Create Torrent: official link unavailable; waiting for owner torrent...",
                 )
-            await _wait_for_manual_torrent(message, torrent_path, status_msg, client)
+            if not await _wait_for_manual_torrent(message, accepted_torrent_path, status_msg, client):
+                raise RuntimeError("HappyFappy accepted the upload but no accepted torrent was provided")
     finally:
         await client.close()
-    torrent_hash = await _seed_with_qbit(torrent_path, source_path, status_msg)
+    try:
+        validation = validate_accepted_torrent(
+            accepted_torrent_path,
+            source_path,
+            getattr(Config, "HAPPYFAPPY_ANNOUNCE_URL", ""),
+        )
+    except (TorrentValidationError, OSError) as error:
+        raise RuntimeError(f"Accepted HappyFappy torrent validation failed: {error}") from error
+    update_transaction(
+        torrent_path,
+        "ACCEPTED_TORRENT_READY",
+        accepted_torrent_path=accepted_torrent_path,
+        **validation,
+    )
+    torrent_hash = await _seed_with_qbit(
+        accepted_torrent_path,
+        source_path,
+        status_msg,
+        transaction_torrent_path=torrent_path,
+    )
     await send_message(message, f"HappyFappy accepted the torrent: <code>{escape(upload_url)}</code>\nSeeding started: <code>{torrent_hash}</code>")
     return upload_url
 
@@ -1244,6 +1299,21 @@ async def create_torrent(_, message):
                 "Reply to a Telegram video/file or send <code>/ctorrent direct_link</code>.",
             )
             return
+        source_size = await aiopath.getsize(source_path)
+        source_hash = source_fingerprint(source_path)
+        if happyfappy_mode:
+            duplicate = find_duplicate_transaction(
+                str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output"),
+                command_text,
+                source_size,
+                source_hash,
+                ospath.basename(source_path),
+            )
+            if duplicate:
+                raise RuntimeError(
+                    "An unfinished HappyFappy transaction already exists for this source: "
+                    f"{duplicate.get('torrent_path', 'unknown')}"
+                )
         await _edit_progress(
             status_msg,
             "Create Torrent: generating thumbnail, contact sheet, and torrent...",
@@ -1259,6 +1329,15 @@ async def create_torrent(_, message):
                 trackers=[announce],
                 piece_length=getattr(Config, "CTORRENT_PIECE_LENGTH", 23),
             )
+            update_transaction(
+                torrent_path,
+                "DOWNLOADED",
+                source_path=source_path,
+                source_url=command_text,
+                source_size=source_size,
+                source_hash=source_hash,
+                title=ospath.basename(source_path),
+            )
             artifacts = await _send_artifacts(
                 message,
                 source_path,
@@ -1267,6 +1346,7 @@ async def create_torrent(_, message):
                 send=False,
                 template_preset="happyfappy",
             )
+            update_transaction(torrent_path, "ARTWORK_READY", description_path=artifacts.get("desc_path", ""))
             upload_url = await _publish_happyfappy(
                 message,
                 source_path,

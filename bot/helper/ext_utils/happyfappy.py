@@ -69,6 +69,13 @@ class HappyFappyClient:
             headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36"},
         )
         self.uploaded_torrent_url = ""
+        self.upload_details = {
+            "accepted": False,
+            "torrent_id": "",
+            "download_url": "",
+            "warnings": [],
+            "validation_errors": [],
+        }
 
     async def close(self):
         await self.client.aclose()
@@ -76,6 +83,16 @@ class HappyFappyClient:
     async def _get_form(self, url):
         response = await self.client.get(url)
         response.raise_for_status()
+        visible_response = re.sub(r"<[^>]+>", " ", unescape(response.text))
+        visible_response = re.sub(r"\s+", " ", visible_response).strip()
+        self.upload_details["warnings"] = re.findall(
+            r"[^.]{0,100}\bwarning\b[^.]{0,240}", visible_response, re.I
+        )[:10]
+        self.upload_details["validation_errors"] = re.findall(
+            r"[^.]{0,100}\b(?:invalid|required|must|not allowed|rejected|failed)\b[^.]{0,240}",
+            visible_response,
+            re.I,
+        )[:10]
         parser = _HiddenFields()
         parser.feed(response.text)
         return response, parser
@@ -251,6 +268,7 @@ class HappyFappyClient:
                 f"HappyFappy did not confirm the torrent upload "
                 f"(HTTP {response.status_code}, final URL {response.url}){suffix}"
             )
+        self.upload_details["accepted"] = True
         self._capture_download_link(response.text, title)
         if not self.uploaded_torrent_url:
             if not recent_text:
@@ -264,6 +282,12 @@ class HappyFappyClient:
                     detail = await self.client.get(detail_url)
                     detail.raise_for_status()
                     self._capture_download_link(detail.text, title)
+        self.upload_details["download_url"] = self.uploaded_torrent_url
+        id_match = re.search(r"(?:^|&)id=(\d+)(?:&|$)", self.uploaded_torrent_url)
+        if not id_match:
+            id_match = re.search(r"torrents\.php\?[^\"'<>\s]*\bid=(\d+)", response.text, re.I)
+        if id_match:
+            self.upload_details["torrent_id"] = id_match.group(1)
         return str(response.url)
 
     async def download_uploaded_torrent(self, destination):
