@@ -1911,7 +1911,6 @@ async def set_channel_metadata(_, message, rfunc):
         clean_channel = "@" + clean_channel.rsplit("/", 1)[-1].strip()
     brand_display = clean_channel
     brand = brand_display.replace("{", "{{").replace("}", "}}")
-    safe_brand = (brand_display.lstrip("@") or brand_display).replace("{", "{{").replace("}", "}}")
     global_metadata = {
         "title": brand,
         "artist": brand,
@@ -1921,29 +1920,40 @@ async def set_channel_metadata(_, message, rfunc):
         "genre": "Anime",
         "publisher": brand,
         "copyright": brand,
+        "encoded_by": brand,
         "comment": f"Encoded by {brand}",
         "encoder": "FFmpeg",
         "description": brand,
         "synopsis": brand,
-        "network": safe_brand,
+        "network": brand,
+        "service_name": brand,
+        "service_provider": "Telegram",
     }
     video_metadata = {
         "title": brand,
         "handler_name": brand,
         "comment": brand,
-        "encoder": brand,
+        "encoded_by": brand,
+        "encoder": "FFmpeg",
+        "service_name": brand,
     }
     audio_metadata = {
         "title": f"{brand} - {{audiolang}}",
-        "handler_name": brand,
+        "language": "{audiolang}",
+        "handler_name": f"{brand} - {{audiolang}}",
+        "artist": brand,
+        "album_artist": brand,
         "comment": brand,
-        "encoder": brand,
+        "encoded_by": brand,
+        "encoder": "FFmpeg",
     }
     subtitle_metadata = {
         "title": f"{brand} - {{sublang}}",
-        "handler_name": brand,
+        "language": "{sublang}",
+        "handler_name": f"{brand} - {{sublang}}",
         "comment": brand,
-        "encoder": brand,
+        "encoded_by": brand,
+        "encoder": "FFmpeg",
     }
     update_user_ldata(user_id, "METADATA", global_metadata)
     update_user_ldata(user_id, "VIDEO_METADATA", video_metadata)
