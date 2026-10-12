@@ -31,6 +31,7 @@ from ..core.tg_client import TgClient
 from ..helper.ext_utils.bot_utils import cmd_exec, sync_to_async
 from ..helper.ext_utils.hstream_maintenance import hstream_maintenance
 from ..helper.ext_utils.hstream_resolver import (
+    HstreamCatalogItem,
     HstreamResolver,
     HstreamUnavailableError,
 )
@@ -949,6 +950,89 @@ async def _upload_episode(prepared, destination, thread_id, cancel_event):
         except Exception as error:
             LOGGER.warning(f"Hstream sample collage upload failed: {error}")
     return uploaded
+
+
+async def hstream_url_leech(_, message):
+    """Run the established Hstream quality/subtitle/poster pipeline for one URL."""
+    tokens = (message.text or message.caption or "").split()
+    if len(tokens) < 2:
+        await send_message(
+            message,
+            "<b>Usage:</b> <code>/ytdll https://hstream.moe/hentai/&lt;episode&gt;</code>",
+        )
+        return
+    parsed = urlsplit(tokens[1])
+    if parsed.netloc.lower().split(":", 1)[0] not in {"hstream.moe", "www.hstream.moe"}:
+        return False
+    parts = parsed.path.rstrip("/").split("/")
+    if len(parts) != 3 or parts[1].lower() != "hentai" or not parts[2]:
+        await send_message(message, "Use an Hstream episode URL under <code>/hentai/</code>.")
+        return True
+    if _RUN_LOCK.locked():
+        await send_message(message, "Another Hstream task is already active.")
+        return True
+
+    async with _RUN_LOCK:
+        cancel_event = Event()
+        processes = set()
+        root = ospath.join(DOWNLOAD_DIR, "hstream", f"ytdll-{message.id}")
+        Path(root).mkdir(parents=True, exist_ok=True)
+        translator = None
+        maintenance_acquired = False
+        status = await send_message(message, "<b>Hstream</b> resolving episode and available qualities...")
+        try:
+            maintenance_acquired = await hstream_maintenance.request(
+                getattr(getattr(message, "from_user", None), "id", 0)
+            )
+            if not maintenance_acquired:
+                await edit_message(status, "Another Hstream maintenance task is active.")
+                return True
+            translator = HstreamTranslator()
+            try:
+                await translator.start(cancel_event)
+            except Exception as error:
+                LOGGER.warning(f"Hstream Tamil subtitle translation unavailable; using ESub only: {error}")
+                translator = None
+            async with HstreamResolver() as resolver:
+                item = HstreamCatalogItem(parts[2], 0, parts[2])
+                prepared = await _prepare_episode(
+                    resolver,
+                    item,
+                    0,
+                    root,
+                    cancel_event,
+                    processes,
+                    getattr(getattr(message, "from_user", None), "id", 0),
+                    translator,
+                )
+                await edit_message(
+                    status,
+                    "<b>Hstream</b> downloading all available qualities, translating subtitles, and preparing poster...",
+                )
+                thread_id = getattr(message, "message_thread_id", None)
+                uploaded = await _upload_episode(
+                    prepared,
+                    message.chat.id,
+                    thread_id,
+                    cancel_event,
+                )
+                await edit_message(status, f"<b>Hstream completed.</b> Uploaded qualities: <code>{uploaded}</code>")
+        except Exception as error:
+            LOGGER.error(f"Hstream URL leech failed: {error}", exc_info=True)
+            await edit_message(status, f"<b>Hstream failed:</b>\n<code>{escape(str(error)[:900])}</code>")
+        finally:
+            cancel_event.set()
+            await gather(
+                *(_stop_process(process) for process in list(processes)),
+                return_exceptions=True,
+            )
+            if translator:
+                with suppress(Exception):
+                    await translator.stop()
+            if maintenance_acquired:
+                await hstream_maintenance.release()
+            await sync_to_async(rmtree, root, ignore_errors=True)
+    return True
 
 
 async def hstream_letter_leech(_, message):

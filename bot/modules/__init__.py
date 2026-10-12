@@ -3,7 +3,12 @@ from .cancel_task import cancel, cancel_multi, cancel_all_buttons, cancel_all_up
 from .chat_permission import authorize, unauthorize, add_sudo, remove_sudo
 from .clone import clone_node
 from .clone_channel import clone_channel
-from .hstream_letter_leech import hstream_letter_leech, hstream_pause, hstream_resume
+from .hstream_letter_leech import (
+    hstream_letter_leech,
+    hstream_pause,
+    hstream_resume,
+    hstream_url_leech,
+)
 from .create_torrent import create_torrent
 from .exec import aioexecute, execute, clear
 from .file_selector import select, confirm_selection
@@ -83,6 +88,7 @@ __all__ = [
     "hstream_letter_leech",
     "hstream_pause",
     "hstream_resume",
+    "hstream_url_leech",
     "create_torrent",
     "aioexecute",
     "execute",

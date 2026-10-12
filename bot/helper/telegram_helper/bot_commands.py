@@ -18,7 +18,7 @@ class BotCommands:
         "BigQLeech": ["bqleech", "bql", "bqbleech"],
         "BatchLeech": ["bleech", "bl"],
         "JdLeech": ["jdleech", "jl"],
-        "YtdlLeech": ["ytdlleech", "yl"],
+        "YtdlLeech": ["ytdlleech", "ytdll", "yl"],
         "NzbLeech": ["nzbleech", "nl"],
         "Clone": ["clone", "cl"],
         "Count": "count",
