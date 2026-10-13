@@ -419,12 +419,7 @@ async def _smart_merge_directory(listener, root):
 
     groups = {}
     for item in items:
-        title = (item["meta"].get("title") or "Unknown").strip().lower()
-        # Some releases use ``Title E001`` instead of ``Title S01E001``.
-        # The filename parser keeps that marker in the title, which otherwise
-        # creates one merge group per episode. Normalize it for grouping while
-        # retaining the original metadata for output naming.
-        title = re.sub(r"\s+e(?:pisode)?\s*0*\d{1,4}\s*$", "", title)
+        title = _merge_group_title(item["meta"].get("title"), item["meta"].get("episode"))
         season = item["meta"].get("season") or "1"
         groups.setdefault((title, season), []).append(item)
 
@@ -489,6 +484,33 @@ async def _smart_merge_directory(listener, root):
     if await aiopath.exists(planner_path):
         await remove(planner_path)
     return root
+
+
+def _merge_group_title(title, episode=None):
+    """Normalize noisy parsed titles so episodes share one merge group.
+
+    Some release names do not use SxxEyy.  They put the episode number, a
+    pack range, and/or quality tags in the title returned by the filename
+    parser (for example ``Naruto Shippuden 033 053 1080p 10bit 033``).
+    Those values must not become part of the merge key, otherwise every
+    episode is planned as a one-file batch.
+    """
+    value = str(title or "Unknown").strip().lower()
+    value = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", value)
+    value = re.sub(
+        r"\b(?:2160p|1080p|1440p|720p|576p|480p|4k|8k|10bit|8bit|12bit|x264|x265|h\.?264|h\.?265|hevc|av1|web[- .]?dl|web[- .]?rip|bluray|bdrip|webrip|hdr|remux|multi|dual|esub|msub|aac|ac3|ddp?|eac3)\b.*$",
+        " ",
+        value,
+        flags=re.IGNORECASE,
+    )
+    value = re.sub(r"\b(?:s\d{1,2}\s*e\d{1,4}|episode\s*\d{1,4}|ep\s*\d{1,4})\b", " ", value, flags=re.IGNORECASE)
+    # Strip the episode number and common pack-range numbers left at the end
+    # by filename parsers, but leave numbers embedded in a real title alone.
+    value = re.sub(r"(?:[\s._-]+\d{1,4}){1,4}\s*$", "", value)
+    if episode:
+        value = re.sub(rf"(?:[\s._-]+)0*{_episode_no(episode)}\s*$", "", value)
+    value = re.sub(r"\s+", " ", value).strip(" -._")
+    return value or "unknown"
 
 
 async def _merge_batch_checked(listener, root, batch, limit, keep_sources=False):
