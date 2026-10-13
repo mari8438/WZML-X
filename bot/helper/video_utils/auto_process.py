@@ -419,7 +419,14 @@ async def _smart_merge_directory(listener, root):
 
     groups = {}
     for item in items:
-        title = _merge_group_title(item["meta"].get("title"), item["meta"].get("episode"))
+        clean_title = _merge_group_title(
+            item["meta"].get("title"), item["meta"].get("episode")
+        )
+        # Keep the cleaned title for the merged filename and poster lookup;
+        # only the season/episode fields remain authoritative for the range.
+        if clean_title != "unknown":
+            item["meta"]["title"] = clean_title
+        title = clean_title.casefold()
         season = item["meta"].get("season") or "1"
         groups.setdefault((title, season), []).append(item)
 
@@ -495,15 +502,23 @@ def _merge_group_title(title, episode=None):
     Those values must not become part of the merge key, otherwise every
     episode is planned as a one-file batch.
     """
-    value = str(title or "Unknown").strip().lower()
-    value = re.sub(r"\[[^\]]*\]|\([^)]*\)", " ", value)
+    value = str(title or "Unknown").strip()
+    # A bracketed release block and everything after it is technical data,
+    # not part of the show title (it may contain DD2.0/ESub tokens).
+    value = re.sub(r"\s*\[[^\]]*\].*$", " ", value)
+    value = re.sub(r"\s*\([^)]*\)\s*$", " ", value)
     value = re.sub(
         r"\b(?:2160p|1080p|1440p|720p|576p|480p|4k|8k|10bit|8bit|12bit|x264|x265|h\.?264|h\.?265|hevc|av1|web[- .]?dl|web[- .]?rip|bluray|bdrip|webrip|hdr|remux|multi|dual|esub|msub|aac|ac3|ddp?|eac3)\b.*$",
         " ",
         value,
         flags=re.IGNORECASE,
     )
-    value = re.sub(r"\b(?:s\d{1,2}\s*e\d{1,4}|episode\s*\d{1,4}|ep\s*\d{1,4})\b", " ", value, flags=re.IGNORECASE)
+    value = re.sub(
+        r"\b(?:s\d{1,2}\s*e\d{1,4}|episode\s*\d{1,4}|ep\s*\d{1,4}|e\d{1,4})\b",
+        " ",
+        value,
+        flags=re.IGNORECASE,
+    )
     # Strip the episode number and common pack-range numbers left at the end
     # by filename parsers, but leave numbers embedded in a real title alone.
     value = re.sub(r"(?:[\s._-]+\d{1,4}){1,4}\s*$", "", value)
