@@ -14,7 +14,7 @@ from ..helper.video_utils.video_tools import (
 
 
 def _selected_icon(selected):
-    return "\U0001F7E2 " if selected else ""
+    return "🟢 " if selected else "⚪ "
 
 
 def _state_style(selected):
@@ -172,15 +172,21 @@ async def render_merge_audio_config_message(message, state, index):
 
 async def render_video_tools_main(vt_msg, state):
     extract_selected = _has_extract_selection(state)
+    audio_count = len(state.get("audio_tracks", []))
+    sub_count = len(state.get("sub_tracks", []))
+    ext_audio = len(state.get("external_audio", []))
+    ext_sub = len(state.get("external_sub", []))
+    audio_info = f"{audio_count}" + (f" (+{ext_audio} ext)" if ext_audio else "")
+    sub_info = f"{sub_count}" + (f" (+{ext_sub} ext)" if ext_sub else "")
+    timeout_str = "15m" if UI_TIMEOUT == 900 else f"{UI_TIMEOUT}s"
+
     text = (
-        "<b>Video Tools Configuration</b>\n\n"
-        f"<b>File:</b> <code>{state['filename']}</code>\n\n"
-        f"<b>Audio Tracks:</b> {len(state['audio_tracks'])}\n"
-        f"<b>Subtitles:</b> {len(state['sub_tracks'])}\n"
-        f"<b>External Audio:</b> {len(state.get('external_audio', []))}\n"
-        f"<b>External Subtitles:</b> {len(state.get('external_sub', []))}\n"
-        f"<b>Video + Video:</b> {'On' if state.get('video_merge') else 'Off'}\n\n"
-        f"<b>Timeout:</b> {UI_TIMEOUT} sec"
+        "<b>✦ 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗠𝗞𝗩 𝗦𝗧𝗨𝗗𝗜𝗢 ✦</b>\n\n"
+        f"🎬 <code>{state['filename']}</code>\n"
+        "╭ <b>Engine</b>    : ⚡ <i>mkvmerge (Zero-Reencode)</i>\n"
+        f"├ <b>Audio</b>     : <code>{audio_info}</code>\n"
+        f"├ <b>Subtitles</b> : <code>{sub_info}</code>\n"
+        f"╰ <b>Timeout</b>   : <code>{timeout_str}</code>"
     )
     task_id = state["task_id"]
     if extract_selected:

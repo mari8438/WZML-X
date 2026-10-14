@@ -624,12 +624,18 @@ class TaskListener(TaskConfig):
             and Config.DATABASE_URL
         ):
             await database.rm_complete_task(self.message.link)
+        size_str = get_readable_file_size(self.size)
+        elapsed_str = get_readable_time(time() - self.message.date.timestamp())
+        upload_mode = self.mode[1] if len(self.mode) > 1 else "Upload"
+        user_str = self.tag
+
         msg = (
-            f"<b><i>{escape(self.name)}</i></b>\n│"
-            f"\n┟ <b>Task Size</b> → {get_readable_file_size(self.size)}"
-            f"\n┠ <b>Time Taken</b> → {get_readable_time(time() - self.message.date.timestamp())}"
-            f"\n┠ <b>In Mode</b> → {self.mode[0]}"
-            f"\n┠ <b>Out Mode</b> → {self.mode[1]}"
+            "<b>✦ 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗 ✦</b>\n\n"
+            f"🎬 <code>{escape(self.name)}</code>\n"
+            f"╭ <b>Size</b>    : <code>{size_str}</code>\n"
+            f"├ <b>Elapsed</b> : <code>{elapsed_str}</code>\n"
+            f"├ <b>Upload</b>  : <code>{upload_mode}</code>\n"
+            f"╰ <b>User</b>    : {user_str}"
         )
         LOGGER.info(f"Task Done: {self.name}")
         if self.is_yt:
@@ -822,22 +828,15 @@ class TaskListener(TaskConfig):
                 del task_dict[self.mid]
             count = len(task_dict)
         await self.remove_from_same_dir()
+        size_str = get_readable_file_size(self.size)
+        elapsed_str = get_readable_time(time() - self.message.date.timestamp())
         msg = (
-            f"""〶 <b><i><u>Limit Breached:</u></i></b>
-│
-┟ <b>Task Size</b> → {get_readable_file_size(self.size)}
-┠ <b>In Mode</b> → {self.mode[0]}
-┠ <b>Out Mode</b> → {self.mode[1]}
-{error}"""
-            if is_limit
-            else f"""<i><b>〶 Download Stopped!</b></i>
-│
-┟ <b>Due To</b> → {escape(str(error))}
-┠ <b>Task Size</b> → {get_readable_file_size(self.size)}
-┠ <b>Time Taken</b> → {get_readable_time(time() - self.message.date.timestamp())}
-┠ <b>In Mode</b> → {self.mode[0]}
-┠ <b>Out Mode</b> → {self.mode[1]}
-┖ <b>Task By</b> → {self.tag}"""
+            f"<b>✦ 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗔𝗕𝗢𝗥𝗧𝗘𝗗 ✦</b>\n\n"
+            f"🎬 <code>{escape(self.name)}</code>\n"
+            f"╭ <b>Reason</b>  : ⚠️ <i>{escape(str(error))}</i>\n"
+            f"├ <b>Size</b>    : <code>{size_str}</code>\n"
+            f"├ <b>Elapsed</b> : <code>{elapsed_str}</code>\n"
+            f"╰ <b>User</b>    : {self.tag}"
         )
 
         await send_message(self.message, msg, button)
@@ -891,7 +890,15 @@ class TaskListener(TaskConfig):
             if self.mid in task_dict:
                 del task_dict[self.mid]
             count = len(task_dict)
-        await send_message(self.message, f"{self.tag} {escape(str(error))}")
+        size_str = get_readable_file_size(self.size)
+        msg = (
+            f"<b>✦ 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗔𝗕𝗢𝗥𝗧𝗘𝗗 ✦</b>\n\n"
+            f"🎬 <code>{escape(self.name)}</code>\n"
+            f"╭ <b>Reason</b>  : ⚠️ <i>{escape(str(error))}</i>\n"
+            f"├ <b>Size</b>    : <code>{size_str}</code>\n"
+            f"╰ <b>User</b>    : {self.tag}"
+        )
+        await send_message(self.message, msg)
         if count == 0:
             await self.clean()
         else:
