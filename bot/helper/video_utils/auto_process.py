@@ -30,6 +30,8 @@ from .video_tools import (
     VIDEO_EXTENSIONS,
     _base_state,
     _execute_vt_pipeline,
+    execute_mkvmerge_with_fallback,
+    normalize_mkv_track_meta,
     process_video_tool,
     probe_streams,
 )
@@ -734,7 +736,13 @@ async def _merge_batch(listener, root, batch):
         item["path"].lower().endswith(".mkv") for item in batch
     )
     if use_mkvmerge:
-        mkv_cmd = [BinConfig.MKVMERGE_NAME, "-o", output, batch[0]["path"]]
+        mkv_cmd = [
+            BinConfig.MKVMERGE_NAME,
+            "-o", output,
+            "--generate-chapters", "when-appending",
+            "--generate-chapters-name-template", "Episode <NUM:2> (<START:%H:%M:%S>)",
+            batch[0]["path"],
+        ]
         for item in batch[1:]:
             mkv_cmd.extend(["+", item["path"]])
         LOGGER.info(
@@ -742,8 +750,10 @@ async def _merge_batch(listener, root, batch):
             len(batch),
             ospath.basename(output),
         )
-        res = await cmd_exec(mkv_cmd)
-        if res[2] == 0 and await aiopath.exists(output):
+        success, out_msg = await execute_mkvmerge_with_fallback(
+            mkv_cmd, batch[0]["path"], output, cmd_exec
+        )
+        if success and await aiopath.exists(output):
             LOGGER.info("Fast MKV concatenation succeeded: %s", ospath.basename(final_output))
             if final_output != output:
                 if await aiopath.exists(final_output):
@@ -751,9 +761,8 @@ async def _merge_batch(listener, root, batch):
                 await rename(output, final_output)
             return final_output
         LOGGER.warning(
-            "mkvmerge concat failed (%s), falling back to FFmpeg concat: %s",
-            res[2],
-            (res[1] or res[0] or "")[-500:],
+            "mkvmerge concat failed, falling back to FFmpeg concat: %s",
+            (out_msg or "")[-500:],
         )
         if await aiopath.exists(output):
             await remove(output)

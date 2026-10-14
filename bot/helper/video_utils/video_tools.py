@@ -1,4 +1,6 @@
+import asyncio
 import json
+import os
 import re
 from contextlib import suppress
 from asyncio import Event, create_subprocess_exec, create_task, wait_for
@@ -32,6 +34,71 @@ UI_TIMEOUT = 900  # 15 minutes
 
 # Global dict to hold active video tool sessions: {task_id: event}
 _active_vt_sessions = {}
+
+ISO_LANG_PATTERNS = [
+    (re.compile(r"\b(tam|tamil|tml)\b", re.I), "tam", "Tamil"),
+    (re.compile(r"\b(tel|telugu|tlg)\b", re.I), "tel", "Telugu"),
+    (re.compile(r"\b(hin|hindi|hnd)\b", re.I), "hin", "Hindi"),
+    (re.compile(r"\b(mal|malayalam|mlym)\b", re.I), "mal", "Malayalam"),
+    (re.compile(r"\b(kan|kannada|knd)\b", re.I), "kan", "Kannada"),
+    (re.compile(r"\b(jpn|jap|japanese)\b", re.I), "jpn", "Japanese"),
+    (re.compile(r"\b(eng|english)\b", re.I), "eng", "English"),
+]
+
+def normalize_mkv_track_meta(raw_lang: str, raw_title: str, codec: str = "", channels: str = "") -> tuple[str, str]:
+    """Normalize track language to ISO 639-2 and build a clean StarFallX track title."""
+    combined = f"{raw_lang or ''} {raw_title or ''}"
+    for pattern, iso_code, label in ISO_LANG_PATTERNS:
+        if pattern.search(combined):
+            suffix = " ".join(filter(None, [codec.upper(), str(channels) if channels else ""]))
+            clean_title = f"{label} • {suffix}" if suffix else label
+            return iso_code, clean_title
+    iso_fallback = raw_lang.lower() if (raw_lang and len(raw_lang) == 3 and raw_lang.isalpha()) else "und"
+    return iso_fallback, (raw_title or "Track")
+
+async def execute_mkvmerge_with_fallback(
+    mkv_cmd: list[str],
+    primary_input: str,
+    temp_output: str,
+    cmd_exec_fn,
+) -> tuple[bool, str]:
+    """
+    Tier 1: mkvmerge with --normalize-language-ietf canonical & --enable-legacy-font-mime-types
+            (treats returncode 0 and 1 as success if output file > 0 bytes).
+    Tier 2: If returncode == 2 (corrupt Matroska header/cues), repair via zero-reencode
+            FFmpeg (-fflags +genpts+igndts -err_detect ignore_err -c copy) and retry mkvmerge.
+    """
+    enriched_cmd = [
+        mkv_cmd[0],
+        "--normalize-language-ietf", "canonical",
+        "--enable-legacy-font-mime-types",
+        *mkv_cmd[1:],
+    ]
+    stdout, stderr, rc = await cmd_exec_fn(enriched_cmd)
+    if rc in (0, 1) and os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
+        return True, stdout
+
+    repaired_input = f"{primary_input}.repaired.mkv"
+    try:
+        repair_cmd = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-fflags", "+genpts+igndts", "-err_detect", "ignore_err",
+            "-i", primary_input, "-map", "0", "-c", "copy", repaired_input,
+        ]
+        _, rep_err, rep_rc = await cmd_exec_fn(repair_cmd)
+        if rep_rc == 0 and os.path.exists(repaired_input) and os.path.getsize(repaired_input) > 0:
+            retry_cmd = [repaired_input if arg == primary_input else arg for arg in enriched_cmd]
+            stdout2, stderr2, rc2 = await cmd_exec_fn(retry_cmd)
+            if rc2 in (0, 1) and os.path.exists(temp_output) and os.path.getsize(temp_output) > 0:
+                return True, stdout2
+            return False, (stderr2 or stdout2)[-1500:]
+        return False, (rep_err or stderr or stdout)[-1500:]
+    finally:
+        if os.path.exists(repaired_input):
+            try:
+                os.remove(repaired_input)
+            except OSError:
+                pass
 
 
 def _reply_timeout():
@@ -896,7 +963,7 @@ async def process_video_tool(listener, up_path):
 
         # Wait for user to click Done/Close or timeout
         try:
-            await wait_for(done_event.wait(), timeout=UI_TIMEOUT)
+            await asyncio.wait_for(done_event.wait(), timeout=UI_TIMEOUT)
         except Exception:
             if state.get("merge_intake"):
                 LOGGER.info(
@@ -1054,7 +1121,13 @@ async def _merge_video_directory(listener, root, videos):
 
     use_mkvmerge = all(p.lower().endswith(".mkv") for p in videos)
     if use_mkvmerge:
-        mkv_cmd = [BinConfig.MKVMERGE_NAME, "-o", output, videos[0]]
+        mkv_cmd = [
+            BinConfig.MKVMERGE_NAME,
+            "-o", output,
+            "--generate-chapters", "when-appending",
+            "--generate-chapters-name-template", "Episode <NUM:2> (<START:%H:%M:%S>)",
+            videos[0],
+        ]
         for v in videos[1:]:
             mkv_cmd.extend(["+", v])
         LOGGER.info(
@@ -1062,8 +1135,10 @@ async def _merge_video_directory(listener, root, videos):
             len(videos),
             ospath.basename(output),
         )
-        res = await cmd_exec(mkv_cmd)
-        if res[2] == 0 and await aiopath.exists(output):
+        success, out_msg = await execute_mkvmerge_with_fallback(
+            mkv_cmd, videos[0], output, cmd_exec
+        )
+        if success and await aiopath.exists(output):
             LOGGER.info("Video + Video mkvmerge succeeded: %s", output)
             for video in videos:
                 if video != output and await aiopath.exists(video):
@@ -1081,9 +1156,8 @@ async def _merge_video_directory(listener, root, videos):
             )
             return output
         LOGGER.warning(
-            "Video + Video mkvmerge failed (%s), falling back to FFmpeg: %s",
-            res[2],
-            (res[1] or res[0] or "")[-500:],
+            "Video + Video mkvmerge failed, falling back to FFmpeg: %s",
+            (out_msg or "")[-500:],
         )
         if await aiopath.exists(output):
             await remove(output)
@@ -1268,7 +1342,7 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
             listener._vt_msg = vt_msg
             await render_video_tools_main(vt_msg, state)
             try:
-                await wait_for(done_event.wait(), timeout=UI_TIMEOUT)
+                await asyncio.wait_for(done_event.wait(), timeout=UI_TIMEOUT)
             except Exception:
                 LOGGER.info(f"Video Tool directory timeout for task {task_id}, proceeding...")
                 state["completed"] = True
@@ -1414,25 +1488,54 @@ async def _try_mkvmerge_pipeline(listener, input_path, output_path, state, extra
             else:
                 cmd.append("--no-subtitles")
 
-        default_audio = state.get("default_audio")
         has_external_audio = any(kind == "audio" for kind, _, _ in extra_inputs)
-        if (
-            not has_external_audio
-            and default_audio is not None
-            and default_audio in audio_keep
-            and default_audio < len(audio_tracks)
-        ):
-            cmd.extend(["--default-track-flag", f"{audio_tracks[default_audio]['id']}:1"])
+        default_audio = state.get("default_audio")
+        primary_audio_idx = None
+        if not has_external_audio and audio_keep:
+            if default_audio is not None and default_audio in audio_keep:
+                primary_audio_idx = default_audio
+            else:
+                primary_audio_idx = audio_keep[0]
+
+        for i in audio_keep:
+            if i >= len(audio_tracks):
+                continue
+            t = audio_tracks[i]
+            tid = t["id"]
+            props = t.get("properties", {})
+            st_track = state["audio_tracks"][i] if i < len(state.get("audio_tracks", [])) else {}
+            raw_lang = props.get("language") or st_track.get("lang") or ""
+            raw_title = props.get("track_name") or st_track.get("title") or ""
+            codec = t.get("codec") or st_track.get("codec") or ""
+            channels = props.get("audio_channels") or ""
+            iso_code, clean_title = normalize_mkv_track_meta(raw_lang, raw_title, codec=codec, channels=channels)
+            cmd.extend([
+                "--language", f"{tid}:{iso_code}",
+                "--track-name", f"{tid}:{clean_title}",
+            ])
+            is_primary = (i == primary_audio_idx)
+            cmd.extend(["--default-track-flag", f"{tid}:{1 if is_primary else 0}"])
 
         intro_sub_count = any(kind == "intro_sub" for kind, _, _ in extra_inputs)
         default_sub = state.get("default_sub")
-        if (
-            not intro_sub_count
-            and default_sub is not None
-            and default_sub in sub_keep
-            and default_sub < len(sub_tracks)
-        ):
-            cmd.extend(["--default-track-flag", f"{sub_tracks[default_sub]['id']}:1"])
+        for i in sub_keep:
+            if i >= len(sub_tracks):
+                continue
+            t = sub_tracks[i]
+            tid = t["id"]
+            props = t.get("properties", {})
+            st_sub = state["sub_tracks"][i] if i < len(state.get("sub_tracks", [])) else {}
+            raw_lang = props.get("language") or st_sub.get("lang") or ""
+            raw_title = props.get("track_name") or st_sub.get("title") or ""
+            codec = t.get("codec") or st_sub.get("codec") or ""
+            iso_code, clean_title = normalize_mkv_track_meta(raw_lang, raw_title, codec=codec)
+            cmd.extend([
+                "--language", f"{tid}:{iso_code}",
+                "--track-name", f"{tid}:{clean_title}",
+            ])
+            if not intro_sub_count and default_sub is not None:
+                is_sub_default = (i == default_sub)
+                cmd.extend(["--default-track-flag", f"{tid}:{1 if is_sub_default else 0}"])
 
         cmd.append(input_path)
 
@@ -1440,11 +1543,12 @@ async def _try_mkvmerge_pipeline(listener, input_path, output_path, state, extra
             if kind == "audio":
                 if item and item.get("delay_ms"):
                     cmd.extend(["--sync", f"0:{int(item['delay_ms'])}"])
-                lang = _normalize_language((item or {}).get("language", "und"))
-                title = str((item or {}).get("title") or (item or {}).get("name") or "External Audio")[:80]
+                raw_lang = (item or {}).get("language", "")
+                raw_title = str((item or {}).get("title") or (item or {}).get("name") or "External Audio")
+                iso_code, clean_title = normalize_mkv_track_meta(raw_lang, raw_title)
                 cmd.extend([
-                    "--language", f"0:{lang}",
-                    "--track-name", f"0:{title}",
+                    "--language", f"0:{iso_code}",
+                    "--track-name", f"0:{clean_title}",
                     "--default-track-flag", "0:1",
                     path,
                 ])
@@ -1456,20 +1560,28 @@ async def _try_mkvmerge_pipeline(listener, input_path, output_path, state, extra
                     path,
                 ])
             elif kind == "sub":
-                cmd.extend(["--language", "0:und", path])
+                raw_lang = (item or {}).get("language", "")
+                raw_title = str((item or {}).get("title") or (item or {}).get("name") or "Subtitle")
+                iso_code, clean_title = normalize_mkv_track_meta(raw_lang, raw_title)
+                cmd.extend([
+                    "--language", f"0:{iso_code}",
+                    "--track-name", f"0:{clean_title}",
+                    path,
+                ])
 
         LOGGER.info(
             "Video Tool: attempting fast mkvmerge mux for %s",
             ospath.basename(input_path),
         )
-        res = await cmd_exec(cmd)
-        if res[2] == 0 and await aiopath.exists(output_path):
+        success, out_msg = await execute_mkvmerge_with_fallback(
+            cmd, input_path, output_path, cmd_exec
+        )
+        if success and await aiopath.exists(output_path):
             LOGGER.info("mkvmerge muxing successful: %s", output_path)
             return True
         LOGGER.warning(
-            "mkvmerge muxing failed (code %s): %s; falling back to FFmpeg",
-            res[2],
-            (res[1] or res[0] or "")[-500:],
+            "mkvmerge muxing failed: %s; falling back to FFmpeg",
+            (out_msg or "")[-500:],
         )
         if await aiopath.exists(output_path):
             await remove(output_path)
@@ -2029,7 +2141,7 @@ async def pre_probe_and_show_ui(listener, file_, reply_to):
             await render_video_tools_main(vt_msg, state)
 
             try:
-                await wait_for(done_event.wait(), timeout=UI_TIMEOUT)
+                await asyncio.wait_for(done_event.wait(), timeout=UI_TIMEOUT)
             except Exception:
                 LOGGER.info(f"Video Tool pre-probe interaction timeout for task {task_id}")
                 state["completed"] = True
@@ -2040,6 +2152,8 @@ async def pre_probe_and_show_ui(listener, file_, reply_to):
                 await vt_msg.delete()
         finally:
             _active_vt_sessions.pop(task_id, None)
+            listener._vt_state = None
+            listener._vt_msg = None
 
     try:
         await wait_for(_do_pre_probe(), timeout=60.0)
