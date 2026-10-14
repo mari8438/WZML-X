@@ -82,8 +82,8 @@ aria2_args=(
     --rpc-listen-all=true
     --rpc-listen-port=6800
     --dir=/usr/src/app/downloads
-    --input-file=/usr/src/app/downloads/aria2.session
-    --save-session=/usr/src/app/downloads/aria2.session
+    --input-file=/usr/src/app/configs/ac/aria2.session
+    --save-session=/usr/src/app/configs/ac/aria2.session
     --log=/usr/src/app/logs/aria2.log
     --log-level=notice
 )
@@ -92,7 +92,7 @@ if [ -n "$tracker_list" ]; then
     aria2_args+=(--bt-tracker="$tracker_list")
 fi
 
-touch /usr/src/app/downloads/aria2.session
+touch /usr/src/app/configs/ac/aria2.session
 log "Starting aria2."
 run_with_affinity "$ARIA2C" "${aria2_args[@]}"
 wait_for_tcp 127.0.0.1 6800 aria2

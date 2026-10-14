@@ -730,6 +730,34 @@ async def _merge_batch(listener, root, batch):
     if await aiopath.exists(output):
         await remove(output)
 
+    use_mkvmerge = copy_mode and all(
+        item["path"].lower().endswith(".mkv") for item in batch
+    )
+    if use_mkvmerge:
+        mkv_cmd = [BinConfig.MKVMERGE_NAME, "-o", output, batch[0]["path"]]
+        for item in batch[1:]:
+            mkv_cmd.extend(["+", item["path"]])
+        LOGGER.info(
+            "Attempting fast MKV concatenation via mkvmerge for %d items: %s",
+            len(batch),
+            ospath.basename(output),
+        )
+        res = await cmd_exec(mkv_cmd)
+        if res[2] == 0 and await aiopath.exists(output):
+            LOGGER.info("Fast MKV concatenation succeeded: %s", ospath.basename(final_output))
+            if final_output != output:
+                if await aiopath.exists(final_output):
+                    await remove(final_output)
+                await rename(output, final_output)
+            return final_output
+        LOGGER.warning(
+            "mkvmerge concat failed (%s), falling back to FFmpeg concat: %s",
+            res[2],
+            (res[1] or res[0] or "")[-500:],
+        )
+        if await aiopath.exists(output):
+            await remove(output)
+
     list_path = ospath.join(root, f"concat_{listener.mid}_{len(batch)}.txt")
     async with aiopen(list_path, "w", encoding="utf-8") as f:
         for item in batch:
@@ -792,13 +820,15 @@ async def _merge_batch(listener, root, batch):
         )
     async with ffmpeg_task(listener, "Auto merge"):
         listener.subproc = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+        stderr_task = asyncio.create_task(listener.subproc.stderr.read())
         await ffmpeg._ffmpeg_progress()
-        _, stderr = await listener.subproc.communicate()
+        stderr = await stderr_task
+        await listener.subproc.wait()
     process = listener.subproc
     with suppress(FileNotFoundError):
         await remove(list_path)
     if process.returncode != 0 or not await aiopath.exists(output):
-        LOGGER.error(f"Auto merge failed: {stderr.decode(errors='ignore')}")
+        LOGGER.error(f"Auto merge failed: {stderr.decode(errors='ignore') if stderr else 'Unknown error'}")
         return None
     if final_output != output:
         if await aiopath.exists(final_output):

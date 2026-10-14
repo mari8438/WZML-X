@@ -1,3 +1,4 @@
+from ast import literal_eval
 from asyncio import (
     create_subprocess_exec,
     create_subprocess_shell,
@@ -517,9 +518,15 @@ async def edit_variable(_, message, pre_message, key):
     elif value.isdigit():
         value = int(value)
     elif value.startswith("[") and value.endswith("]"):
-        value = eval(value)
+        try:
+            value = literal_eval(value)
+        except Exception:
+            pass
     elif value.startswith("{") and value.endswith("}"):
-        value = eval(value)
+        try:
+            value = literal_eval(value)
+        except Exception:
+            pass
     Config.set(key, value)
     await update_buttons(pre_message, "var")
     await delete_message(message)
@@ -591,7 +598,7 @@ async def edit_nzb(_, message, pre_message, key):
         value = int(value)
     elif value.startswith("[") and value.endswith("]"):
         try:
-            value = ",".join(eval(value))
+            value = ",".join(literal_eval(value))
         except Exception as e:
             LOGGER.error(e)
             await update_buttons(pre_message, "nzb")
@@ -610,7 +617,7 @@ async def edit_nzb_server(_, message, pre_message, key, index=0):
     if key == "newser":
         if value.startswith("{") and value.endswith("}"):
             try:
-                value = eval(value)
+                value = literal_eval(value)
             except Exception:
                 await send_message(message, "Invalid dict format!")
                 await update_buttons(pre_message, "nzbserver")

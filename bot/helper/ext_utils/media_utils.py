@@ -6,6 +6,7 @@ from aiofiles.os import remove, path as aiopath, makedirs
 import json
 from asyncio import (
     create_subprocess_exec,
+    create_task,
     gather,
     wait_for,
     sleep,
@@ -191,7 +192,11 @@ async def get_media_info(path, extra_info=False):
         LOGGER.error(f"Get Media Info: {e}. Mostly File not found! - File: {path}")
         return (0, "", "", "") if extra_info else (0, None, None)
     if result[0] and result[2] == 0:
-        ffresult = eval(result[0])
+        try:
+            ffresult = json.loads(result[0])
+        except Exception as e:
+            LOGGER.error(f"Failed to parse ffprobe json: {e}")
+            return (0, "", "", "") if extra_info else (0, None, None)
         fields = ffresult.get("format")
         if fields is None:
             LOGGER.error(f"get_media_info: {result}")
@@ -263,7 +268,10 @@ async def get_document_type(path):
             is_video = True
         return is_video, is_audio, is_image
     if result[0] and result[2] == 0:
-        fields = eval(result[0]).get("streams")
+        try:
+            fields = json.loads(result[0]).get("streams")
+        except Exception:
+            fields = None
         if fields is None:
             LOGGER.error(f"get_document_type: {result}")
             return is_video, is_audio, is_image
@@ -596,15 +604,17 @@ class FFMpeg:
         while not (
             self._listener.subproc.returncode is not None
             or self._listener.is_cancelled
-            or self._listener.subproc.stdout.at_eof()
+            or (self._listener.subproc.stdout and self._listener.subproc.stdout.at_eof())
         ):
             try:
-                line = await wait_for(self._listener.subproc.stdout.readline(), 60)
+                line_bytes = await wait_for(self._listener.subproc.stdout.readline(), 60)
             except Exception:
                 break
-            line = line.decode().strip()
-            if not line:
+            if not line_bytes:
                 break
+            line = line_bytes.decode(errors="ignore").strip()
+            if not line:
+                continue
             if "=" in line:
                 key, value = line.split("=", 1)
                 if value != "N/A":
@@ -680,8 +690,10 @@ class FFMpeg:
             self._listener.subproc = await create_subprocess_exec(
                 *ffmpeg, stdout=PIPE, stderr=PIPE
             )
+            stderr_task = create_task(self._listener.subproc.stderr.read())
             await self._ffmpeg_progress()
-            _, stderr = await self._listener.subproc.communicate()
+            stderr = await stderr_task
+            await self._listener.subproc.wait()
         code = self._listener.subproc.returncode
         if self._listener.is_cancelled:
             return False
@@ -764,8 +776,10 @@ class FFMpeg:
             self._listener.subproc = await create_subprocess_exec(
                 *cmd, stdout=PIPE, stderr=PIPE
             )
+            stderr_task = create_task(self._listener.subproc.stderr.read())
             await self._ffmpeg_progress()
-            _, stderr = await self._listener.subproc.communicate()
+            stderr = await stderr_task
+            await self._listener.subproc.wait()
         code = self._listener.subproc.returncode
         if self._listener.is_cancelled:
             return False
@@ -815,8 +829,10 @@ class FFMpeg:
             self._listener.subproc = await create_subprocess_exec(
                 *cmd, stdout=PIPE, stderr=PIPE
             )
+            stderr_task = create_task(self._listener.subproc.stderr.read())
             await self._ffmpeg_progress()
-            _, stderr = await self._listener.subproc.communicate()
+            stderr = await stderr_task
+            await self._listener.subproc.wait()
         code = self._listener.subproc.returncode
         if self._listener.is_cancelled:
             return False
@@ -900,8 +916,10 @@ class FFMpeg:
             self._listener.subproc = await create_subprocess_exec(
                 *cmd, stdout=PIPE, stderr=PIPE
             )
+            stderr_task = create_task(self._listener.subproc.stderr.read())
             await self._ffmpeg_progress()
-            _, stderr = await self._listener.subproc.communicate()
+            stderr = await stderr_task
+            await self._listener.subproc.wait()
         code = self._listener.subproc.returncode
         if self._listener.is_cancelled:
             return False
@@ -971,8 +989,10 @@ class FFMpeg:
                 self._listener.subproc = await create_subprocess_exec(
                     *cmd, stdout=PIPE, stderr=PIPE
                 )
+                stderr_task = create_task(self._listener.subproc.stderr.read())
                 await self._ffmpeg_progress()
-                _, stderr = await self._listener.subproc.communicate()
+                stderr = await stderr_task
+                await self._listener.subproc.wait()
             code = self._listener.subproc.returncode
             if self._listener.is_cancelled:
                 return False

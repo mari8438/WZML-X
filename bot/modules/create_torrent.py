@@ -1100,6 +1100,15 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None, transactio
 async def _remove_failed_happyfappy_source(source_path):
     if not source_path or not await aiopath.exists(source_path):
         return False
+    try:
+        if await aiopath.isdir(source_path):
+            await rmtree(source_path, ignore_errors=True)
+        else:
+            await aioremove(source_path)
+        return True
+    except Exception as e:
+        LOGGER.warning(f"Failed to remove source {source_path}: {e}")
+        return False
 
 
 async def _resume_happyfappy_artifacts(state, source_path):

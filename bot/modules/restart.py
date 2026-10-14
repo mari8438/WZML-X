@@ -87,13 +87,10 @@ async def restart_notification():
 
     if Config.DATABASE_URL and (Config.INC_TASK_NOTIFY or Config.INC_TASK_RESUME):
         if notifier_dict := await database.get_incomplete_tasks():
-            try:
-                if Config.INC_TASK_RESUME:
-                    await _resume_tasks(notifier_dict)
-                if Config.INC_TASK_NOTIFY:
-                    await _notify_tasks(notifier_dict, chat_id, now)
-            finally:
-                await database.drop_incomplete_tasks()
+            if Config.INC_TASK_RESUME:
+                await _resume_tasks(notifier_dict)
+            if Config.INC_TASK_NOTIFY:
+                await _notify_tasks(notifier_dict, chat_id, now)
 
     if await aiopath.isfile(".restartmsg"):
         try:
@@ -116,7 +113,7 @@ async def _notify_tasks(notifier_dict, restart_chat_id, now):
         for tag, tasks in data.items():
             entry = f"\n➲ <b>User:</b> {tag}\n┖ <b>Tasks:</b>"
             for index, task in enumerate(tasks, start=1):
-                link = task.get("link", "")
+                link = task.get("link", "") if isinstance(task, dict) else str(task)
                 entry += f" {index}. <a href='{link}'>L</a> |"
             if len((msg + entry).encode()) > 4000:
                 await _send_msg(cid, msg)
@@ -130,6 +127,8 @@ async def _resume_tasks(notifier_dict):
     for cid, data in notifier_dict.items():
         for tag, tasks in data.items():
             for task in tasks:
+                if not isinstance(task, dict):
+                    continue
                 command = task.get("command", "")
                 user_id = task.get("user_id", 0)
                 reply_to_msg_id = task.get("reply_to_msg_id", 0)
@@ -260,7 +259,7 @@ async def confirm_restart(_, query):
             "pkill",
             "-9",
             "-f",
-            f"gunicorn|{BinConfig.ARIA2_NAME}|{BinConfig.QBIT_NAME}|{BinConfig.FFMPEG_NAME}|{BinConfig.RCLONE_NAME}|java|{BinConfig.SABNZBD_NAME}|7z|split",
+            f"gunicorn|{BinConfig.ARIA2_NAME}|{BinConfig.QBIT_NAME}|{BinConfig.FFMPEG_NAME}|{BinConfig.MKVMERGE_NAME}|{BinConfig.RCLONE_NAME}|java|{BinConfig.SABNZBD_NAME}|7z|split",
         )
 
         proc_update = await create_subprocess_exec("python3", "update.py")

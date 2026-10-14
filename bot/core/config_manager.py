@@ -10,6 +10,7 @@ def bin_name(index):
         "ffmpeg",
         "rclone",
         "sabnzbdplus",
+        "mkvmerge",
     )
     return standard_bins[index]
 
@@ -518,3 +519,4 @@ class BinConfig:
     FFMPEG_NAME = bin_name(2)
     RCLONE_NAME = bin_name(3)
     SABNZBD_NAME = bin_name(4)
+    MKVMERGE_NAME = bin_name(5)

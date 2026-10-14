@@ -91,6 +91,7 @@ RUN sed -i 's/Components: main/Components: main contrib non-free/g' /etc/apt/sou
         libxslt1-dev \
         mediainfo \
         mktorrent \
+        mkvtoolnix \
         netcat-openbsd \
         nodejs \
         p7zip-full \

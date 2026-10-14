@@ -1,7 +1,7 @@
 import json
 import re
 from contextlib import suppress
-from asyncio import Event, create_subprocess_exec, wait_for
+from asyncio import Event, create_subprocess_exec, create_task, wait_for
 from asyncio.subprocess import PIPE
 from os import path as ospath, walk
 from time import time
@@ -1051,6 +1051,43 @@ async def _merge_video_directory(listener, root, videos):
         output = ospath.join(root, f"{source_name or 'Video_Merge'} Merged.mkv")
     if await aiopath.exists(output):
         await remove(output)
+
+    use_mkvmerge = all(p.lower().endswith(".mkv") for p in videos)
+    if use_mkvmerge:
+        mkv_cmd = [BinConfig.MKVMERGE_NAME, "-o", output, videos[0]]
+        for v in videos[1:]:
+            mkv_cmd.extend(["+", v])
+        LOGGER.info(
+            "Video + Video merge attempting fast mkvmerge for %d videos: %s",
+            len(videos),
+            ospath.basename(output),
+        )
+        res = await cmd_exec(mkv_cmd)
+        if res[2] == 0 and await aiopath.exists(output):
+            LOGGER.info("Video + Video mkvmerge succeeded: %s", output)
+            for video in videos:
+                if video != output and await aiopath.exists(video):
+                    await remove(video)
+            await _send_clean_planner(
+                listener,
+                [
+                    "<b>Video Processing Plan</b>",
+                    "",
+                    "• Video + Video Merge: Enabled",
+                    "• Engine: MKVMerge (lossless stream concat)",
+                    "",
+                    "Processing Finished Successfully",
+                ],
+            )
+            return output
+        LOGGER.warning(
+            "Video + Video mkvmerge failed (%s), falling back to FFmpeg: %s",
+            res[2],
+            (res[1] or res[0] or "")[-500:],
+        )
+        if await aiopath.exists(output):
+            await remove(output)
+
     async with aiopen(list_path, "w", encoding="utf-8") as f:
         await f.write("ffconcat version 1.0\n")
         for path in videos:
@@ -1109,8 +1146,10 @@ async def _merge_video_directory(listener, root, videos):
     try:
         async with ffmpeg_task(listener, "Video + Video merge"):
             listener.subproc = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+            stderr_task = create_task(listener.subproc.stderr.read())
             await ffmpeg._ffmpeg_progress()
-            _, stderr = await listener.subproc.communicate()
+            stderr = await stderr_task
+            await listener.subproc.wait()
         if listener.subproc.returncode != 0 or not await aiopath.exists(output):
             err = stderr.decode(errors="ignore").strip() if stderr else "Unknown error"
             LOGGER.error(f"Video + Video merge failed: {err}")
@@ -1285,6 +1324,163 @@ async def _send_track_merge_planner(listener, input_path, state, extra_inputs, o
     await send_message(listener.message, "\n".join(lines))
 
 
+async def _get_mkv_tracks(input_path):
+    res = await cmd_exec([BinConfig.MKVMERGE_NAME, "-J", input_path])
+    if res[2] != 0 or not res[0]:
+        return None
+    try:
+        data = json.loads(res[0])
+        return data.get("tracks", [])
+    except Exception:
+        return None
+
+
+async def _try_mkvmerge_pipeline(listener, input_path, output_path, state, extra_inputs):
+    try:
+        tracks = await _get_mkv_tracks(input_path)
+        if not tracks:
+            return False
+
+        audio_tracks = [t for t in tracks if t.get("type") == "audio"]
+        sub_tracks = [t for t in tracks if t.get("type") == "subtitles"]
+        video_tracks = [t for t in tracks if t.get("type") == "video"]
+
+        audio_remove = set(state.get("remove_audio", []))
+        if state.get("remove_original_audio"):
+            audio_keep = []
+        elif state.get("keep_audio"):
+            audio_keep = [idx for idx in state["keep_audio"] if idx not in audio_remove]
+        else:
+            audio_keep = [t["index"] for t in state["audio_tracks"] if t["index"] not in audio_remove]
+
+        if state.get("audio_order_value"):
+            ordered = _ordered_track_indexes(
+                [t for t in state["audio_tracks"] if t["index"] in audio_keep],
+                state.get("audio_order_value"),
+                remove_unmatched=False,
+            )
+            audio_keep = [idx for idx in ordered if idx in audio_keep]
+        elif state.get("audio_order"):
+            ordered = [idx for idx in state["audio_order"] if idx in audio_keep]
+            ordered.extend(idx for idx in audio_keep if idx not in ordered)
+            audio_keep = ordered
+
+        sub_remove = set(state.get("remove_sub", []))
+        if state.get("keep_sub"):
+            sub_keep = [idx for idx in state["keep_sub"] if idx not in sub_remove]
+        else:
+            sub_keep = [t["index"] for t in state["sub_tracks"] if t["index"] not in sub_remove]
+
+        if state.get("sub_order_value"):
+            ordered = _ordered_track_indexes(
+                [t for t in state["sub_tracks"] if t["index"] in sub_keep],
+                state.get("sub_order_value"),
+                remove_unmatched=bool(state.get("keep_sub")),
+            )
+            sub_keep = [idx for idx in ordered if idx in sub_keep]
+        elif state.get("sub_order"):
+            ordered = [idx for idx in state["sub_order"] if idx in sub_keep]
+            ordered.extend(idx for idx in sub_keep if idx not in ordered)
+            sub_keep = ordered
+
+        cmd = [BinConfig.MKVMERGE_NAME, "-o", output_path]
+
+        if video_tracks:
+            cmd.extend(["--video-tracks", ",".join(str(t["id"]) for t in video_tracks)])
+
+        if not audio_keep:
+            cmd.append("--no-audio")
+        else:
+            mkv_audio_ids = [
+                str(audio_tracks[i]["id"])
+                for i in audio_keep
+                if i < len(audio_tracks)
+            ]
+            if mkv_audio_ids:
+                cmd.extend(["--audio-tracks", ",".join(mkv_audio_ids)])
+            else:
+                cmd.append("--no-audio")
+
+        if not sub_keep:
+            cmd.append("--no-subtitles")
+        else:
+            mkv_sub_ids = [
+                str(sub_tracks[i]["id"])
+                for i in sub_keep
+                if i < len(sub_tracks)
+            ]
+            if mkv_sub_ids:
+                cmd.extend(["--subtitle-tracks", ",".join(mkv_sub_ids)])
+            else:
+                cmd.append("--no-subtitles")
+
+        default_audio = state.get("default_audio")
+        has_external_audio = any(kind == "audio" for kind, _, _ in extra_inputs)
+        if (
+            not has_external_audio
+            and default_audio is not None
+            and default_audio in audio_keep
+            and default_audio < len(audio_tracks)
+        ):
+            cmd.extend(["--default-track-flag", f"{audio_tracks[default_audio]['id']}:1"])
+
+        intro_sub_count = any(kind == "intro_sub" for kind, _, _ in extra_inputs)
+        default_sub = state.get("default_sub")
+        if (
+            not intro_sub_count
+            and default_sub is not None
+            and default_sub in sub_keep
+            and default_sub < len(sub_tracks)
+        ):
+            cmd.extend(["--default-track-flag", f"{sub_tracks[default_sub]['id']}:1"])
+
+        cmd.append(input_path)
+
+        for kind, path, item in extra_inputs:
+            if kind == "audio":
+                if item and item.get("delay_ms"):
+                    cmd.extend(["--sync", f"0:{int(item['delay_ms'])}"])
+                lang = _normalize_language((item or {}).get("language", "und"))
+                title = str((item or {}).get("title") or (item or {}).get("name") or "External Audio")[:80]
+                cmd.extend([
+                    "--language", f"0:{lang}",
+                    "--track-name", f"0:{title}",
+                    "--default-track-flag", "0:1",
+                    path,
+                ])
+            elif kind == "intro_sub":
+                cmd.extend([
+                    "--track-name", "0:Intro",
+                    "--language", "0:eng",
+                    "--default-track-flag", "0:1",
+                    path,
+                ])
+            elif kind == "sub":
+                cmd.extend(["--language", "0:und", path])
+
+        LOGGER.info(
+            "Video Tool: attempting fast mkvmerge mux for %s",
+            ospath.basename(input_path),
+        )
+        res = await cmd_exec(cmd)
+        if res[2] == 0 and await aiopath.exists(output_path):
+            LOGGER.info("mkvmerge muxing successful: %s", output_path)
+            return True
+        LOGGER.warning(
+            "mkvmerge muxing failed (code %s): %s; falling back to FFmpeg",
+            res[2],
+            (res[1] or res[0] or "")[-500:],
+        )
+        if await aiopath.exists(output_path):
+            await remove(output_path)
+        return False
+    except Exception as e:
+        LOGGER.warning("mkvmerge muxing exception (%s), falling back to FFmpeg", e)
+        if await aiopath.exists(output_path):
+            await remove(output_path)
+        return False
+
+
 async def _execute_vt_pipeline(listener, input_path, state):
     """Run FFmpeg based on user selections from the VT UI."""
     await _refresh_external_tracks(state, input_path)
@@ -1383,15 +1579,33 @@ async def _execute_vt_pipeline(listener, input_path, state):
     ):
         return input_path
 
-    # Build FFmpeg mux command
+    # Build mux output target
     base_name = ospath.basename(input_path)
     stem, ext = ospath.splitext(base_name)
     output_ext = ".mkv" if extra_inputs else ext
     output_path = ospath.join(dir_path, f"vt_{stem}{output_ext}")
     await _send_track_merge_planner(listener, input_path, state, extra_inputs, output_path)
 
-    # taskset can reference host CPU IDs unavailable inside the container.
-    # Bounded FFmpeg threads below retain the resource limit without affinity.
+    # Try mkvmerge fast remux if input is MKV or output is MKV
+    if input_path.lower().endswith(".mkv") or output_ext == ".mkv":
+        mkv_success = await _try_mkvmerge_pipeline(
+            listener, input_path, output_path, state, extra_inputs
+        )
+        if mkv_success:
+            await remove(input_path)
+            for path in cleanup_paths:
+                if await aiopath.exists(path):
+                    await remove(path)
+            if output_ext == ext:
+                await rename(output_path, input_path)
+                return input_path
+            final_path = ospath.join(dir_path, f"{stem}{output_ext}")
+            if await aiopath.exists(final_path):
+                await remove(final_path)
+            await rename(output_path, final_path)
+            return final_path
+
+    # Fallback to FFmpeg mux command
     cmd = [
         BinConfig.FFMPEG_NAME,
         "-hide_banner", "-loglevel", "error",
@@ -1543,8 +1757,10 @@ async def _execute_vt_pipeline(listener, input_path, state):
             )
         async with ffmpeg_task(listener, "Video Tools mux"):
             listener.subproc = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+            stderr_task = create_task(listener.subproc.stderr.read())
             await ffmpeg._ffmpeg_progress()
-            _, stderr = await listener.subproc.communicate()
+            stderr = await stderr_task
+            await listener.subproc.wait()
         process = listener.subproc
 
         if process.returncode != 0:

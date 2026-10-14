@@ -13,7 +13,7 @@ from ..helper.telegram_helper.bot_commands import BotCommands
 from ..helper.telegram_helper.message_utils import send_message
 
 _batch_controllers = {}
-_batch_state_path = ospath.join(DOWNLOAD_DIR, "batch_task_plans.json")
+_batch_state_path = ospath.join("configs", "batch_task_plans.json")
 
 
 def _safe_int(value, default):
@@ -92,7 +92,7 @@ async def _read_state():
 
 
 async def _write_state(state):
-    await makedirs(DOWNLOAD_DIR, exist_ok=True)
+    await makedirs(ospath.dirname(_batch_state_path) or "configs", exist_ok=True)
     async with aiopen(_batch_state_path, "w", encoding="utf-8") as f:
         await f.write(json.dumps(state, indent=2, ensure_ascii=False, default=str))
 

@@ -128,21 +128,20 @@ UPLOAD_PRIVATE_DUMP_ONLY_DOMAINS = ""
 # balanced: lower parallelism.
 # safe: lowest CPU pressure.
 PERFORMANCE_PROFILE = "auto"
-FFMPEG_THREADS = 0  # 0 = auto from profile. Example: 2 or 3 for fixed low CPU.
+FFMPEG_THREADS = 2  # Fixed 2 threads for 2-vCPU VPS to prevent 100% CPU lockup
 FFMPEG_CPU_CORES = ""  # empty = auto. Example: "0,1" to pin FFmpeg.
 TG_COPY_DELAY = 0.15  # delay between sequential dump -> user copies.
 TG_FLOOD_WAIT_MULTIPLIER = 1.1
-MAX_PARALLEL_TASKS = 0  # 0 = safe profile decides (2 on a 2-vCPU/4-GB VPS)
+MAX_PARALLEL_TASKS = 2  # Safe 2 tasks max on 2-vCPU/4-GB RAM VPS
 SAFE_CPU_PERCENT = 88
-SAFE_FREE_RAM_MB = 768
+SAFE_FREE_RAM_MB = 600
 QUEUE_BYPASS_SIZE_GB = 1  # Known tasks below this size bypass slot limits; safety guards still apply. 0 disables.
 
-# Aria2 max-speed but safe defaults. Direct downloads use more connections,
-# while torrent upload bandwidth is capped so Telegram uploads stay fast.
-ARIA2_MAX_CONNECTION_PER_SERVER = 16
-ARIA2_SPLIT = 16
+# Aria2 optimized defaults for 2-vCPU / 4GB RAM VPS
+ARIA2_MAX_CONNECTION_PER_SERVER = 8
+ARIA2_SPLIT = 8
 ARIA2_MIN_SPLIT_SIZE = "1M"
-ARIA2_MAX_CONCURRENT_DOWNLOADS = 4
+ARIA2_MAX_CONCURRENT_DOWNLOADS = 2
 ARIA2_MAX_OVERALL_DOWNLOAD_LIMIT = "0"
 ARIA2_MAX_OVERALL_UPLOAD_LIMIT = "1M"
 QBIT_UPLOAD_LIMIT = 1048576

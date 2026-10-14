@@ -14,7 +14,7 @@ repair_packages() {
     log "Attempting package repair with apt-get."
     apt-get update
     apt-get install -y --no-install-recommends \
-        aria2 ffmpeg imagemagick mediainfo mktorrent qbittorrent-nox rclone sabnzbdplus
+        aria2 ffmpeg imagemagick mediainfo mktorrent mkvtoolnix qbittorrent-nox rclone sabnzbdplus
     rm -rf /var/lib/apt/lists/*
 }
 
@@ -39,6 +39,7 @@ main() {
     require_binary aria2c aria2
     require_binary qbittorrent-nox qbittorrent-nox
     require_binary ffmpeg ffmpeg
+    require_binary mkvmerge mkvtoolnix
     require_binary rclone rclone
     require_binary mktorrent mktorrent
     require_binary mediainfo mediainfo

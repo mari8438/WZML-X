@@ -13,6 +13,7 @@ bot_loop = new_event_loop()
 set_event_loop(bot_loop)
 
 from asyncio import sleep
+from html import escape
 from importlib import import_module
 from os import environ
 from re import compile as re_compile
@@ -728,6 +729,6 @@ async def qbittorrent_proxy(path: str = "", request: Request = None):
 @app.exception_handler(Exception)
 async def page_not_found(_, exc):
     return HTMLResponse(
-        f"<h1>404: Task not found! Mostly wrong input. <br><br>Error: {exc}</h1>",
+        f"<h1>404: Task not found! Mostly wrong input. <br><br>Error: {escape(str(exc))}</h1>",
         status_code=404,
     )

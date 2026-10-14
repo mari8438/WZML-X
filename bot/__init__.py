@@ -152,6 +152,8 @@ if not Config.WEB_ACCESS_PASSWORD:
     from secrets import token_hex
 
     Config.WEB_ACCESS_PASSWORD = token_hex(32)
+from os import environ
+environ["WEB_ACCESS_PASSWORD"] = Config.WEB_ACCESS_PASSWORD
 
 _sabnzbd_api_key = _sabnzbd_key()
 

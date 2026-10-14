@@ -20,7 +20,7 @@ def _safe_float(value, default=0.0):
 
 
 def get_performance_profile():
-    profile = str(getattr(Config, "PERFORMANCE_PROFILE", "max_speed") or "max_speed")
+    profile = str(getattr(Config, "PERFORMANCE_PROFILE", "auto") or "auto")
     profile = profile.strip().lower()
     if profile != "auto":
         return profile
@@ -41,7 +41,7 @@ def get_ffmpeg_threads():
 
     profile = get_performance_profile()
     if profile == "safe":
-        return 1
+        return min(2, cpu_total)
     if profile == "balanced":
         return max(1, min(2, cpu_total // 2 or 1))
     return max(1, min(3, cpu_total // 2 or 1))
@@ -96,7 +96,7 @@ def get_safe_cpu_percent():
 
 
 def get_safe_free_ram_mb():
-    return max(0, _safe_int(getattr(Config, "SAFE_FREE_RAM_MB", 512), 512))
+    return max(0, _safe_int(getattr(Config, "SAFE_FREE_RAM_MB", 600), 600))
 
 
 def resources_overloaded():
