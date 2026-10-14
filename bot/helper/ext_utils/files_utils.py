@@ -1,3 +1,7 @@
+import asyncio
+import os
+import shutil
+import time
 from aioshutil import rmtree as aiormtree, move
 from asyncio import create_subprocess_exec, sleep, wait_for
 from asyncio.subprocess import PIPE
@@ -595,3 +599,80 @@ class SevenZ:
                 stderr = "Unable to decode the error!"
             LOGGER.error(f"{stderr}. Unable to zip this path: {dl_path}")
             return dl_path
+
+
+SOFT_DISK_FLOOR_GB = 12.0
+HARD_DISK_FLOOR_GB = 5.0
+MAX_LOG_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+async def get_path_size_async(path: str) -> int:
+    """Non-blocking recursive directory size check for 2-vCPU event loop health."""
+    return await asyncio.to_thread(get_path_size, path)
+
+
+def _sync_emergency_nvme_purge(download_dir: str, active_paths: set[str] | None = None) -> int:
+    """Purge orphaned .temp.mkv/.part/.aria2 files (>30m), old thumbnails (>24h), and >10MB logs."""
+    active_paths = active_paths or set()
+    freed_bytes = 0
+    now = time.time()
+
+    if os.path.isdir(download_dir):
+        for root, _, files in os.walk(download_dir):
+            if any(os.path.abspath(root).startswith(os.path.abspath(ap)) for ap in active_paths):
+                continue
+            for f in files:
+                fp = os.path.join(root, f)
+                try:
+                    age = now - os.path.getmtime(fp)
+                    if f.endswith((".temp.mkv", ".repaired.mkv", ".part", ".aria2")) and age > 1800:
+                        sz = os.path.getsize(fp)
+                        os.remove(fp)
+                        freed_bytes += sz
+                except OSError:
+                    continue
+
+    for cache_dir, max_age in (("Thumbnails", 86400), ("temp", 3600)):
+        if os.path.isdir(cache_dir):
+            for f in os.listdir(cache_dir):
+                fp = os.path.join(cache_dir, f)
+                try:
+                    if os.path.isfile(fp) and (now - os.path.getmtime(fp)) > max_age:
+                        sz = os.path.getsize(fp)
+                        os.remove(fp)
+                        freed_bytes += sz
+                except OSError:
+                    continue
+
+    if os.path.isfile("log.txt"):
+        try:
+            log_sz = os.path.getsize("log.txt")
+            if log_sz > MAX_LOG_SIZE_BYTES:
+                with open("log.txt", "rb") as lf:
+                    lf.seek(-2 * 1024 * 1024, os.SEEK_END)
+                    tail = lf.read()
+                with open("log.txt", "wb") as lf:
+                    lf.write(tail)
+                freed_bytes += (log_sz - len(tail))
+        except OSError:
+            pass
+
+    return freed_bytes
+
+
+async def ensure_nvme_headroom(download_dir: str, required_bytes: int = 0, active_paths: set[str] | None = None) -> tuple[bool, float, int]:
+    """Verify NVMe free space and auto-purge orphans if below 5 GB floor."""
+    usage = await asyncio.to_thread(shutil.disk_usage, download_dir)
+    free_bytes = usage.free
+    free_gb = free_bytes / (1024 ** 3)
+    purged = 0
+    hard_floor_bytes = int(HARD_DISK_FLOOR_GB * (1024 ** 3))
+
+    if free_gb < HARD_DISK_FLOOR_GB or free_bytes < (required_bytes + hard_floor_bytes):
+        purged = await asyncio.to_thread(_sync_emergency_nvme_purge, download_dir, active_paths)
+        usage = await asyncio.to_thread(shutil.disk_usage, download_dir)
+        free_bytes = usage.free
+        free_gb = free_bytes / (1024 ** 3)
+
+    is_safe = free_bytes >= (required_bytes + hard_floor_bytes)
+    return is_safe, round(free_gb, 2), purged
