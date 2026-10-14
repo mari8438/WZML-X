@@ -1,9 +1,11 @@
 from asyncio import Lock
 from contextlib import asynccontextmanager
+import os
 from time import time
 
-from ... import LOGGER
+from ... import DOWNLOAD_DIR, LOGGER
 from ...core.config_manager import Config
+from .files_utils import ensure_nvme_headroom
 
 ffmpeg_lock = Lock()
 
@@ -28,10 +30,38 @@ async def _notify(listener, text):
 
 
 @asynccontextmanager
-async def ffmpeg_task(listener=None, label="FFmpeg task"):
+async def ffmpeg_task(
+    listener=None,
+    label="FFmpeg task",
+    input_size: int = 0,
+    input_path: str = "",
+    download_dir: str = "",
+    **kwargs,
+):
     if not _queue_enabled():
         yield
         return
+
+    req_size = input_size
+    if not req_size:
+        if input_path and os.path.isfile(input_path):
+            try:
+                req_size = os.path.getsize(input_path)
+            except OSError:
+                req_size = 0
+        elif listener:
+            req_size = getattr(listener, "subsize", 0) or getattr(listener, "size", 0) or 0
+
+    target_dir = download_dir
+    if not target_dir:
+        if input_path:
+            target_dir = os.path.dirname(input_path)
+        elif listener:
+            target_dir = getattr(listener, "dir", "")
+        if not target_dir:
+            target_dir = DOWNLOAD_DIR
+    if not os.path.exists(target_dir):
+        target_dir = "."
 
     start_wait = time()
     if ffmpeg_lock.locked():
@@ -45,6 +75,22 @@ async def ffmpeg_task(listener=None, label="FFmpeg task"):
                 LOGGER.info(f"FFmpeg task started - {label} after {waited:.1f}s wait")
             else:
                 LOGGER.info(f"FFmpeg task started - {label}")
+
+        is_safe, free_gb, purged = await ensure_nvme_headroom(
+            target_dir, required_bytes=int(req_size * 1.15) if req_size else 0
+        )
+        if purged > 0:
+            LOGGER.info(
+                f"NVMe Headroom check freed {purged / (1024**2):.1f} MB of orphaned files before {label}"
+            )
+        if not is_safe:
+            err_msg = (
+                f"Insufficient NVMe disk headroom ({free_gb:.2f} GB free) to safely run {label}"
+            )
+            LOGGER.error(err_msg)
+            await _notify(listener, f"⚠️ <b>Disk Space Warning:</b> {err_msg}")
+            raise RuntimeError(err_msg)
+
         try:
             yield
             if _queue_logs():
