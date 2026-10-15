@@ -732,6 +732,7 @@ async def _merge_batch(listener, root, batch):
     if await aiopath.exists(output):
         await remove(output)
 
+    copy_mode = await _compatible([item["path"] for item in batch])
     use_mkvmerge = copy_mode and all(
         item["path"].lower().endswith(".mkv") for item in batch
     )
