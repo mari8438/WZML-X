@@ -248,7 +248,17 @@ async def clean_download(opath):
     if await aiopath.exists(opath):
         LOGGER.info(f"Cleaning Download: {opath}")
         try:
-            await aiormtree(opath, ignore_errors=True)
+            if ospath.abspath(opath) == ospath.abspath(DOWNLOAD_DIR):
+                for entry in await listdir(opath):
+                    entry_path = ospath.join(opath, entry)
+                    if await aiopath.islink(entry_path) or await aiopath.isfile(entry_path):
+                        await remove(entry_path)
+                    elif await aiopath.isdir(entry_path):
+                        await aiormtree(entry_path, ignore_errors=True)
+            elif await aiopath.islink(opath) or await aiopath.isfile(opath):
+                await remove(opath)
+            else:
+                await aiormtree(opath, ignore_errors=True)
         except Exception as e:
             LOGGER.error(str(e))
 
@@ -256,7 +266,16 @@ async def clean_download(opath):
 async def clean_all():
     await TorrentManager.remove_all()
     LOGGER.info("Cleaning Download Directory")
-    await (await create_subprocess_exec("rm", "-rf", DOWNLOAD_DIR)).wait()
+    if await aiopath.exists(DOWNLOAD_DIR):
+        for entry in await listdir(DOWNLOAD_DIR):
+            entry_path = ospath.join(DOWNLOAD_DIR, entry)
+            try:
+                if await aiopath.islink(entry_path) or await aiopath.isfile(entry_path):
+                    await remove(entry_path)
+                elif await aiopath.isdir(entry_path):
+                    await aiormtree(entry_path, ignore_errors=True)
+            except Exception as e:
+                LOGGER.error(f"Error removing {entry_path}: {e}")
     await aiomakedirs(DOWNLOAD_DIR, exist_ok=True)
 
 

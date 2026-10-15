@@ -10,6 +10,7 @@ services:
     environment:
       TZ: Asia/Kolkata
       PYTHONUNBUFFERED: "1"
+      PYTHONWARNINGS: "ignore::SyntaxWarning"
       PORT: "8080"
     volumes:
       - ./config.py:/usr/src/app/config.py:ro
