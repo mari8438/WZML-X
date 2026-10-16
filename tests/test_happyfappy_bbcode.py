@@ -23,9 +23,9 @@ def test_happyfappy_template_structure():
     template = templates.get("happyfappy")
     assert template is not None, "happyfappy template should be defined"
     
-    # Check official presentation tags
-    for tag in ["[plot]", "[details]", "[info]", "[screens]"]:
-        assert tag in template, f"Template must contain Gazelle badge {tag}"
+    # Check styled section headers
+    for section in ["Synopsis", "Release Details", "Technical Specs", "Screenshots"]:
+        assert section in template, f"Template must contain section header {section}"
         
     # Check structure tags
     assert "[table=" in template

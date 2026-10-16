@@ -732,25 +732,24 @@ Contact Sheet: {contact_sheet_link}""",
 [center][url={thumbnail_page}][img]{thumbnail_link}[/img][/url][/center]
 [/td]
 [td=vat,68%]
-[plot]
+[bg=#1e2433,98%,left][bg=#00000000,96%][size=3][b][color=#93c5fd]▌ Synopsis[/color][/b][/size][/bg][/bg]
 {description}
 
-[details]
+[bg=#1e2433,98%,left][bg=#00000000,96%][size=3][b][color=#93c5fd]▌ Release Details[/color][/b][/size][/bg][/bg]
 [color=#f8fafc][b]Title:[/b][/color] {title}
 [color=#f8fafc][b]Genres / Tags:[/b][/color] {genres}
 
-[info]
+[bg=#1e2433,98%,left][bg=#00000000,96%][size=3][b][color=#93c5fd]▌ Technical Specs[/color][/b][/size][/bg][/bg]
 [code]{media_info}[/code]
 [/td]
 [/tr]
 [/table]
 
 [bg=#161b26,98%,center][bg=#00000000,96%,center]
-[center]
-[screens]
-[url={contact_sheet_page}][img]{contact_sheet_link}[/img][/url]
-[/center]
+[center][size=4][b][color=#93c5fd]▌ Screenshots[/color][/b][/size][/center]
 [/bg][/bg]
+
+[center][url={contact_sheet_page}][img]{contact_sheet_link}[/img][/url][/center]
 
 [center][size=2][color=#94a3b8][b]Direct Image Links:[/b] [url={thumbnail_link}]Cover[/url] | [url={contact_sheet_link}]Screenshots[/url][/color][/size][/center]
 [/color][/font]""",
