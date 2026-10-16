@@ -98,6 +98,7 @@ class YoutubeDLHelper:
             "writethumbnail": True,
             "trim_file_name": 220,
             "ffmpeg_location": f"/bin/{BinConfig.FFMPEG_NAME}",
+            "concurrent_fragment_downloads": 8,
             "fragment_retries": 10,
             "retries": 10,
             "retry_sleep_functions": {

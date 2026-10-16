@@ -129,8 +129,8 @@ class HyperTGDownload:
                 if key in self.cache_last_access:
                     del self.cache_last_access[key]
 
-    async def generate_media_session(self, client, file_id, index, max_retries=3):
-        session_key = (index, file_id.dc_id)
+    async def generate_media_session(self, client, file_id, index, part_index=0, max_retries=3):
+        session_key = (index, part_index, file_id.dc_id)
 
         if session_key in self.session_pool:
             return self.session_pool[session_key]
@@ -231,6 +231,7 @@ class HyperTGDownload:
         first_part_cut: int,
         last_part_cut: int,
         part_count: int,
+        part_index: int = 0,
         max_retries=5,
     ):
         index = min(self.work_loads, key=self.work_loads.get)
@@ -247,7 +248,7 @@ class HyperTGDownload:
 
                     file_id = await self.get_file_id(client, index)
                     media_session, location = await gather(
-                        self.generate_media_session(client, file_id, index),
+                        self.generate_media_session(client, file_id, index, part_index),
                         self.get_location(file_id),
                     )
 
@@ -347,7 +348,7 @@ class HyperTGDownload:
             try:
                 async with aiopen(part_file_path, "wb") as f:
                     async for chunk in self.get_file(
-                        offset, first_part_cut, last_part_cut, part_count
+                        offset, first_part_cut, last_part_cut, part_count, part_index
                     ):
                         if self._cancel_event.is_set():
                             raise CancelledError("Download cancelled")
@@ -432,6 +433,13 @@ class HyperTGDownload:
             for task in tasks:
                 if not task.done():
                     task.cancel()
+
+            for session in list(self.session_pool.values()):
+                try:
+                    await session.stop()
+                except Exception:
+                    pass
+            self.session_pool.clear()
 
             for i in range(len(ranges)):
                 part_path = ospath.join(

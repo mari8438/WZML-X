@@ -60,12 +60,12 @@ main() {
         --daemon=true \
         --file-allocation=falloc \
         --no-file-allocation-limit=64M \
-        --split=8 \
-        --max-connection-per-server=8 \
-        --max-concurrent-downloads=4 \
+        --split=16 \
+        --max-connection-per-server=16 \
+        --min-split-size=4M \
+        --max-concurrent-downloads=8 \
         --disk-cache=64M \
-        --bt-max-peers=64 \
-        --bt-request-peer-speed-limit=50K \
+        --bt-max-peers=128 \
         --save-session=configs/aria2.session \
         --input-file=configs/aria2.session || true
 

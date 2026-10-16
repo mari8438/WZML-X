@@ -109,21 +109,20 @@ class TelegramDownloadHelper:
                         download = await message.download(
                             file_name=path, progress=self._on_download_progress
                         )
-            elif getattr(getattr(message, message.media.value, None), "file_size", 0) >= 1024**3:
-                # Four independent MTProto ranges are a useful speed-up for large
-                # files while keeping temporary-file and session pressure modest
-                # enough for the safe 4 GB profile.
+            elif getattr(getattr(message, message.media.value, None), "file_size", 0) >= 10 * 1024 * 1024:
+                file_size = getattr(getattr(message, message.media.value, None), "file_size", 0)
                 source_client = getattr(message, "_client", None) or self._listener.client
+                parts = min(8, max(2, file_size // (25 * 1024 * 1024)))
                 try:
                     download = await HyperTGDownload(
-                        clients={0: source_client}, num_parts=4
+                        clients={0: source_client}, num_parts=parts
                     ).download_media(
                         message,
                         file_name=path,
                         progress=self._on_download_progress,
                     )
                 except Exception as e:
-                    LOGGER.warning(f"Large Telegram range download failed; using normal transfer: {e}")
+                    LOGGER.warning(f"Hyper Telegram range download failed; using normal transfer: {e}")
                     download = await message.download(
                         file_name=path, progress=self._on_download_progress
                     )
