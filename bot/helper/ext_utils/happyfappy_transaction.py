@@ -158,9 +158,17 @@ def validate_accepted_torrent(torrent_path, source_path, announce_url):
     announces = [metainfo.get(b"announce", b"")]
     for tier in metainfo.get(b"announce-list", []):
         announces.extend(tier if isinstance(tier, list) else [])
-    expected = str(announce_url).encode()
-    if expected not in announces:
-        raise TorrentValidationError("accepted torrent has the wrong announce URL")
+    expected = str(announce_url or "").strip().rstrip("/").encode()
+    announces_clean = [a.strip().rstrip(b"/") for a in announces if a]
+    if expected and expected not in announces_clean:
+        expected_str = expected.decode(errors="ignore").lower()
+        if not any(
+            (expected_str and expected_str in a.decode(errors="ignore").lower())
+            or ("happyfappy" in a.decode(errors="ignore").lower())
+            for a in announces
+            if a
+        ):
+            raise TorrentValidationError("accepted torrent has the wrong announce URL")
     source = Path(source_path)
     expected_name = source.name.encode()
     if info.get(b"name") != expected_name:

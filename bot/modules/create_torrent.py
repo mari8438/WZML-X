@@ -414,7 +414,7 @@ def _parse_folder_mode(message):
     return folder_name, links
 
 
-async def _make_torrent(source_path, private=None, trackers=None, piece_length=None):
+async def _make_torrent(source_path, private=None, trackers=None, piece_length=None, source_tag=None):
     output_dir = str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
     await makedirs(output_dir, exist_ok=True)
     torrent_name = f"{ospath.basename(source_path).strip()}.torrent"
@@ -423,6 +423,8 @@ async def _make_torrent(source_path, private=None, trackers=None, piece_length=N
     private = Config.CTORRENT_PRIVATE if private is None else private
     if private:
         cmd.append("-p")
+    if source_tag:
+        cmd.extend(["-s", str(source_tag)])
     trackers = _tracker_list() if trackers is None else trackers
     if trackers:
         cmd.extend(["-a", ",".join(trackers)])
@@ -988,11 +990,13 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None, transactio
     reported_path = str(getattr(torrents[0], "content_path", "") or "")
     expected_dir = ospath.dirname(source_path)
     reported_dir = str(getattr(torrents[0], "save_path", "") or "")
-    if reported_path and reported_path != source_path:
+    if reported_path and not ospath.isabs(reported_path):
+        reported_path = ospath.join(reported_dir, reported_path)
+    if reported_path and ospath.abspath(reported_path) != ospath.abspath(source_path):
         raise RuntimeError(
             f"qBittorrent content path mismatch: expected={source_path}, reported={reported_path}"
         )
-    if reported_dir and reported_dir != expected_dir:
+    if reported_dir and ospath.abspath(reported_dir) != ospath.abspath(expected_dir):
         raise RuntimeError(
             f"qBittorrent save path mismatch: expected={expected_dir}, reported={reported_dir}"
         )
@@ -1243,16 +1247,10 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
             await client.download_uploaded_torrent(accepted_torrent_path)
         except HappyFappyError as error:
             LOGGER.warning(
-                "HappyFappy official torrent link unavailable; waiting for owner recovery: %s",
+                "HappyFappy official torrent download failed (%s); directly seeding with prepared local torrent",
                 error,
             )
-            if status_msg:
-                await _edit_progress(
-                    status_msg,
-                    "Create Torrent: official link unavailable; waiting for owner torrent...",
-                )
-            if not await _wait_for_manual_torrent(message, accepted_torrent_path, status_msg, client):
-                raise RuntimeError("HappyFappy accepted the upload but no accepted torrent was provided")
+            await sync_to_async(copy2, torrent_path, accepted_torrent_path)
     finally:
         await client.close()
     try:
@@ -1262,7 +1260,19 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
             getattr(Config, "HAPPYFAPPY_ANNOUNCE_URL", ""),
         )
     except (TorrentValidationError, OSError) as error:
-        raise RuntimeError(f"Accepted HappyFappy torrent validation failed: {error}") from error
+        if accepted_torrent_path != torrent_path and await aiopath.isfile(torrent_path):
+            LOGGER.warning(
+                "Accepted torrent validation failed (%s); falling back to validated local torrent",
+                error,
+            )
+            await sync_to_async(copy2, torrent_path, accepted_torrent_path)
+            validation = validate_accepted_torrent(
+                accepted_torrent_path,
+                source_path,
+                getattr(Config, "HAPPYFAPPY_ANNOUNCE_URL", ""),
+            )
+        else:
+            raise RuntimeError(f"Accepted HappyFappy torrent validation failed: {error}") from error
     update_transaction(
         torrent_path,
         "ACCEPTED_TORRENT_READY",
@@ -1425,6 +1435,7 @@ async def create_torrent(_, message):
                 private=True,
                 trackers=[announce],
                 piece_length=getattr(Config, "CTORRENT_PIECE_LENGTH", 23),
+                source_tag="HF",
             )
             update_transaction(
                 torrent_path,

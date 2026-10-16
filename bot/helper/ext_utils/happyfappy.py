@@ -147,47 +147,56 @@ class HappyFappyClient:
         self._upload_html = response.text
         return parser.fields
 
-    def _capture_download_link(self, page, title=""):
+    def _capture_download_link(self, page, title="", torrent_id="", require_title=False):
         page = str(page or "").replace(r"\/", "/")
         matches = list(
             re.finditer(
-                r"/?torrents\.php\?[^\"'<>\s]+",
+                r"/?(?:torrents\.php\?[^\"'<>\s]+|download\.php\?[^\"'<>\s]+)",
                 page,
                 re.I,
             )
         )
         normalized_title = re.sub(r"\s+", " ", str(title or "")).strip().casefold()
+        title_tokens = [w for w in re.split(r"\W+", normalized_title) if len(w) >= 3]
         for match in matches:
-            window = page[max(0, match.start() - 5000) : match.end() + 5000]
-            plain = re.sub(r"<[^>]+>", " ", unescape(window))
-            plain = re.sub(r"\s+", " ", plain).casefold()
-            if normalized_title and normalized_title not in plain:
-                continue
             candidate = urljoin(f"{self.base_url}/", unescape(match.group(0)))
             parsed = urlsplit(candidate)
-            if (
-                parsed.scheme == "https"
+            is_dl = (
+                parsed.scheme in ("http", "https")
                 and parsed.netloc.lower().endswith("happyfappy.net")
-                and parsed.path.lower() == "/torrents.php"
-                and re.search(r"(?:^|&)action=download(?:&|$)", parsed.query, re.I)
-            ):
-                self.uploaded_torrent_url = candidate
-                return True
+                and (
+                    re.search(r"(?:^|&)action=download(?:&|$)", parsed.query, re.I)
+                    or parsed.path.lower().endswith("download.php")
+                )
+            )
+            if not is_dl:
+                continue
+            if torrent_id and not re.search(rf"(?:^|[?&])id={re.escape(str(torrent_id))}(?:&|$)", candidate):
+                continue
+            if require_title and normalized_title:
+                window = page[max(0, match.start() - 5000) : match.end() + 5000]
+                plain = re.sub(r"<[^>]+>", " ", unescape(window))
+                plain = re.sub(r"\s+", " ", plain).casefold()
+                if normalized_title not in plain and not any(t in plain for t in title_tokens):
+                    continue
+            self.uploaded_torrent_url = candidate
+            return True
         return False
 
     def _find_torrent_detail_url(self, page, title=""):
         page = str(page or "").replace(r"\/", "/")
         normalized_title = re.sub(r"\s+", " ", str(title or "")).strip().casefold()
+        title_tokens = [w for w in re.split(r"\W+", normalized_title) if len(w) >= 3]
         for match in re.finditer(r"/?torrents\.php\?[^\"'<>\s]*\bid=\d+[^\"'<>\s]*", page, re.I):
             window = page[max(0, match.start() - 5000) : match.end() + 5000]
             plain = re.sub(r"<[^>]+>", " ", unescape(window))
             plain = re.sub(r"\s+", " ", plain).casefold()
-            if normalized_title and normalized_title not in plain:
+            if normalized_title and normalized_title not in plain and not any(t in plain for t in title_tokens):
                 continue
             candidate = urljoin(f"{self.base_url}/", unescape(match.group(0)))
             parsed = urlsplit(candidate)
             if (
-                parsed.scheme == "https"
+                parsed.scheme in ("http", "https")
                 and parsed.netloc.lower().endswith("happyfappy.net")
                 and not re.search(r"(?:^|&)action=download(?:&|$)", parsed.query, re.I)
             ):
@@ -289,25 +298,61 @@ class HappyFappyClient:
                 f"(HTTP {response.status_code}, final URL {response.url}){suffix}"
             )
         self.upload_details["accepted"] = True
-        self._capture_download_link(response.text, title)
-        if not self.uploaded_torrent_url:
-            if not recent_text:
-                recent = await self.client.get(f"{self.base_url}/torrents.php")
-                recent.raise_for_status()
-                recent_text = recent.text
-            self._capture_download_link(recent_text, title)
-            if not self.uploaded_torrent_url:
-                detail_url = self._find_torrent_detail_url(recent.text, title)
-                if detail_url:
-                    detail = await self.client.get(detail_url)
-                    detail.raise_for_status()
-                    self._capture_download_link(detail.text, title)
-        self.upload_details["download_url"] = self.uploaded_torrent_url
-        id_match = re.search(r"(?:^|&)id=(\d+)(?:&|$)", self.uploaded_torrent_url)
+        torrent_id = ""
+        id_match = re.search(r"[?&]id=(\d+)", str(response.url))
         if not id_match:
             id_match = re.search(r"torrents\.php\?[^\"'<>\s]*\bid=(\d+)", response.text, re.I)
         if id_match:
-            self.upload_details["torrent_id"] = id_match.group(1)
+            torrent_id = id_match.group(1)
+            self.upload_details["torrent_id"] = torrent_id
+
+        # 1. Try upload response page directly
+        self._capture_download_link(response.text, title, torrent_id=torrent_id, require_title=False)
+
+        # 2. Try user's uploaded page (shows newest upload at the top)
+        if not self.uploaded_torrent_url:
+            try:
+                uploaded = await self.client.get(f"{self.base_url}/torrents.php?type=uploaded")
+                if uploaded.is_success:
+                    self._capture_download_link(uploaded.text, title, torrent_id=torrent_id, require_title=False)
+            except Exception:
+                pass
+
+        # 3. Try torrent details page directly if torrent_id is known
+        if not self.uploaded_torrent_url and torrent_id:
+            try:
+                detail = await self.client.get(f"{self.base_url}/torrents.php?id={torrent_id}")
+                if detail.is_success:
+                    self._capture_download_link(detail.text, title, torrent_id=torrent_id, require_title=False)
+            except Exception:
+                pass
+
+        # 4. Try recent torrents list
+        if not self.uploaded_torrent_url:
+            if not recent_text:
+                try:
+                    recent = await self.client.get(f"{self.base_url}/torrents.php")
+                    if recent.is_success:
+                        recent_text = recent.text
+                except Exception:
+                    pass
+            if recent_text:
+                self._capture_download_link(recent_text, title, torrent_id=torrent_id, require_title=True)
+                if not self.uploaded_torrent_url:
+                    detail_url = self._find_torrent_detail_url(recent_text, title)
+                    if detail_url:
+                        try:
+                            detail = await self.client.get(detail_url)
+                            if detail.is_success:
+                                self._capture_download_link(detail.text, title, require_title=False)
+                        except Exception:
+                            pass
+
+        self.upload_details["download_url"] = self.uploaded_torrent_url
+        if not self.upload_details.get("torrent_id") and self.uploaded_torrent_url:
+            id_match = re.search(r"[?&]id=(\d+)", self.uploaded_torrent_url)
+            if id_match:
+                self.upload_details["torrent_id"] = id_match.group(1)
         return str(response.url)
 
     async def download_uploaded_torrent(self, destination):
