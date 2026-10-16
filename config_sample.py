@@ -228,10 +228,6 @@ OWNER_HELPER_BOT_TOKENS = ""
 # Hyper Tg Downloader
 HELPER_TOKENS = ""
 
-# MegaAPI v4.30
-MEGA_EMAIL = ""
-MEGA_PASSWORD = ""
-
 # Disable Options
 DISABLE_TORRENTS = False
 DISABLE_LEECH = False
@@ -246,7 +242,6 @@ AUTHOR_URL = "https://t.me/WZML_X"
 
 # Task Limits
 DIRECT_LIMIT = 0
-MEGA_LIMIT = 0
 TORRENT_LIMIT = 0
 GD_DL_LIMIT = 0
 RC_DL_LIMIT = 0

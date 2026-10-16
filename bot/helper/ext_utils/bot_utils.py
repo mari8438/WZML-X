@@ -149,21 +149,6 @@ def bt_selection_buttons(id_):
     return buttons.build_menu(2)
 
 
-def mega_selection_buttons(id_):
-    pin = _selector_pin(id_)
-    gid = id_
-    buttons = ButtonMaker()
-    base = f"{Config.BASE_URL}/app/files?gid={id_}&type=mega"
-    if Config.WEB_PINCODE:
-        buttons.url_button("Select MEGA Files", base)
-        buttons.data_button("Pincode", f"sel pin {gid} {pin}")
-    else:
-        buttons.url_button("Select MEGA Files", f"{base}&pin={pin}")
-    buttons.data_button("Done Selecting", f"sel done {gid} {id_}")
-    buttons.data_button("Cancel", f"sel cancel {gid}")
-    return buttons.build_menu(2)
-
-
 def _selector_pin(gid):
     from hashlib import sha256
     from hmac import new as hmac_new

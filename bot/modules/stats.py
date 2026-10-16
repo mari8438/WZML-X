@@ -60,14 +60,7 @@ commands = {
     "aiohttp": (["uv", "pip", "show", "aiohttp"], r"Version: ([\d.]+)"),
     "pyrotgfork": (["uv", "pip", "show", "pyrotgfork"], r"Version: ([\d.]+)"),
     "gapi": (["uv", "pip", "show", "google-api-python-client"], r"Version: ([\d.]+)"),
-    "mega": (
-        [
-            "python3",
-            "-c",
-            "from mega import MegaApi; print(MegaApi('test').getVersion())",
-        ],
-        r"v?([\d.]+)",
-    ),
+    "mkvmerge": ([BinConfig.MKVMERGE_NAME, "-V"], r"mkvmerge v([\d.]+)"),
 }
 
 REPO_ROOT = str(Path(__file__).resolve().parents[2])
@@ -237,7 +230,7 @@ async def get_stats(event, key="home"):
 ┠ <b>Aiohttp:</b> v{ver.get("aiohttp", "N/A")}
 ┠ <b>PyroTgFork:</b> v{ver.get("pyrotgfork", "N/A")}
 ┠ <b>Google API:</b> v{ver.get("gapi", "N/A")}
-┖ <b>MegaSDK:</b> v{ver.get("mega", "N/A")}
+┖ <b>MKVToolNix:</b> v{ver.get("mkvmerge", "N/A")}
 """
     elif key == "tlimits":
         msg = f"""⌬ <b><i>Bot Task Limits :</i></b>
@@ -251,7 +244,6 @@ async def get_stats(event, key="home"):
 ┠ <b>NZB Limit :</b> {Config.NZB_LIMIT or "∞"} GB
 ┠ <b>YT-DLP Limit :</b> {Config.YTDLP_LIMIT or "∞"} GB
 ┠ <b>Playlist Limit :</b> {Config.PLAYLIST_LIMIT or "∞"}
-┠ <b>Mega Limit :</b> {Config.MEGA_LIMIT or "∞"} GB
 ┠ <b>Leech Limit :</b> {"∞" if Config.ALLOW_LARGE_LEECH else (Config.LEECH_LIMIT or "∞")} GB
 ┠ <b>Archive Limit :</b> {Config.ARCHIVE_LIMIT or "∞"} GB
 ┠ <b>Extract Limit :</b> {Config.EXTRACT_LIMIT or "∞"} GB
@@ -376,17 +368,6 @@ async def get_version_async(command, regex, timeout=5):
         return f"Exception: {str(e)}"
 
 
-async def retry_mega_version():
-    await sleep(60)
-    command, regex = commands["mega"]
-    version = await get_version_async(command, regex, timeout=10)
-    if version != "Timeout" and not version.startswith("Exception"):
-        bot_cache["eng_versions"]["mega"] = version
-        LOGGER.info(f"MegaSDK Version Fetched: {version}")
-    else:
-        LOGGER.warning(f"Failed to fetch MegaSDK Version: {version}")
-
-
 @new_task
 async def get_packages_version():
     tasks = [get_version_async(command, regex) for command, regex in commands.values()]
@@ -402,10 +383,5 @@ async def get_packages_version():
     else:
         last_commit = "No UPSTREAM_REPO"
     bot_cache["commit"] = last_commit
-
-    if bot_cache["eng_versions"]["mega"] in ["Timeout", "N/A"] or bot_cache[
-        "eng_versions"
-    ]["mega"].startswith("Exception"):
-        bot_loop.create_task(retry_mega_version())
 
     LOGGER.info("Fetched Package Versions!")

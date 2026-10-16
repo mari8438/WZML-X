@@ -16,7 +16,6 @@ from ..helper.ext_utils.exceptions import DirectDownloadLinkException
 from ..helper.ext_utils.links_utils import (
     is_gdrive_id,
     is_gdrive_link,
-    is_mega_link,
     is_magnet,
     is_rclone_path,
     is_telegram_link,
@@ -35,7 +34,6 @@ from ..helper.mirror_leech_utils.download_utils.direct_link_generator import (
 )
 from ..helper.mirror_leech_utils.download_utils.gd_download import add_gd_download
 from ..helper.mirror_leech_utils.download_utils.jd_download import add_jd_download
-from ..helper.mirror_leech_utils.download_utils.mega_download import add_mega_download
 from ..helper.mirror_leech_utils.download_utils.nzb_downloader import add_nzb
 from ..helper.mirror_leech_utils.download_utils.qbit_download import add_qb_torrent
 from ..helper.mirror_leech_utils.download_utils.rclone_download import (
@@ -425,7 +423,6 @@ class Mirror(TaskListener):
             and not is_rclone_path(self.link)
             and not is_gdrive_id(self.link)
             and not is_gdrive_link(self.link)
-            and not is_mega_link(self.link)
         ):
             await send_message(
                 self.message, COMMAND_USAGE["mirror"][0], COMMAND_USAGE["mirror"][1]
@@ -457,7 +454,6 @@ class Mirror(TaskListener):
             and not self.link.endswith(".torrent")
             and file_ is None
             and not is_gdrive_id(self.link)
-            and not is_mega_link(self.link)
         ):
             content_type = await get_content_type(self.link)
             if content_type is None or re_match(r"text/html|text/plain", content_type):
@@ -504,8 +500,6 @@ class Mirror(TaskListener):
             await add_rclone_download(self, f"{path}/")
         elif is_gdrive_link(self.link) or is_gdrive_id(self.link):
             await add_gd_download(self, path)
-        elif is_mega_link(self.link):
-            await add_mega_download(self, f"{path}/")
         else:
             ussr = args["-au"]
             pssw = args["-ap"]
@@ -583,7 +577,6 @@ async def auto_leech(client, message):
             or is_telegram_link(first_line)
             or is_gdrive_link(first_line)
             or is_gdrive_id(first_line)
-            or is_mega_link(first_line)
             or is_rclone_path(first_line)
             or await aiopath.exists(first_line)
         )

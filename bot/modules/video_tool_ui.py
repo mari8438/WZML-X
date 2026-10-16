@@ -73,24 +73,42 @@ def _track_text(track):
 
 
 async def render_merge_intake(vt_msg, state):
+    from ..helper.ext_utils.media_utils import format_duration_hms_ms
+
     task_id = state["task_id"]
     audio = state.get("external_audio", [])
     subtitles = state.get("external_sub", [])
+    video_dur = float(state.get("video_duration", 0) or 0)
+    video_hms = format_duration_hms_ms(video_dur) if video_dur else "Unknown"
+
     lines = [
-        "<b>Merge Tracks</b>",
+        "<b>✦ Merge Tracks • StarFallX ✦</b>",
+        "",
+        f"🎬 <b>Video Length:</b> <code>{video_hms}</code>",
+        f"🎵 <b>Tracks:</b> Audio: <b>{len(audio)}</b> | Subtitles: <b>{len(subtitles)}</b>",
         "",
         "Send audio, subtitle, or video files to this chat.",
         "Muxing starts only after Done.",
         "Selected new audio is placed first and used by Preview.",
-        f"Audio: <b>{len(audio)}</b> | Subtitles: <b>{len(subtitles)}</b>",
     ]
     rows = []
     for item in audio:
         selected = item["index"] in state.get("merge_audio", [])
+        track_dur = float(item.get("duration", 0) or 0)
+        track_hms = format_duration_hms_ms(track_dur) if track_dur else ""
+        diff_str = ""
+        if video_dur and track_dur:
+            diff_ms = int(round((video_dur - track_dur) * 1000))
+            diff_str = f" | {diff_ms:+d}ms"
+        lang_label = str(item.get("language") or "und").upper()
+        btn_label = f"{_selected_icon(selected)}A{item['index'] + 1}: {lang_label}"
+        if track_hms:
+            btn_label += f" ({track_hms[:8]})"
+        btn_label += f"{diff_str}"
         rows.append(
             [
                 InlineKeyboardButton(
-                    f"{_selected_icon(selected)}A{item['index'] + 1}: {item.get('language', 'und')} | {item.get('delay_ms', 0)} ms",
+                    btn_label,
                     callback_data=f"vt_mergecfg_{item['index']}_{task_id}",
                     style=_state_style(selected),
                 )
@@ -125,6 +143,8 @@ async def render_merge_audio_config(query, state, index):
 
 
 async def render_merge_audio_config_message(message, state, index):
+    from ..helper.ext_utils.media_utils import format_duration_hms_ms
+
     item = next(
         (entry for entry in state.get("external_audio", []) if entry["index"] == index),
         None,
@@ -133,12 +153,25 @@ async def render_merge_audio_config_message(message, state, index):
         return
     task_id = state["task_id"]
     selected = index in state.get("merge_audio", [])
+    video_dur = float(state.get("video_duration", 0) or 0)
+    track_dur = float(item.get("duration", 0) or 0)
+    video_hms = format_duration_hms_ms(video_dur) if video_dur else "Unknown"
+    track_hms = format_duration_hms_ms(track_dur) if track_dur else "Unknown"
+    if video_dur and track_dur:
+        diff_ms = int(round((video_dur - track_dur) * 1000))
+        diff_line = f"<code>{video_hms} - {track_hms} = {diff_ms:+d} ms</code>"
+    else:
+        diff_line = "<code>N/A</code>"
+
     text = (
         "<b>External Audio Settings</b>\n\n"
         f"<b>Track:</b> <code>{item['name']}</code>\n"
         f"<b>Language:</b> <code>{item.get('language', 'und')}</code>\n"
         f"<b>Delay:</b> <code>{item.get('delay_ms', 0)} ms</code>\n"
         f"<b>Title:</b> <code>{item.get('title', '')}</code>\n\n"
+        f"🎬 <b>Video Length:</b> <code>{video_hms}</code>\n"
+        f"🎵 <b>Track Length:</b> <code>{track_hms}</code>\n"
+        f"⚖️ <b>Diff (Video - Track):</b> {diff_line}\n\n"
         "Delay accepts signed integer milliseconds only."
     )
     rows = [
@@ -321,6 +354,13 @@ async def render_stream_list(query, state, action_key, title):
                 InlineKeyboardButton("\U0001F7E2 Continue", callback_data=f"vt_main_{task_id}", style=_btn_style(ButtonStyle.SUCCESS)),
             ]
         )
+    elif action_key in ("extract_audio", "extract_sub"):
+        markup.append(
+            [
+                InlineKeyboardButton("⚡ Extract Selected", callback_data=f"vt_done_{task_id}", style=_btn_style(ButtonStyle.SUCCESS)),
+                InlineKeyboardButton("Back", callback_data=f"vt_main_{task_id}"),
+            ]
+        )
     else:
         back = "vt_order_" + task_id if is_order else "vt_main_" + task_id
         markup.append([InlineKeyboardButton("Back", callback_data=back)])
@@ -328,6 +368,8 @@ async def render_stream_list(query, state, action_key, title):
     note = ""
     if action_key in ("keep_audio", "keep_sub") and state.get(action_key):
         note = f"\n\n<b>Keep only:</b> {len(state[action_key])} selected stream(s)."
+    elif action_key in ("extract_audio", "extract_sub") and state.get(action_key):
+        note = f"\n\n<b>Selected to extract:</b> {len(state[action_key])} stream(s)."
     elif is_order and state.get(action_key):
         note = f"\n\n<b>Order selected:</b> {len(state[action_key])} stream(s)."
     elif action_key in ("remove_audio", "remove_sub") and state.get(action_key):

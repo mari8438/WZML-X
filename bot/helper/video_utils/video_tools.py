@@ -274,6 +274,7 @@ def _base_state(task_id, filename, audio_tracks, sub_tracks, input_path=""):
         "preview_stale": True,
         "busy": False,
         "video_merge": False,
+        "video_duration": 0.0,
         "completed": False,
     }
 
@@ -315,10 +316,14 @@ async def _refresh_external_tracks(state, input_path):
                     {"index": len(external_sub), "name": name, "path": path}
                 )
 
+    from ..ext_utils.media_utils import get_exact_duration
+
     for item in external_audio:
         saved = saved_audio.get((item.get("path"), item.get("stream_index")))
         if saved:
             item.update(saved)
+        if "duration" not in item or not item.get("duration"):
+            item["duration"] = await get_exact_duration(item["path"])
     state["external_audio"] = external_audio
     state["external_sub"] = external_sub
     state["merge_audio"] = [
@@ -351,7 +356,7 @@ async def start_merge_track_intake(vt_msg, state):
     )
 
 
-def _external_audio_item(index, name, path, stream_index=0, language="und", title=""):
+def _external_audio_item(index, name, path, stream_index=0, language="und", title="", duration=0.0):
     return {
         "index": index,
         "name": name,
@@ -360,10 +365,13 @@ def _external_audio_item(index, name, path, stream_index=0, language="und", titl
         "language": language or "und",
         "title": title or ospath.splitext(name)[0],
         "delay_ms": 0,
+        "duration": duration,
     }
 
 
 async def _external_video_audio_items(video_path, start_index):
+    from ..ext_utils.media_utils import get_exact_duration
+    video_dur = await get_exact_duration(video_path)
     result = await cmd_exec(
         [
             "ffprobe", "-v", "error", "-select_streams", "a",
@@ -385,6 +393,7 @@ async def _external_video_audio_items(video_path, start_index):
                         audio_index,
                         tags.get("language", "und"),
                         tags.get("title", name),
+                        duration=video_dur,
                     )
                 )
     return items or [
@@ -392,6 +401,7 @@ async def _external_video_audio_items(video_path, start_index):
             start_index,
             f"Audio from {ospath.basename(video_path)}",
             video_path,
+            duration=video_dur,
         )
     ]
 
@@ -509,16 +519,13 @@ async def generate_merge_preview(state):
 
         duration = float((await get_media_info(input_path))[0] or 0)
         preview_duration = min(120, max(1, int(duration or 120)))
-        start = max(0, (duration - preview_duration) / 2) if duration else 0
+        start = max(0.0, (duration - preview_duration) / 2) if duration else 0.0
         if await aiopath.exists(preview_path):
             await remove(preview_path)
         legacy_preview = ospath.splitext(preview_path)[0] + ".mkv"
         if await aiopath.exists(legacy_preview):
             await remove(legacy_preview)
-        base_cmd = [
-            BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",
-            "-ss", f"{start:.3f}", "-i", input_path,
-        ]
+
         selected = [
             item
             for item in state.get("external_audio", [])
@@ -526,15 +533,24 @@ async def generate_merge_preview(state):
         ]
         if not selected:
             raise ValueError("Send and select a new audio track before creating a preview.")
+
+        base_cmd = [
+            BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", f"{start:.3f}", "-i", input_path,
+        ]
+
         for item in selected:
-            if item.get("delay_ms"):
-                base_cmd.extend(["-itsoffset", f"{int(item['delay_ms']) / 1000:.3f}"])
-            base_cmd.extend(["-ss", f"{start:.3f}", "-i", item["path"]])
-        mapping = ["-copyts", "-start_at_zero", "-map", "0:v:0"]
+            delay_sec = int(item.get("delay_ms", 0)) / 1000.0
+            audio_seek = max(0.0, start - delay_sec)
+            base_cmd.extend(["-ss", f"{audio_seek:.3f}", "-i", item["path"]])
+
+        # Input seeking resets presentation timestamps to 0 cleanly without -copyts
+        mapping = ["-map", "0:v:0"]
         for input_index, item in enumerate(selected, start=1):
             mapping.extend(["-map", f"{input_index}:a:{int(item.get('stream_index', 0))}?"])
         if not state.get("remove_original_audio"):
             mapping.extend(["-map", "0:a?"])
+
         metadata = []
         for output_index, item in enumerate(selected):
             metadata.extend(
@@ -547,50 +563,62 @@ async def generate_merge_preview(state):
             )
         if selected:
             metadata.extend(["-disposition:a", "0", "-disposition:a:0", "default"])
-        common_tail = [
-            "-t", str(preview_duration), "-c:v", "copy", "-c:a", "aac",
-            "-b:a", "192k", "-avoid_negative_ts", "make_zero",
-            "-movflags", "+faststart", preview_path,
-        ]
+
         streams = await get_streams(input_path)
         video_codec = next(
             (
                 str(stream.get("codec_name") or "").lower()
-                for stream in streams
+                for stream in (streams or [])
                 if stream.get("codec_type") == "video"
             ),
             "",
         )
         copy_compatible = video_codec in {"h264", "mpeg4"}
-        result = (
-            await cmd_exec(base_cmd + mapping + metadata + common_tail)
-            if copy_compatible
-            else ("", f"Video codec {video_codec or 'unknown'} requires conversion", 1)
-        )
+
+        result = (1, "Skip copy", 1)
+        if copy_compatible:
+            common_tail = [
+                "-t", str(preview_duration), "-c:v", "copy", "-c:a", "aac",
+                "-b:a", "192k", "-avoid_negative_ts", "make_zero",
+                "-movflags", "+faststart", preview_path,
+            ]
+            result = await cmd_exec(base_cmd + mapping + metadata + common_tail)
+
         preview_mode = "stream copy"
-        if result[2] != 0 or not await aiopath.isfile(preview_path):
+        valid = result[2] == 0 and await aiopath.isfile(preview_path) and (await aiopath.getsize(preview_path) > 0)
+        if not valid:
             if await aiopath.exists(preview_path):
                 await remove(preview_path)
             threads = max(1, min(4, get_ffmpeg_threads()))
             fallback_tail = [
-                "-t", str(preview_duration), "-c:v", "libx264", "-preset", "veryfast",
-                "-crf", "25", "-pix_fmt", "yuv420p", "-threads", str(threads),
+                "-t", str(preview_duration), "-c:v", "libx264", "-preset", "ultrafast",
+                "-crf", "26", "-pix_fmt", "yuv420p", "-threads", str(threads),
                 "-c:a", "aac", "-b:a", "160k", "-avoid_negative_ts", "make_zero",
                 "-movflags", "+faststart", preview_path,
             ]
             result = await cmd_exec(base_cmd + mapping + metadata + fallback_tail)
             preview_mode = "compatible transcode"
-        if result[2] != 0 or not await aiopath.isfile(preview_path):
+
+        if result[2] != 0 or not await aiopath.isfile(preview_path) or (await aiopath.getsize(preview_path) == 0):
             raise RuntimeError((result[1] or "FFmpeg could not create a compatible preview")[-700:])
+
         previous = state.get("preview_message")
         if previous:
             with suppress(Exception):
                 await previous.delete()
-        state["preview_message"] = await listener.message.reply_video(
-            preview_path,
-            caption=f"<b>{preview_duration}-second middle preview ({preview_mode})</b>",
-            supports_streaming=True,
-        )
+
+        try:
+            state["preview_message"] = await listener.message.reply_video(
+                preview_path,
+                caption=f"<b>{preview_duration}-second middle preview ({preview_mode})</b>",
+                supports_streaming=True,
+            )
+        except Exception as te:
+            LOGGER.warning(f"reply_video failed ({te}); falling back to reply_document")
+            state["preview_message"] = await listener.message.reply_document(
+                preview_path,
+                caption=f"<b>{preview_duration}-second middle preview ({preview_mode})</b>",
+            )
         state["preview_path"] = preview_path
         state["preview_stale"] = False
         return preview_path
@@ -617,9 +645,17 @@ async def video_tools_media_collector(client, message):
     if not downloaded:
         await send_message(message, "Video Tools: failed to download merge-track file.")
         return
+    from ..ext_utils.media_utils import get_exact_duration
+
     if ext in AUDIO_EXTENSIONS:
+        audio_dur = await get_exact_duration(downloaded)
         state["external_audio"].append(
-            _external_audio_item(len(state["external_audio"]), ospath.basename(downloaded), downloaded)
+            _external_audio_item(
+                len(state["external_audio"]),
+                ospath.basename(downloaded),
+                downloaded,
+                duration=audio_dur,
+            )
         )
         state["merge_audio"].append(len(state["external_audio"]) - 1)
         first_audio_index = len(state["external_audio"]) - 1
@@ -717,18 +753,24 @@ async def _create_intro_subtitle(listener, dir_path, video_path=None):
         listener.user_dict.get("INTRO_SUBTITLE_RANGES")
         or getattr(Config, "INTRO_SUBTITLE_RANGES", "")
     )
-    if configured_ranges and "00:01:20 - 00:01:25" in configured_ranges:
+    if configured_ranges and (
+        "00:01:20 - 00:01:25" in configured_ranges
+        or "00:00:00 - 00:00:05" in configured_ranges
+    ):
         configured_ranges = ""
     ranges = _parse_intro_ranges(configured_ranges)
-    # With no user override, place the intro at the start and every five
-    # minutes until the end of the actual video.  The old fixed range list
-    # silently stopped after 20 minutes and missed longer videos.
+    # Range covers full video length:
+    # 10 min gap for 1+ hour videos, 5 min gap for videos under 1 hour.
     if not configured_ranges and video_path:
         try:
-            from ..ext_utils.media_utils import get_media_info
+            from ..ext_utils.media_utils import get_exact_duration
 
-            video_duration = float((await get_media_info(video_path))[0] or 0)
-            gap = 5 * 60
+            video_duration = await get_exact_duration(video_path)
+            if video_duration <= 0:
+                from ..ext_utils.media_utils import get_media_info
+
+                video_duration = float((await get_media_info(video_path))[0] or 0)
+            gap = 10 * 60 if video_duration >= 3600 else 5 * 60
             ranges = [
                 (start, min(start + duration, video_duration))
                 for start in range(0, int(video_duration), gap)
@@ -916,10 +958,14 @@ async def process_video_tool(listener, up_path):
 
     # Probe the file
     audio_tracks, sub_tracks = await probe_streams(up_path)
+    from ..ext_utils.media_utils import get_exact_duration
+
+    video_dur = await get_exact_duration(up_path)
     task_id = str(listener.mid)
     state = _base_state(
         task_id, ospath.basename(up_path), audio_tracks, sub_tracks, up_path
     )
+    state["video_duration"] = video_dur
     await _refresh_external_tracks(state, up_path)
 
     if (
@@ -1278,6 +1324,7 @@ def _clone_state_for_path(source, filename, audio_tracks, sub_tracks, input_path
     state["intro_subtitle"] = bool(source.get("intro_subtitle"))
     state["intro_text_available"] = bool(source.get("intro_text_available"))
     state["external_dir"] = source.get("external_dir", "")
+    state["video_duration"] = float(source.get("video_duration", 0.0) or 0.0)
     return state
 
 
@@ -1628,7 +1675,6 @@ async def _execute_vt_pipeline(listener, input_path, state):
     )
 
     # Extract-only tasks return a small folder so the normal uploader sends only
-    # the extracted streams, not the original video.
     if has_extractions:
         extracted_paths, extract_dir = await _extract_streams(listener, input_path, state)
         if extract_only:
@@ -1636,7 +1682,11 @@ async def _execute_vt_pipeline(listener, input_path, state):
             if extracted_paths:
                 with suppress(Exception):
                     await remove(input_path)
-            return extract_dir
+                if len(extracted_paths) == 1:
+                    return extracted_paths[0]
+                return extract_dir
+            LOGGER.warning("All stream extractions failed; preserving original video")
+            return input_path
 
     dir_path = ospath.dirname(input_path)
     extra_inputs = []
@@ -1961,50 +2011,106 @@ def _extract_extension(track, kind):
     codec = str(track.get("codec") or track.get("codec_name") or "").lower()
     if kind == "audio":
         return {
-            "aac": ".aac",
+            "aac": ".m4a",
             "eac3": ".eac3",
             "ac3": ".ac3",
             "dts": ".dts",
+            "dts-hd": ".dts",
             "truehd": ".thd",
             "flac": ".flac",
             "opus": ".opus",
             "mp3": ".mp3",
             "vorbis": ".ogg",
-        }.get(codec, f".{codec or 'audio'}")
+            "alac": ".m4a",
+            "pcm_s16le": ".wav",
+            "pcm_s24le": ".wav",
+            "pcm_s32le": ".wav",
+            "pcm_u8": ".wav",
+        }.get(codec, f".{codec or 'mka'}")
     return {
         "subrip": ".srt",
+        "srt": ".srt",
         "ass": ".ass",
         "ssa": ".ass",
         "webvtt": ".vtt",
-    }.get(codec, f".{codec or 'sub'}")
+        "hdmv_pgs_subtitle": ".sup",
+        "pgs": ".sup",
+        "dvd_subtitle": ".sub",
+        "mov_text": ".srt",
+    }.get(codec, f".{codec or 'srt'}")
 
 
 async def _extract_single(input_path, track, out_path):
-    """Extract a single stream using FFmpeg."""
+    """Extract a single stream using native mkvextract or FFmpeg."""
     stream_index = track.get("stream_index", track.get("index"))
-    codec = str(track.get("codec") or track.get("codec_name") or "unknown")
+    codec = str(track.get("codec") or track.get("codec_name") or "unknown").lower()
+    ext = ospath.splitext(out_path)[1].lower()
     map_spec = f"0:{stream_index}"
     LOGGER.info(
         "VT extract stream: index=%s codec=%s ext=%s output=%s",
         stream_index,
         codec,
-        ospath.splitext(out_path)[1],
+        ext,
         out_path,
     )
-    cmd = [
-        "taskset",
-        "-c",
-        get_ffmpeg_cores(),
+
+    # 1. If source is MKV, try fast native mkvextract first
+    if input_path.lower().endswith(".mkv"):
+        try:
+            mkv_cmd = ["mkvextract", "tracks", input_path, f"{stream_index}:{out_path}"]
+            async with ffmpeg_task(label="Extract stream mkvextract"):
+                proc = await create_subprocess_exec(*mkv_cmd, stdout=PIPE, stderr=PIPE)
+                _, _ = await proc.communicate()
+            if proc.returncode == 0 and await aiopath.exists(out_path) and await aiopath.getsize(out_path) > 0:
+                LOGGER.info("VT extract via mkvextract succeeded: %s", out_path)
+                return True
+        except Exception as e:
+            LOGGER.debug("mkvextract not available or failed (%s); trying FFmpeg", e)
+        if await aiopath.exists(out_path):
+            with suppress(Exception):
+                await remove(out_path)
+
+    # 2. FFmpeg extraction with codec-appropriate arguments
+    threads = str(get_ffmpeg_threads())
+    base_ffmpeg = [
         BinConfig.FFMPEG_NAME,
-        "-y", "-i", input_path,
-        "-map", map_spec,
-        "-c", "copy",
-        "-threads", str(get_ffmpeg_threads()),
-        out_path,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        input_path,
+        "-map",
+        map_spec,
+        "-threads",
+        threads,
     ]
+
+    cmd_codec = []
+    if ext == ".srt":
+        cmd_codec = ["-c:s", "srt"]
+    elif ext == ".vtt":
+        cmd_codec = ["-c:s", "webvtt"]
+    elif ext == ".ass":
+        cmd_codec = ["-c:s", "copy"]
+    elif ext == ".sup":
+        cmd_codec = ["-c:s", "copy"]
+    elif ext == ".m4a":
+        if codec == "aac":
+            cmd_codec = ["-c:a", "copy"]
+        else:
+            cmd_codec = ["-c:a", "aac", "-b:a", "256k"]
+    elif ext in {".ac3", ".eac3", ".dts", ".flac", ".mp3", ".opus", ".ogg", ".thd"}:
+        cmd_codec = ["-c:a", "copy"]
+    else:
+        cmd_codec = ["-c", "copy"]
+
+    full_cmd = base_ffmpeg + cmd_codec + [out_path]
+
     async with ffmpeg_task(label="Extract stream"):
-        process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+        process = await create_subprocess_exec(*full_cmd, stdout=PIPE, stderr=PIPE)
         _, stderr = await process.communicate()
+
     LOGGER.info("VT extract stream return code: %s", process.returncode)
     valid_output = False
     if process.returncode == 0 and await aiopath.exists(out_path):
@@ -2012,10 +2118,44 @@ async def _extract_single(input_path, track, out_path):
             valid_output = await aiopath.getsize(out_path) > 0
         except Exception:
             valid_output = False
+
+    # 3. Fallback transcode if copy failed
     if not valid_output:
-        with suppress(Exception):
-            if await aiopath.exists(out_path):
+        if await aiopath.exists(out_path):
+            with suppress(Exception):
                 await remove(out_path)
+        LOGGER.info("Stream copy failed for %s (codec=%s), trying fallback conversion", map_spec, codec)
+        fallback_codec = []
+        if ext in {".m4a", ".aac"}:
+            fallback_codec = ["-c:a", "aac", "-b:a", "256k"]
+        elif ext == ".mp3":
+            fallback_codec = ["-c:a", "libmp3lame", "-q:a", "2"]
+        elif ext in {".opus", ".ogg"}:
+            fallback_codec = ["-c:a", "libopus", "-b:a", "160k"]
+        elif ext == ".wav":
+            fallback_codec = ["-c:a", "pcm_s16le"]
+        elif ext == ".flac":
+            fallback_codec = ["-c:a", "flac"]
+        elif ext == ".ass":
+            fallback_codec = ["-c:s", "ass"]
+        elif ext == ".srt":
+            fallback_codec = ["-c:s", "srt"]
+
+        if fallback_codec:
+            fallback_cmd = base_ffmpeg + fallback_codec + [out_path]
+            async with ffmpeg_task(label="Extract stream fallback"):
+                process2 = await create_subprocess_exec(*fallback_cmd, stdout=PIPE, stderr=PIPE)
+                _, stderr2 = await process2.communicate()
+            if process2.returncode == 0 and await aiopath.exists(out_path):
+                try:
+                    valid_output = await aiopath.getsize(out_path) > 0
+                except Exception:
+                    valid_output = False
+            if not valid_output and await aiopath.exists(out_path):
+                with suppress(Exception):
+                    await remove(out_path)
+
+    if not valid_output:
         LOGGER.warning(
             "Stream extraction failed for %s codec=%s rc=%s stderr=%s",
             map_spec,

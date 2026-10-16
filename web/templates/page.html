@@ -746,7 +746,7 @@
                 const newName = editNameInput.value.trim();
                 if (newName && newName !== node.name) {
                     const fullPath = getFullPath(node);
-            const endpoint = urlParams.type === 'mega' ? '/app/files/mega' : '/app/files/torrent';
+            const endpoint = '/app/files/torrent';
             const requestUrl = `${endpoint}?gid=${urlParams.gid}&pin=${pinInput.value}&mode=rename`;
                     const body = {
                         old_path: fullPath ? `${fullPath}/${node.name}` : node.name,
@@ -805,7 +805,7 @@
             modalBody.innerHTML = `<p>Submitting, ${checkedFilesEl.innerText} file(s)... </p>`;
             modalFooter.innerHTML = '';
             openModal();
-            const endpoint = urlParams.type === 'mega' ? '/app/files/mega' : '/app/files/torrent';
+            const endpoint = '/app/files/torrent';
             const requestUrl = `${endpoint}?gid=${urlParams.gid}&pin=${pinInput.value}&mode=selection`;
             fetch(requestUrl, { 'method': 'POST', 'body': JSON.stringify(files) }).then(response => {
                 if (reusableModal.style.display === 'block') {
@@ -844,7 +844,7 @@
                 openModal();
                 return false;
             }
-            const endpoint = urlParams.type === 'mega' ? '/app/files/mega' : '/app/files/torrent';
+            const endpoint = '/app/files/torrent';
             const requestUrl = `${endpoint}?gid=${urlParams.gid}&pin=${pinInput.value}&mode=get`;
             fetch(requestUrl).then(function (response) {
                 if (response.ok) {

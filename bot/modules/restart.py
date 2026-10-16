@@ -17,7 +17,6 @@ from ..core.tg_client import TgClient
 from ..core.torrent_manager import TorrentManager
 from ..helper.ext_utils.bot_utils import THREAD_POOL, new_task, resolve_command
 from ..helper.ext_utils.db_handler import database
-from ..helper.listeners.mega_listener import mega_cleanup
 from ..helper.telegram_helper import button_build
 from ..helper.telegram_helper.message_utils import (
     delete_message,
@@ -203,8 +202,6 @@ async def confirm_restart(_, query):
 
         if scheduler.running:
             scheduler.shutdown(wait=False)
-
-        await mega_cleanup()
 
         sabnzbd_task = None
         jd_task = None

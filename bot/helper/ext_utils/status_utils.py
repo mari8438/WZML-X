@@ -66,7 +66,7 @@ class EngineStatus:
         self.STATUS_GDAPI = f"Google-API v{ver.get('gapi', 'N/A')}"
         self.STATUS_QBIT = f"qBit v{ver.get('qBittorrent', 'N/A')}"
         self.STATUS_TGRAM = f"{Config.UPLOAD_ENGINE} v{Config.UPLOAD_ENGINE_VERSION}"
-        self.STATUS_MEGA = f"MegaCMD v{ver.get('mega', 'N/A')}"
+        self.STATUS_MKVMERGE = f"MKVToolNix v{ver.get('mkvmerge', 'N/A')}"
         self.STATUS_YTDLP = f"yt-dlp v{ver.get('yt-dlp', 'N/A')}"
         self.STATUS_FFMPEG = f"ffmpeg v{ver.get('ffmpeg', 'N/A')}"
         self.STATUS_7Z = f"7z v{ver.get('7z', 'N/A')}"

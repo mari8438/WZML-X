@@ -1,3 +1,5 @@
+from time import time
+
 from .... import LOGGER
 from ...ext_utils.status_utils import (
     get_readable_file_size,
@@ -16,11 +18,20 @@ class FFmpegStatus:
         self.engine = EngineStatus().STATUS_FFMPEG
 
     def speed(self):
-        if getattr(self._obj, "speed_raw", 0):
-            return f"{get_readable_file_size(self._obj.speed_raw)}/s"
-        if speed_text := getattr(self._obj, "_speed_text", ""):
-            return speed_text
-        return f"{get_readable_file_size(self._obj.speed_raw)}/s"
+        try:
+            if getattr(self._obj, "speed_raw", 0) and self._obj.speed_raw > 0:
+                return f"{get_readable_file_size(self._obj.speed_raw)}/s"
+            processed = getattr(self._obj, "processed_bytes", 0) or getattr(self._obj, "_processed_bytes", 0)
+            start = getattr(self._obj, "_start_time", 0) or getattr(self.listener, "_start_time", 0)
+            elapsed = time() - start if start else 0
+            if processed and elapsed > 0.5:
+                return f"{get_readable_file_size(processed / elapsed)}/s"
+            if speed_text := getattr(self._obj, "_speed_text", ""):
+                if "n/a" not in str(speed_text).lower():
+                    return str(speed_text)
+            return "0 B/s"
+        except Exception:
+            return "0 B/s"
 
     def processed_bytes(self):
         return get_readable_file_size(self._obj.processed_bytes)

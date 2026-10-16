@@ -10,7 +10,6 @@ from ..helper.ext_utils.links_utils import (
     is_gdrive_id,
     is_gdrive_link,
     is_magnet,
-    is_mega_link,
     is_rclone_path,
     is_telegram_link,
     is_url,
@@ -36,7 +35,6 @@ def _valid_link(value):
             or is_telegram_link(value)
             or is_gdrive_link(value)
             or is_gdrive_id(value)
-            or is_mega_link(value)
             or is_rclone_path(value)
         )
     )

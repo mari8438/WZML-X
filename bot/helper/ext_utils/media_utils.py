@@ -232,6 +232,65 @@ async def get_media_info(path, extra_info=False):
     return (0, "", "", "") if extra_info else (0, None, None)
 
 
+async def get_exact_duration(path: str) -> float:
+    """Return exact media duration in float seconds with millisecond precision."""
+    try:
+        result = await cmd_exec(
+            [
+                "ffprobe",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-print_format",
+                "json",
+                "-show_format",
+                "-show_streams",
+                path,
+            ]
+        )
+        if result[0] and result[2] == 0:
+            ffresult = json.loads(result[0])
+            fmt = ffresult.get("format") or {}
+            dur = fmt.get("duration")
+            if dur is not None:
+                try:
+                    val = float(dur)
+                    if val > 0:
+                        return val
+                except (ValueError, TypeError):
+                    pass
+            for stream in ffresult.get("streams", []):
+                s_dur = stream.get("duration")
+                if s_dur is not None:
+                    try:
+                        val = float(s_dur)
+                        if val > 0:
+                            return val
+                    except (ValueError, TypeError):
+                        pass
+    except Exception as e:
+        LOGGER.error(f"get_exact_duration error for {path}: {e}")
+    return 0.0
+
+
+def format_duration_hms_ms(seconds: float) -> str:
+    """Format seconds into HH:MM:SS.mmm with millisecond precision."""
+    try:
+        total_ms = int(round(float(seconds or 0) * 1000))
+    except (TypeError, ValueError):
+        total_ms = 0
+    if total_ms < 0:
+        total_ms = 0
+    ms = total_ms % 1000
+    total_s = total_ms // 1000
+    s = total_s % 60
+    total_m = total_s // 60
+    m = total_m % 60
+    h = total_m // 60
+    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+
+
+
 async def get_document_type(path):
     is_video, is_audio, is_image = False, False, False
     if (
@@ -616,44 +675,60 @@ class FFMpeg:
             if not line:
                 continue
             if "=" in line:
-                key, value = line.split("=", 1)
-                if value != "N/A":
-                    if key == "total_size":
-                        self._processed_bytes = int(value) + self._last_processed_bytes
-                        self._speed_raw = self._processed_bytes / (
-                            time() - self._start_time
-                        )
-                    elif key == "speed":
-                        self._speed_text = value
-                        self._time_rate = max(0.1, float(value.strip("x")))
-                    elif key == "out_time":
-                        self._processed_time = (
-                            time_to_seconds(value) + self._last_processed_time
-                        )
-                        try:
-                            self._progress_raw = (
-                                self._processed_time * 100
-                            ) / self._total_time
-                            if (
-                                hasattr(self._listener, "subsize")
-                                and self._listener.subsize
-                                and self._progress_raw > 0
-                            ):
-                                self._processed_bytes = int(
-                                    self._listener.subsize * (self._progress_raw / 100)
-                                )
-                            if (time() - self._start_time) > 0:
-                                self._speed_raw = self._processed_bytes / (
-                                    time() - self._start_time
-                                )
+                try:
+                    key, value = line.split("=", 1)
+                    val_str = value.strip()
+                    if val_str and val_str.upper() != "N/A":
+                        if key == "total_size":
+                            try:
+                                self._processed_bytes = int(val_str) + self._last_processed_bytes
+                                elapsed = max(0.1, time() - self._start_time)
+                                self._speed_raw = self._processed_bytes / elapsed
+                            except ValueError:
+                                pass
+                        elif key == "speed":
+                            self._speed_text = val_str
+                            try:
+                                rate_num = float(val_str.rstrip("x").strip())
+                                self._time_rate = max(0.1, rate_num)
+                            except ValueError:
+                                pass
+                        elif key in ("out_time", "out_time_ms"):
+                            if key == "out_time_ms":
+                                try:
+                                    self._processed_time = (int(val_str) / 1000000.0) + self._last_processed_time
+                                except ValueError:
+                                    pass
                             else:
-                                self._speed_raw = 0
-                            self._eta_raw = (
-                                self._total_time - self._processed_time
-                            ) / self._time_rate
-                        except ZeroDivisionError:
-                            self._progress_raw = 0
-                            self._eta_raw = 0
+                                self._processed_time = (
+                                    time_to_seconds(val_str) + self._last_processed_time
+                                )
+                            try:
+                                if self._total_time > 0:
+                                    self._progress_raw = (
+                                        self._processed_time * 100
+                                    ) / self._total_time
+                                if (
+                                    hasattr(self._listener, "subsize")
+                                    and self._listener.subsize
+                                    and self._progress_raw > 0
+                                ):
+                                    self._processed_bytes = int(
+                                        self._listener.subsize * (self._progress_raw / 100)
+                                    )
+                                elapsed = max(0.1, time() - self._start_time)
+                                if self._processed_bytes > 0:
+                                    self._speed_raw = self._processed_bytes / elapsed
+                                if self._total_time > 0:
+                                    self._eta_raw = max(
+                                        0,
+                                        (self._total_time - self._processed_time) / self._time_rate,
+                                    )
+                            except ZeroDivisionError:
+                                self._progress_raw = 0
+                                self._eta_raw = 0
+                except Exception:
+                    pass
             await sleep(0.05)
 
     async def ffmpeg_cmds(self, ffmpeg, f_path):
