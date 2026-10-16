@@ -721,25 +721,39 @@ Screenshots: {screenshots_link}""",
 
 Thumbnail: {thumbnail_link}
 Contact Sheet: {contact_sheet_link}""",
-    "happyfappy": """[center][b][size=5]{title}[/size][/b][/center]
+    "happyfappy": """[font=Tahoma][color=#cbd5e1]
+[bg=#161b26,98%,center][bg=#00000000,96%,center]
+[center][size=5][b][color=#93c5fd]{title}[/color][/b][/size][/center]
+[/bg][/bg]
 
-[center][img]{thumbnail_link}[/img][/center]
-
-[b]Description[/b]
+[table=98%,nball,vat,center,#141721]
+[tr]
+[td=vat,32%,nopad]
+[center][url={thumbnail_page}][img]{thumbnail_link}[/img][/url][/center]
+[/td]
+[td=vat,68%]
+[plot]
 {description}
 
-[b]Genres[/b]
-{genres}
+[details]
+[color=#f8fafc][b]Title:[/b][/color] {title}
+[color=#f8fafc][b]Genres / Tags:[/b][/color] {genres}
 
-[b]Media Information[/b]
+[info]
 [code]{media_info}[/code]
+[/td]
+[/tr]
+[/table]
 
-[center][b]Contact Sheet — {title}[/b][/center]
-[center][url={contact_sheet_link}][img]{contact_sheet_link}[/img][/url][/center]
+[bg=#161b26,98%,center][bg=#00000000,96%,center]
+[center]
+[screens]
+[url={contact_sheet_page}][img]{contact_sheet_link}[/img][/url]
+[/center]
+[/bg][/bg]
 
-[b]Image Links[/b]
-Cover: [url={thumbnail_link}]{thumbnail_link}[/url]
-Contact Sheet: [url={contact_sheet_link}]{contact_sheet_link}[/url]""",
+[center][size=2][color=#94a3b8][b]Direct Image Links:[/b] [url={thumbnail_link}]Cover[/url] | [url={contact_sheet_link}]Screenshots[/url][/color][/size][/center]
+[/color][/font]""",
 }
 
 
@@ -755,7 +769,7 @@ async def _load_bbcode_template(preset=None):
 async def _write_description(source_path, title, summary, image_links=None, template_preset=None):
     output_dir = str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
     media_info = _compact_media_info(summary)
-    description = await get_release_description(title)
+    description = summary.get("description") or await get_release_description(title)
     if not description or not str(description).strip():
         description = f"{title} is a video release with the media details listed below."
     template = await _load_bbcode_template(template_preset)
@@ -767,7 +781,9 @@ async def _write_description(source_path, title, summary, image_links=None, temp
         "media_info": media_info,
         "mediainfo": media_info,
         "thumbnail_link": image_links.get("thumbnail", ""),
+        "thumbnail_page": image_links.get("thumbnail_page") or image_links.get("thumbnail", ""),
         "contact_sheet_link": image_links.get("contact_sheet", ""),
+        "contact_sheet_page": image_links.get("contact_sheet_page") or image_links.get("contact_sheet", ""),
         "screenshots_link": image_links.get("contact_sheet", ""),
     }
     rendered = template
@@ -858,8 +874,10 @@ async def _send_artifacts(message, source_path, torrent_path, trackers, send=Tru
     ]
     summary["genres"] = genres
     summary["year"] = str(hstream_metadata.get("year") or "")
-    if hstream_description and genres:
-        hstream_description += f" Genres include {', '.join(genres)}."
+    if hstream_description:
+        if genres:
+            hstream_description += f" Genres include {', '.join(genres)}."
+        summary["description"] = hstream_description
     cover_path = await _download_image(
         hstream_metadata.get("portrait_url") or hstream_metadata.get("landscape_url"),
         ospath.join(ospath.dirname(source_path), f"{_safe_name(title, 'hstream')}.hstream-cover.jpg"),
@@ -884,7 +902,9 @@ async def _send_artifacts(message, source_path, torrent_path, trackers, send=Tru
             "media_info": _compact_media_info(summary),
             "mediainfo": _compact_media_info(summary),
             "thumbnail_link": (image_links or {}).get("thumbnail", ""),
+            "thumbnail_page": (image_links or {}).get("thumbnail_page") or (image_links or {}).get("thumbnail", ""),
             "contact_sheet_link": (image_links or {}).get("contact_sheet", ""),
+            "contact_sheet_page": (image_links or {}).get("contact_sheet_page") or (image_links or {}).get("contact_sheet", ""),
             "screenshots_link": (image_links or {}).get("contact_sheet", ""),
         }
         for key, value in values.items():
