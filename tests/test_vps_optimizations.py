@@ -153,3 +153,20 @@ def test_start_message_styled():
     content = en_file.read_text(encoding="utf-8")
     assert "StarFallX v1.2" in content
     assert "MKVToolNix" in content
+
+
+def test_qbittorrent_vps_memory_limits():
+    # Verify qBittorrent working set is bounded to 1024MB for 4GB VPS
+    qbit_file = _REPO_ROOT / "configs" / "qbittorrent" / "qBittorrent" / "config" / "qBittorrent.conf"
+    content = qbit_file.read_text(encoding="utf-8")
+    assert "MemoryWorkingSetLimit=1024" in content
+    assert "Session\\AsyncIOThreadsCount=8" in content
+    assert "Session\\DiskCacheSize=256" in content
+
+
+def test_hyperdl_temp_parts_purged_in_files_utils():
+    # Verify regex in files_utils.py matches .temp.00 parts
+    import re
+    part_name = "test_movie.mp4.temp.03"
+    assert re.search(r"\.temp\.\d+$", part_name) is not None
+

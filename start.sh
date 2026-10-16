@@ -49,25 +49,8 @@ main() {
         require_binary sabnzbdplus sabnzbdplus
     fi
 
-    mkdir -p downloads download-temp torrents/seeding thumbnails rclone logs configs
-    touch configs/aria2.session
-
-    log "Starting aria2c daemon with NVMe & 2-vCPU optimized flags."
-    aria2c \
-        --enable-rpc=true \
-        --rpc-listen-all=true \
-        --rpc-allow-origin-all=true \
-        --daemon=true \
-        --file-allocation=falloc \
-        --no-file-allocation-limit=64M \
-        --split=16 \
-        --max-connection-per-server=16 \
-        --min-split-size=4M \
-        --max-concurrent-downloads=8 \
-        --disk-cache=64M \
-        --bt-max-peers=128 \
-        --save-session=configs/aria2.session \
-        --input-file=configs/aria2.session || true
+    mkdir -p downloads download-temp torrents/seeding thumbnails rclone logs configs/ac
+    touch configs/ac/aria2.session
 
     log "Running repository update hook."
     python update.py

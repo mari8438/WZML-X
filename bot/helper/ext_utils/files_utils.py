@@ -644,14 +644,15 @@ def _sync_emergency_nvme_purge(download_dir: str, active_paths: set[str] | None 
                 fp = os.path.join(root, f)
                 try:
                     age = now - os.path.getmtime(fp)
-                    if f.endswith((".temp.mkv", ".repaired.mkv", ".part", ".aria2")) and age > 1800:
+                    is_temp = f.endswith((".temp.mkv", ".repaired.mkv", ".part", ".aria2")) or bool(re_search(r"\.temp\.\d+$", f))
+                    if is_temp and age > 1800:
                         sz = os.path.getsize(fp)
                         os.remove(fp)
                         freed_bytes += sz
                 except OSError:
                     continue
 
-    for cache_dir, max_age in (("Thumbnails", 86400), ("temp", 3600)):
+    for cache_dir, max_age in (("thumbnails", 86400), ("Thumbnails", 86400), ("temp", 3600)):
         if os.path.isdir(cache_dir):
             for f in os.listdir(cache_dir):
                 fp = os.path.join(cache_dir, f)

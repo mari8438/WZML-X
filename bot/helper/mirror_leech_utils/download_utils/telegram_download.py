@@ -126,6 +126,11 @@ class TelegramDownloadHelper:
                     download = await message.download(
                         file_name=path, progress=self._on_download_progress
                     )
+                if download is None and not self._listener.is_cancelled:
+                    LOGGER.warning("Hyper Telegram range download returned None; falling back to normal transfer")
+                    download = await message.download(
+                        file_name=path, progress=self._on_download_progress
+                    )
             else:
                 download = await message.download(
                     file_name=path, progress=self._on_download_progress

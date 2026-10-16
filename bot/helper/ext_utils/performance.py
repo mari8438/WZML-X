@@ -154,14 +154,11 @@ def resources_overloaded():
     ram_limit_mb = get_safe_free_ram_mb()
     reasons = []
 
-    if cpu_limit:
-        used_cpu = cpu_percent(interval=0.1)
-        if used_cpu >= cpu_limit:
-            reasons.append(f"CPU {used_cpu:.1f}% >= {cpu_limit}%")
+    telem = get_smoothed_telemetry()
+    if cpu_limit and telem["cpu_percent"] >= cpu_limit:
+        reasons.append(f"CPU {telem['cpu_percent']:.1f}% >= {cpu_limit}%")
 
-    if ram_limit_mb:
-        free_ram_mb = virtual_memory().available // (1024 * 1024)
-        if free_ram_mb <= ram_limit_mb:
-            reasons.append(f"free RAM {free_ram_mb}MB <= {ram_limit_mb}MB")
+    if ram_limit_mb and telem["avail_ram_mb"] <= ram_limit_mb:
+        reasons.append(f"free RAM {int(telem['avail_ram_mb'])}MB <= {ram_limit_mb}MB")
 
     return bool(reasons), ", ".join(reasons)
