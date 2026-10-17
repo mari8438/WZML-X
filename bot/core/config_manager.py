@@ -238,7 +238,7 @@ class Config:
     CTORRENT_BBCODE_TEMPLATE = "anime_release"
     CTORRENT_BBCODE_TEMPLATE_PATH = ""
     HAPPYFAPPY_URL = "https://www.happyfappy.net"
-    HAPPYFAPPY_ANNOUNCE_URL = ""
+    HAPPYFAPPY_ANNOUNCE_URL = "https://tracker.happyfappy.net:2053/3at4w4xvnh6n651507c0vrnx14yu5hmn/announce"
     HAPPYFAPPY_USERNAME = ""
     HAPPYFAPPY_PASSWORD = ""
     HAPPYFAPPY_COOKIE = ""
