@@ -7,7 +7,7 @@ from re import sub as re_sub
 from shlex import split as shlex_split
 from shutil import copy2
 from asyncio import Event, create_subprocess_exec, gather, sleep, wait_for
-from asyncio.subprocess import PIPE
+from asyncio.subprocess import PIPE, STDOUT
 from io import BytesIO
 from time import time
 from urllib.parse import unquote, urlsplit
@@ -329,7 +329,7 @@ async def _download_hstream_link(link, out_dir, status_msg, message):
         "--referer", link, "--merge-output-format", "mkv",
         "-f", "bv*+ba/b", "-o", output, stream_url,
         stdout=PIPE,
-        stderr=PIPE,
+        stderr=STDOUT,
     )
     last_update = 0
     while line := await process.stdout.readline():
@@ -1673,9 +1673,9 @@ async def _download_pack_link(link, out_dir, status_msg, message, item_index=1, 
                     "yt-dlp", "--newline", "--no-playlist", "--no-check-certificates",
                     "--referer", link, "--merge-output-format", "mkv",
                     "-f", "bv*+ba/b", "-o", output, stream.urls[0],
-                    stdout=PIPE, stderr=PIPE,
+                    stdout=PIPE, stderr=STDOUT,
                 )
-                await process.wait()
+                await process.communicate()
                 if await aiopath.exists(output) and (await aiopath.getsize(output)) > 0:
                     metadata_path = f"{output}.hstream.json"
                     with open(metadata_path, "w", encoding="utf-8") as metadata_file:
@@ -1755,13 +1755,32 @@ async def _collect_hstream_pack_auto(message, folder_path, folder_name, status_m
                 stream_url = stream.urls[0]
                 cmd = [
                     "yt-dlp", "--newline", "--no-playlist", "--no-check-certificates",
+                    "--progress-template", "download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._total_bytes_str)s",
                     "--referer", item.url, "--merge-output-format", "mkv",
                     "-f", "bv*+ba/b", "-o", output_file,
                 ]
                 if ospath.isfile("cookies.txt"):
                     cmd.extend(("--cookies", "cookies.txt"))
                 cmd.append(stream_url)
-                process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+                process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=STDOUT)
+                last_update = 0
+                while line := await process.stdout.readline():
+                    text = line.decode(errors="ignore").strip()
+                    if not text.startswith("download:"):
+                        continue
+                    fields = text.removeprefix("download:").split("|", 3)
+                    if len(fields) != 4 or time() - last_update < 5:
+                        continue
+                    percent, speed, eta, total = fields
+                    last_update = time()
+                    await _edit_progress(
+                        status_msg,
+                        f"Create Torrent: downloading episode for {folder_name}...",
+                        extra=f"🎬 <code>{escape(safe_title)}</code>\n"
+                              f"🎞 Quality: <code>{escape(stream.label or stream.resolution)}</code>\n"
+                              f"📊 Pack Size: <code>{get_readable_file_size(current_size)} / {get_readable_file_size(min_size_bytes)}</code>\n"
+                              f"⏬ Progress: <code>{escape(percent)}</code> | {escape(speed)} | ETA: {escape(eta)}",
+                    )
                 await process.wait()
                 if not (await aiopath.isfile(output_file)) or (await aiopath.getsize(output_file)) == 0:
                     LOGGER.warning("yt-dlp download failed for %s", item.slug)
