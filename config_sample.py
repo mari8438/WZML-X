@@ -433,3 +433,19 @@ SEARCH_PLUGINS = [
     "https://raw.githubusercontent.com/msagca/qbittorrent_plugins/main/uniondht.py",
     "https://raw.githubusercontent.com/khensolomon/leyts/master/yts.py",
 ]
+
+# HappyFappy Publishing
+HAPPYFAPPY_URL = "https://www.happyfappy.net"
+HAPPYFAPPY_ANNOUNCE_URL = ""
+HAPPYFAPPY_USERNAME = ""
+HAPPYFAPPY_PASSWORD = ""
+HAPPYFAPPY_COOKIE = ""  # Paste daily changing cookie string directly, e.g. "sid=...; cid=..."
+HAPPYFAPPY_COOKIE_FILE = "secrets/happyfappy.cookies.txt"  # Optional file path fallback
+HAPPYFAPPY_CATEGORY = ""
+HAPPYFAPPY_TAGS = ""
+HAPPYFAPPY_IMAGE_HOST = "pixhost"
+HAPPYFAPPY_ANONYMOUS = False
+HAPPYFAPPY_AUTO_UPLOAD = False
+HAPPYFAPPY_SKIP_DUPE = True
+HAPPYFAPPY_DELETE_SOURCE_ON_FAILURE = False
+

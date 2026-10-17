@@ -53,12 +53,14 @@ async def upload_image_details(path, content_type=1, max_th_size=500, client=Non
         raise PixhostError(f"Image exceeds the Pixhost 10 MB limit: {ospath.basename(path)}")
     owns_client = client is None
     client = client or AsyncClient(timeout=120)
+    ext = ospath.splitext(path)[1].lower()
+    mime_type = "image/webp" if ext == ".webp" else ("image/png" if ext == ".png" else "image/jpeg")
     try:
         with open(path, "rb") as image:
             response = await client.post(
                 f"{PIXHOST_API}/images",
                 headers={"Accept": "application/json"},
-                files={"img": (ospath.basename(path), image, "image/jpeg")},
+                files={"img": (ospath.basename(path), image, mime_type)},
                 data={
                     "content_type": str(int(content_type)),
                     "max_th_size": str(max(150, min(int(max_th_size), 500))),
@@ -67,9 +69,11 @@ async def upload_image_details(path, content_type=1, max_th_size=500, client=Non
             )
         response.raise_for_status()
         payload = response.json()
+        th = validate_pixhost_url(payload.get("th_url"))
+        show = payload.get("show_url")
         return {
-            "thumbnail": validate_pixhost_url(payload.get("th_url")),
-            "page": validate_pixhost_page_url(payload.get("show_url")),
+            "thumbnail": th,
+            "page": validate_pixhost_page_url(show) if show else th,
         }
     except PixhostError:
         raise

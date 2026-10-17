@@ -30,32 +30,71 @@ class HappyFappyError(RuntimeError):
     pass
 
 
-def _cookie_file(path):
+def _parse_cookies(source):
     cookies = {}
-    if not path or not ospath.isfile(path):
+    if not source:
         return cookies
-    try:
-        with open(path, encoding="utf-8", errors="ignore") as cookie_file:
-            for raw_line in cookie_file:
-                line = raw_line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.split("\t")
-                if len(parts) >= 7:
-                    domain, name, value = parts[0].lower(), parts[5], parts[6]
-                    if "happyfappy.net" in domain:
-                        cookies[name] = value
-                elif line.startswith("{"):
-                    cookie_file.seek(0)
-                    payload = json_load(cookie_file)
-                    for item in payload if isinstance(payload, list) else []:
-                        domain = str(item.get("domain", "")).lower()
-                        if "happyfappy.net" in domain and item.get("name"):
-                            cookies[item["name"]] = item.get("value", "")
-                    break
-    except (OSError, TypeError, ValueError):
+    text = ""
+    if isinstance(source, dict):
+        return {str(k): str(v) for k, v in source.items()}
+    if isinstance(source, str):
+        source_str = source.strip()
+        if ospath.isfile(source_str):
+            try:
+                with open(source_str, encoding="utf-8", errors="ignore") as f:
+                    text = f.read()
+            except OSError:
+                return {}
+        else:
+            text = source_str
+    else:
         return {}
+
+    if not text:
+        return cookies
+
+    text = text.strip()
+    # Check JSON
+    if text.startswith(("{", "[")):
+        try:
+            payload = json_loads(text)
+            if isinstance(payload, dict):
+                return {str(k): str(v) for k, v in payload.items()}
+            elif isinstance(payload, list):
+                for item in payload:
+                    if isinstance(item, dict) and item.get("name"):
+                        domain = str(item.get("domain", "")).lower()
+                        if not domain or "happyfappy.net" in domain:
+                            cookies[str(item["name"])] = str(item.get("value", ""))
+                return cookies
+        except Exception:
+            pass
+
+    # Check Netscape format (tab-separated lines)
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 7:
+            domain, name, value = parts[0].lower(), parts[5], parts[6]
+            if not domain or "happyfappy.net" in domain:
+                cookies[name] = value
+
+    if cookies:
+        return cookies
+
+    # Check key=value format (semicolon, newline, or space separated, e.g. "sid=XYZ; cid=ABC")
+    for match in re.finditer(r"([a-zA-Z0-9_\-\.]+)\s*=\s*([^;\r\n]+)", text):
+        name = match.group(1).strip()
+        value = match.group(2).strip()
+        if name and value:
+            cookies[name] = value
+
     return cookies
+
+
+_cookie_file = _parse_cookies
 
 
 class HappyFappyClient:
@@ -66,7 +105,7 @@ class HappyFappyClient:
         self.client = AsyncClient(
             timeout=timeout,
             follow_redirects=True,
-            cookies=_cookie_file(cookie_file),
+            cookies=_parse_cookies(cookie_file),
             headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36"},
         )
         self.uploaded_torrent_url = ""

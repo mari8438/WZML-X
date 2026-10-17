@@ -1,4 +1,5 @@
 from html import escape
+from contextlib import suppress
 import re
 from json import dump, load
 from os import path as ospath
@@ -804,8 +805,65 @@ def _read_hstream_metadata(source_path):
         return {}
 
 
+async def _create_preview_webp(source_path, title, duration=10, output_dir=None):
+    output_dir = output_dir or str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
+    await makedirs(output_dir, exist_ok=True)
+    output = await _unique_path(output_dir, f"{_safe_name(title, 'preview')}.preview.webp")
+    total_duration = (await get_media_info(source_path))[0] or 0
+    preview_duration = min(duration, max(1, int(total_duration))) if total_duration else duration
+    if total_duration and total_duration > (preview_duration + 10):
+        start = min(total_duration * 0.25, max(0.0, total_duration - preview_duration - 5.0))
+    else:
+        start = 0.0
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", f"{start:.2f}",
+        "-t", str(preview_duration),
+        "-i", source_path,
+        "-vf", "fps=12,scale=400:-1:flags=lanczos",
+        "-vcodec", "libwebp",
+        "-lossless", "0",
+        "-compression_level", "4",
+        "-qscale", "70",
+        "-loop", "0",
+        "-an",
+        output,
+    ]
+    result = await cmd_exec(cmd)
+    if result[2] != 0 or not await aiopath.isfile(output) or (await aiopath.getsize(output) == 0):
+        LOGGER.warning("FFmpeg animated WebP generation failed: %s", (result[1] or "")[:300])
+        return ""
+
+    file_size = await aiopath.getsize(output)
+    if file_size > 9.5 * 1024 * 1024:
+        LOGGER.warning("Preview WebP exceeds 9.5MB (%d bytes), re-encoding with optimized profile", file_size)
+        fallback_output = await _unique_path(output_dir, f"{_safe_name(title, 'preview')}.opt.webp")
+        re_cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{start:.2f}",
+            "-t", str(preview_duration),
+            "-i", source_path,
+            "-vf", "fps=10,scale=360:-1:flags=lanczos",
+            "-vcodec", "libwebp",
+            "-lossless", "0",
+            "-compression_level", "4",
+            "-qscale", "60",
+            "-loop", "0",
+            "-an",
+            fallback_output,
+        ]
+        re_result = await cmd_exec(re_cmd)
+        if re_result[2] == 0 and await aiopath.isfile(fallback_output) and (await aiopath.getsize(fallback_output) > 0):
+            with suppress(OSError):
+                await aioremove(output)
+            output = fallback_output
+
+    return output
+
+
 async def _create_hstream_contact_sheet(metadata, title, output_dir):
-    urls = [str(url).strip() for url in metadata.get("sample_urls", [])[:12] if str(url).strip()]
+    urls = [str(url).strip() for url in metadata.get("sample_urls", []) if str(url).strip()]
     if not urls:
         return ""
     sample_dir = await _unique_path(output_dir, f"{_safe_name(title, 'hstream')}_samples")
@@ -829,12 +887,26 @@ async def _create_hstream_contact_sheet(metadata, title, output_dir):
                 return ""
 
         screenshots = [item for item in await gather(*(fetch(i, url) for i, url in enumerate(urls))) if item]
-    if len(screenshots) < 12:
+    if not screenshots:
         return ""
+
+    if len(screenshots) < 12:
+        selected = []
+        while len(selected) < 12:
+            for s in screenshots:
+                selected.append(s)
+                if len(selected) == 12:
+                    break
+    elif len(screenshots) == 12:
+        selected = screenshots
+    else:
+        indices = [round(i * (len(screenshots) - 1) / 11) for i in range(12)]
+        selected = [screenshots[i] for i in indices]
+
     output = await _unique_path(output_dir, f"{_safe_name(title, 'hstream')}_12screens.jpg")
     cols, rows, cell_w, cell_h, gap = 4, 3, 320, 180, 10
     canvas = Image.new("RGB", (cols * cell_w + (cols + 1) * gap, rows * cell_h + (rows + 1) * gap), "#101218")
-    for index, screenshot in enumerate(screenshots[:12]):
+    for index, screenshot in enumerate(selected):
         with Image.open(screenshot) as image:
             image = ImageOps.contain(image.convert("RGB"), (cell_w, cell_h), Image.Resampling.LANCZOS)
             frame = Image.new("RGB", (cell_w, cell_h), "#000000")
@@ -881,15 +953,20 @@ async def _send_artifacts(message, source_path, torrent_path, trackers, send=Tru
         hstream_metadata.get("portrait_url") or hstream_metadata.get("landscape_url"),
         ospath.join(ospath.dirname(source_path), f"{_safe_name(title, 'hstream')}.hstream-cover.jpg"),
     )
-    thumb = cover_path or await get_video_thumbnail(source_path, None)
+    preview_cover = ""
+    if template_preset == "happyfappy":
+        preview_cover = await _create_preview_webp(source_path, title)
+    thumb = preview_cover or cover_path or await get_video_thumbnail(source_path, None)
     if hstream_metadata.get("sample_urls"):
         sheet = await _create_hstream_contact_sheet(
             hstream_metadata, title, str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
         )
-        if not sheet:
-            raise RuntimeError("Could not create the required 12-image HStream contact sheet")
     else:
+        sheet = ""
+    if not sheet:
         sheet = await _create_contact_sheet_with_header(source_path, summary, title)
+    if not sheet:
+        raise RuntimeError("Could not create contact sheet for release")
     desc_path = await _write_description(source_path, title, summary, image_links, template_preset)
     if hstream_description:
         template = await _load_bbcode_template(template_preset)
@@ -912,12 +989,14 @@ async def _send_artifacts(message, source_path, torrent_path, trackers, send=Tru
             await desc_file.write(rendered.rstrip() + "\n")
 
     if send and thumb:
-        await send_file(message, thumb, "HD video thumbnail")
+        thumb_caption = "10-second animated preview cover (.webp)" if thumb.lower().endswith(".webp") else "HD video thumbnail"
+        await send_file(message, thumb, thumb_caption)
     elif send:
         await send_message(message, "Create Torrent: HD thumbnail failed, continuing.")
 
     if send and sheet:
-        await send_file(message, sheet, "15 screenshot contact sheet")
+        sheet_caption = "12 screenshot contact sheet" if "_12screens" in sheet else "15 screenshot contact sheet"
+        await send_file(message, sheet, sheet_caption)
     elif send:
         await send_message(message, "Create Torrent: contact sheet failed, continuing.")
 
@@ -1207,7 +1286,7 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         getattr(Config, "HAPPYFAPPY_URL", "https://www.happyfappy.net"),
         Config.HAPPYFAPPY_USERNAME,
         Config.HAPPYFAPPY_PASSWORD,
-        getattr(Config, "HAPPYFAPPY_COOKIE_FILE", ""),
+        getattr(Config, "HAPPYFAPPY_COOKIE", "") or getattr(Config, "HAPPYFAPPY_COOKIE_FILE", ""),
     )
     try:
         skip_configured = bool(getattr(Config, "HAPPYFAPPY_SKIP_DUPE", True))

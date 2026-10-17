@@ -241,6 +241,7 @@ class Config:
     HAPPYFAPPY_ANNOUNCE_URL = ""
     HAPPYFAPPY_USERNAME = ""
     HAPPYFAPPY_PASSWORD = ""
+    HAPPYFAPPY_COOKIE = ""
     HAPPYFAPPY_COOKIE_FILE = "/usr/src/app/secrets/happyfappy.cookies.txt"
     HAPPYFAPPY_CATEGORY = ""
     HAPPYFAPPY_TAGS = ""
