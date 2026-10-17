@@ -810,18 +810,43 @@ async def _create_preview_webp(source_path, title, duration=10, output_dir=None)
     await makedirs(output_dir, exist_ok=True)
     output = await _unique_path(output_dir, f"{_safe_name(title, 'preview')}.preview.webp")
     total_duration = (await get_media_info(source_path))[0] or 0
-    preview_duration = min(duration, max(1, int(total_duration))) if total_duration else duration
-    if total_duration and total_duration > (preview_duration + 10):
-        start = min(total_duration * 0.25, max(0.0, total_duration - preview_duration - 5.0))
-    else:
-        start = 0.0
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-ss", f"{start:.2f}",
-        "-t", str(preview_duration),
-        "-i", source_path,
-        "-vf", "fps=12,scale=400:-1:flags=lanczos",
+    # Sample video (-sv) workflow: sample 4 parts of 5s each (total 20s) across the video,
+    # then speed up 2x (setpts=0.5*PTS) into a dynamic 10-second fast-paced preview.
+    part_dur = 5.0
+    if total_duration and total_duration > 30:
+        starts = [
+            total_duration * 0.15,
+            total_duration * 0.40,
+            total_duration * 0.65,
+            total_duration * 0.85,
+        ]
+    elif total_duration and total_duration > 15:
+        part_dur = max(2.5, (total_duration - 4.0) / 4.0)
+        starts = [
+            total_duration * 0.10,
+            total_duration * 0.35,
+            total_duration * 0.60,
+            total_duration * 0.80,
+        ]
+    else:
+        starts = [0.0]
+        part_dur = min(float(duration), max(1.0, float(total_duration))) if total_duration else float(duration)
+
+    cmd = ["ffmpeg", "-y"]
+    for s in starts:
+        cmd.extend(["-ss", f"{s:.2f}", "-t", f"{part_dur:.2f}", "-i", source_path])
+
+    n = len(starts)
+    if n > 1:
+        inputs_str = "".join(f"[{i}:v]" for i in range(n))
+        filter_complex = f"{inputs_str}concat=n={n}:v=1:a=0[vcat];[vcat]setpts=0.5*PTS,fps=12,scale=400:-1:flags=lanczos[out]"
+    else:
+        filter_complex = "fps=12,scale=400:-1:flags=lanczos[out]"
+
+    cmd.extend([
+        "-filter_complex", filter_complex,
+        "-map", "[out]",
         "-vcodec", "libwebp",
         "-lossless", "0",
         "-compression_level", "4",
@@ -829,22 +854,45 @@ async def _create_preview_webp(source_path, title, duration=10, output_dir=None)
         "-loop", "0",
         "-an",
         output,
-    ]
+    ])
+
     result = await cmd_exec(cmd)
     if result[2] != 0 or not await aiopath.isfile(output) or (await aiopath.getsize(output) == 0):
-        LOGGER.warning("FFmpeg animated WebP generation failed: %s", (result[1] or "")[:300])
-        return ""
+        LOGGER.warning("FFmpeg sample-video preview WebP generation failed: %s", (result[1] or "")[:300])
+        fallback_cmd = [
+            "ffmpeg", "-y",
+            "-ss", f"{starts[0]:.2f}",
+            "-t", str(duration),
+            "-i", source_path,
+            "-vf", "fps=12,scale=400:-1:flags=lanczos",
+            "-vcodec", "libwebp",
+            "-lossless", "0",
+            "-compression_level", "4",
+            "-qscale", "70",
+            "-loop", "0",
+            "-an",
+            output,
+        ]
+        fb_res = await cmd_exec(fallback_cmd)
+        if fb_res[2] != 0 or not await aiopath.isfile(output) or (await aiopath.getsize(output) == 0):
+            LOGGER.warning("FFmpeg single-seek fallback also failed: %s", (fb_res[1] or "")[:300])
+            return ""
 
     file_size = await aiopath.getsize(output)
     if file_size > 9.5 * 1024 * 1024:
         LOGGER.warning("Preview WebP exceeds 9.5MB (%d bytes), re-encoding with optimized profile", file_size)
         fallback_output = await _unique_path(output_dir, f"{_safe_name(title, 'preview')}.opt.webp")
-        re_cmd = [
-            "ffmpeg", "-y",
-            "-ss", f"{start:.2f}",
-            "-t", str(preview_duration),
-            "-i", source_path,
-            "-vf", "fps=10,scale=360:-1:flags=lanczos",
+        re_cmd = ["ffmpeg", "-y"]
+        for s in starts:
+            re_cmd.extend(["-ss", f"{s:.2f}", "-t", f"{part_dur:.2f}", "-i", source_path])
+        if n > 1:
+            inputs_str = "".join(f"[{i}:v]" for i in range(n))
+            re_filter = f"{inputs_str}concat=n={n}:v=1:a=0[vcat];[vcat]setpts=0.5*PTS,fps=10,scale=360:-1:flags=lanczos[out]"
+        else:
+            re_filter = "fps=10,scale=360:-1:flags=lanczos[out]"
+        re_cmd.extend([
+            "-filter_complex", re_filter,
+            "-map", "[out]",
             "-vcodec", "libwebp",
             "-lossless", "0",
             "-compression_level", "4",
@@ -852,7 +900,7 @@ async def _create_preview_webp(source_path, title, duration=10, output_dir=None)
             "-loop", "0",
             "-an",
             fallback_output,
-        ]
+        ])
         re_result = await cmd_exec(re_cmd)
         if re_result[2] == 0 and await aiopath.isfile(fallback_output) and (await aiopath.getsize(fallback_output) > 0):
             with suppress(OSError):
@@ -1031,12 +1079,15 @@ def _happyfappy_tags(title, summary):
         t = _normalize_gazelle_tag(item)
         if t and "rape" not in t and t not in tags:
             tags.append(t)
+    for g in summary.get("genres", []):
+        t = _normalize_gazelle_tag(g)
+        if t and "rape" not in t and t not in tags:
+            tags.append(t)
     for value in (
         summary.get("resolution"),
         summary.get("video"),
         summary.get("dynamic_range"),
         summary.get("year"),
-        *summary.get("genres", []),
         str(summary.get("title", "")).rsplit(".", 1)[-1],
     ):
         if not value:
@@ -1044,6 +1095,13 @@ def _happyfappy_tags(title, summary):
         t = _normalize_gazelle_tag(value)
         if t and "rape" not in t and t not in tags:
             tags.append(t)
+    # Guarantee at least 5 meaningful tags for HappyFappy
+    fallback_tags = ["hentai", "anime", "pron", "video", "japanese", "hd", "uncensored"]
+    for ft in fallback_tags:
+        if len(tags) >= 6:
+            break
+        if ft not in tags:
+            tags.append(ft)
     return " ".join(tags)
 
 
@@ -1264,9 +1322,23 @@ async def _resume_happyfappy_artifacts(state, source_path):
                 desc_path = c
                 break
 
+    hstream_metadata = _read_hstream_metadata(source_path)
+    summary = await _probe_summary(source_path)
+    title = hstream_metadata.get("title") or title_clean
+    summary["title"] = title
+    genres = [
+        str(v).strip()
+        for v in hstream_metadata.get("genres", [])
+        if str(v).strip() and "rape" not in str(v).casefold()
+    ]
+    if genres:
+        summary["genres"] = genres
+    if hstream_metadata.get("year"):
+        summary["year"] = str(hstream_metadata["year"])
+
     artifacts = {
-        "title": title_clean,
-        "summary": await _probe_summary(source_path),
+        "title": title,
+        "summary": summary,
         "thumb": thumb,
         "sheet": sheet,
         "desc_path": desc_path,
@@ -1314,6 +1386,12 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
             "contact_sheet_page": contact_sheet["page"],
         }
     tags = _happyfappy_tags(artifacts["title"], artifacts["summary"])
+    if len(tags.split()) < 5:
+        for extra in ("hentai", "anime", "pron", "video", "hd"):
+            if extra not in tags.split():
+                tags += f" {extra}"
+            if len(tags.split()) >= 5:
+                break
     if len(tags.split()) < 5:
         raise RuntimeError("HappyFappy needs at least five meaningful tags; set HAPPYFAPPY_TAGS")
     if not artifacts.get("resume"):

@@ -89,15 +89,20 @@ class HappyFappyPreviewAndCookiesTest(unittest.TestCase):
         self.assertEqual(selected[0], "shot_0.jpg")
         self.assertEqual(selected[-1], "shot_19.jpg")
 
-    def test_preview_webp_start_calculation(self):
-        total_duration = 1200
-        preview_duration = 10
-        start = min(total_duration * 0.25, max(0.0, total_duration - preview_duration - 5.0))
-        self.assertEqual(start, 300.0)
-
-        total_duration = 15
-        start = min(total_duration * 0.25, max(0.0, total_duration - preview_duration - 5.0))
-        self.assertTrue(0.0 <= start <= 5.0)
+    def test_preview_webp_sample_video_segments(self):
+        # 4 parts of 5s each (total 20s) across the video, speeded up to 10s
+        total_dur = 1200
+        starts = [
+            total_dur * 0.15,
+            total_dur * 0.40,
+            total_dur * 0.65,
+            total_dur * 0.85,
+        ]
+        self.assertEqual(len(starts), 4)
+        self.assertEqual(starts[0], 180.0)
+        self.assertEqual(starts[-1], 1020.0)
+        # Verify 4 segments * 5s = 20s
+        self.assertEqual(len(starts) * 5.0, 20.0)
 
     def test_pixhost_webp_mime_type(self):
         import asyncio
@@ -189,6 +194,35 @@ class HappyFappyPreviewAndCookiesTest(unittest.TestCase):
         self.assertEqual(clean.lower(), "hand.job")
         clean2 = re.sub(r"[^a-zA-Z0-9.]+", ".", "4K 48Fps").strip(".")
         self.assertEqual(clean2.lower(), "4k.48fps")
+
+    def test_happyfappy_tags_minimum_five_and_genres(self):
+        _CT_PATH = _REPO_ROOT / "bot" / "modules" / "create_torrent.py"
+        with open(_CT_PATH, encoding="utf-8") as f:
+            code = f.read()
+        import ast
+        tree = ast.parse(code)
+        funcs = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in ("_normalize_gazelle_tag", "_happyfappy_tags")]
+        module_ast = ast.Module(body=funcs, type_ignores=[])
+        compiled = compile(module_ast, filename="<ast>", mode="exec")
+        ns = {"re": __import__("re"), "getattr": getattr, "Config": type("Config", (), {"HAPPYFAPPY_TAGS": ""})}
+        exec(compiled, ns)
+        _happyfappy_tags = ns["_happyfappy_tags"]
+
+        # With empty summary:
+        tags_empty = _happyfappy_tags("Test.Title", {})
+        self.assertGreaterEqual(len(tags_empty.split()), 5)
+        self.assertIn("hentai", tags_empty.split())
+        self.assertIn("anime", tags_empty.split())
+
+        # With genres:
+        summary = {"genres": ["Hand Job", "Dark Skin", "Big Boobs", "Mind Control"]}
+        tags_genres = _happyfappy_tags("Test.Title", summary)
+        split_tags = tags_genres.split()
+        self.assertIn("hand.job", split_tags)
+        self.assertIn("dark.skin", split_tags)
+        self.assertIn("big.boobs", split_tags)
+        self.assertIn("mind.control", split_tags)
+        self.assertGreaterEqual(len(split_tags), 5)
 
 
 if __name__ == "__main__":
