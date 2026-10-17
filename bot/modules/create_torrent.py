@@ -41,10 +41,12 @@ from ..helper.ext_utils.media_utils import (
     get_video_thumbnail,
     take_ss,
 )
+from ..helper.ext_utils.files_utils import get_path_size
 from ..helper.ext_utils.pixhost import upload_image_details
 from ..core.torrent_manager import TorrentManager
 from ..helper.ext_utils.status_utils import get_readable_file_size
-from ..helper.telegram_helper.message_utils import edit_message, send_file, send_message
+from ..helper.telegram_helper.button_build import ButtonMaker
+from ..helper.telegram_helper.message_utils import delete_message, edit_message, send_file, send_message
 
 VIDEO_EXTENSIONS = {
     ".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm",
@@ -396,23 +398,36 @@ async def _resolve_source(message, status_msg, hstream_only=False):
 def _parse_folder_mode(message):
     text = message.text or message.caption or ""
     args = text.split(maxsplit=1)
-    if len(args) < 2 or " - " not in args[1]:
+    if len(args) < 2:
         return None
+    rest = args[1]
     try:
-        tokens = shlex_split(args[1])
+        tokens = shlex_split(rest)
     except ValueError:
-        return None
-    if "-" not in tokens:
-        return None
-    sep = tokens.index("-")
-    if sep == 0:
-        return None
-    folder_name = _safe_name(" ".join(tokens[:sep]), "release_folder")
-    links = [
-        token for token in tokens[sep + 1 :]
-        if token.startswith(("http://", "https://"))
-    ]
-    return folder_name, links
+        tokens = rest.split()
+
+    if "-" in tokens:
+        sep = tokens.index("-")
+        if sep > 0:
+            name_tokens = [t for t in tokens[:sep] if not t.startswith("-")]
+            folder_name = _safe_name(" ".join(name_tokens), "release_folder")
+            links = [
+                token for token in tokens[sep + 1 :]
+                if token.startswith(("http://", "https://"))
+            ]
+            return folder_name, links
+
+    if "-m" in tokens:
+        m_idx = tokens.index("-m")
+        if m_idx + 1 < len(tokens):
+            folder_name = _safe_name(tokens[m_idx + 1], "release_folder")
+            links = [
+                t for t in tokens
+                if t.startswith(("http://", "https://"))
+            ]
+            return folder_name, links
+
+    return None
 
 
 async def _make_torrent(source_path, private=None, trackers=None, piece_length=None, source_tag=None):
@@ -753,6 +768,40 @@ Contact Sheet: {contact_sheet_link}""",
 [center][url={contact_sheet_page}][img]{contact_sheet_link}[/img][/url][/center]
 
 [center][size=2][color=#94a3b8][b]Direct Image Links:[/b] [url={thumbnail_link}]Cover[/url] | [url={contact_sheet_link}]Screenshots[/url][/color][/size][/center]
+[/color][/font]""",
+    "happyfappy_pack": """[font=Tahoma][color=#cbd5e1]
+[bg=#161b26,98%,center][bg=#00000000,96%,center]
+[center][size=5][b][color=#93c5fd]{title}[/color][/b][/size][/center]
+[/bg][/bg]
+
+[table=98%,nball,vat,center,#141721]
+[tr]
+[td=vat,32%,nopad]
+[center][url={thumbnail_page}][img]{thumbnail_link}[/img][/url][/center]
+[/td]
+[td=vat,68%]
+[bg=#1e2433,98%,left][bg=#00000000,96%][size=3][b][color=#93c5fd]▌ Pack Summary[/color][/b][/size][/bg][/bg]
+{description}
+
+[bg=#1e2433,98%,left][bg=#00000000,96%][size=3][b][color=#93c5fd]▌ Release Details[/color][/b][/size][/bg][/bg]
+[color=#f8fafc][b]Pack Title:[/b][/color] {title}
+[color=#f8fafc][b]Total Size:[/b][/color] {total_size}
+[color=#f8fafc][b]Files Count:[/b][/color] {files_count} videos
+[color=#f8fafc][b]Genres / Tags:[/b][/color] {genres}
+
+[bg=#1e2433,98%,left][bg=#00000000,96%][size=3][b][color=#93c5fd]▌ Technical Specs[/color][/b][/size][/bg][/bg]
+[code]{media_info}[/code]
+[/td]
+[/tr]
+[/table]
+
+[bg=#161b26,98%,center][bg=#00000000,96%,center]
+[center][size=4][b][color=#93c5fd]▌ Scene Previews & Contact Sheets[/color][/b][/size][/center]
+[/bg][/bg]
+
+{spoilers}
+
+[center][size=2][color=#94a3b8][b]Note:[/b] Full resolution contact sheets for all {files_count} scenes are included in the [b]Screenshots[/b] directory inside the torrent payload.[/color][/size][/center]
 [/color][/font]""",
 }
 
@@ -1109,10 +1158,10 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None, transactio
     transaction_torrent_path = transaction_torrent_path or torrent_path
     if not TorrentManager.qbittorrent:
         raise RuntimeError("qBittorrent is unavailable; refusing to seed")
-    if not await aiopath.isfile(source_path):
-        raise RuntimeError(f"qBittorrent source file is missing: {source_path}")
+    if not await aiopath.exists(source_path):
+        raise RuntimeError(f"qBittorrent source is missing: {source_path}")
     update_transaction(transaction_torrent_path, "HASH_CHECKING", source_path=source_path)
-    source_size = await aiopath.getsize(source_path)
+    source_size = await get_path_size(source_path)
     from aioqbt.api import AddFormBuilder
     form = AddFormBuilder.with_client(TorrentManager.qbittorrent)
     async with aiopen(torrent_path, "rb") as torrent:
@@ -1148,7 +1197,7 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None, transactio
         raise RuntimeError("qBittorrent reported multiple matching torrents; refusing ambiguous seed")
     torrent_hash = torrents[0].hash
     reported_size = int(getattr(torrents[0], "size", 0) or 0)
-    if reported_size and reported_size != source_size:
+    if reported_size and abs(reported_size - source_size) > 1024 * 1024:
         raise RuntimeError(
             f"qBittorrent source size mismatch: file={source_size} bytes, torrent={reported_size} bytes"
         )
@@ -1179,7 +1228,7 @@ async def _seed_with_qbit(torrent_path, source_path, status_msg=None, transactio
     last_progress_at = time()
     recheck_retries = 0
     for _ in range(180):
-        if not await aiopath.isfile(source_path):
+        if not await aiopath.exists(source_path):
             raise RuntimeError(f"qBittorrent source disappeared during hash-check: {source_path}")
         checked = await TorrentManager.qbittorrent.torrents.info(hashes=[torrent_hash])
         if checked:
@@ -1271,9 +1320,9 @@ async def _remove_failed_happyfappy_source(source_path):
         return False
     try:
         if await aiopath.isdir(source_path):
-            await rmtree(source_path, ignore_errors=True)
-        else:
-            await aioremove(source_path)
+            LOGGER.info("Preserving batch folder source on failure: %s", source_path)
+            return False
+        await aioremove(source_path)
         return True
     except Exception as e:
         LOGGER.warning(f"Failed to remove source {source_path}: {e}")
@@ -1545,6 +1594,447 @@ async def _send_folder_artifacts(message, folder_path, torrent_path, trackers):
     await send_file(message, torrent_path, caption)
 
 
+def _extract_links_from_message(msg):
+    if not msg:
+        return []
+    text = str(getattr(msg, "text", "") or getattr(msg, "caption", "") or "")
+    return [
+        token.strip("(),;\"'<>")
+        for token in text.split()
+        if token.strip("(),;\"'<>").startswith(("http://", "https://"))
+    ]
+
+
+def _pack_transaction_file(pack_name, output_dir=None):
+    output_dir = output_dir or str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
+    safe = _safe_name(pack_name, "pack")
+    return ospath.join(output_dir, f"{safe}.pack_transaction.json")
+
+
+def load_pack_transaction(pack_name, output_dir=None):
+    txn_file = _pack_transaction_file(pack_name, output_dir)
+    try:
+        if ospath.isfile(txn_file):
+            with open(txn_file, "r", encoding="utf-8") as f:
+                return load(f)
+    except Exception as e:
+        LOGGER.warning("Could not read pack transaction %s: %s", txn_file, e)
+    return {}
+
+
+def update_pack_transaction(pack_name, stage, output_dir=None, **kwargs):
+    txn_file = _pack_transaction_file(pack_name, output_dir)
+    try:
+        data = load_pack_transaction(pack_name, output_dir)
+        data["pack_name"] = pack_name
+        data["stage"] = stage
+        data["updated_at"] = time()
+        for k, v in kwargs.items():
+            data[k] = v
+        with open(txn_file, "w", encoding="utf-8") as f:
+            dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        LOGGER.warning("Could not write pack transaction %s: %s", txn_file, e)
+
+
+async def _download_pack_link(link, out_dir, status_msg, message, item_index=1, total_items=1):
+    parsed = urlsplit(link)
+    netloc = parsed.netloc.lower().split(":", 1)[0]
+    if netloc in {"hstream.moe", "www.hstream.moe"}:
+        from ..helper.ext_utils.hstream_resolver import HstreamCatalogItem, HstreamResolver
+        slug = parsed.path.rstrip("/").rsplit("/", 1)[-1]
+        if slug and parsed.path.rstrip("/").split("/")[-2:-1] == ["hentai"]:
+            async with HstreamResolver() as resolver:
+                episode = await resolver.resolve(HstreamCatalogItem(slug, 0, slug))
+            if episode.streams and any(stream.urls for stream in episode.streams):
+                stream = episode.streams[0]
+                output = await _unique_path(out_dir, _safe_name(episode.title, "hstream_release") + ".mkv")
+                if await aiopath.exists(output) and (await aiopath.getsize(output)) > 1024 * 1024:
+                    LOGGER.info("Pack video already exists, skipping re-download: %s", output)
+                    return output
+                if status_msg:
+                    await _edit_progress(
+                        status_msg,
+                        f"Create Torrent: downloading pack video {item_index}/{total_items}...",
+                        extra=f"Title: <code>{escape(episode.title)}</code>\nQuality: <code>{escape(stream.label)}</code>",
+                    )
+                process = await create_subprocess_exec(
+                    "yt-dlp", "--newline", "--no-playlist", "--no-check-certificates",
+                    "--referer", link, "--merge-output-format", "mkv",
+                    "-f", "bv*+ba/b", "-o", output, stream.urls[0],
+                    stdout=PIPE, stderr=PIPE,
+                )
+                await process.wait()
+                if await aiopath.exists(output) and (await aiopath.getsize(output)) > 0:
+                    metadata_path = f"{output}.hstream.json"
+                    with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+                        dump({
+                            "title": episode.title,
+                            "year": episode.year,
+                            "description": episode.description,
+                            "genres": episode.genres,
+                            "portrait_url": episode.portrait_url,
+                            "landscape_url": episode.landscape_url,
+                            "sample_urls": episode.sample_urls,
+                            "source_url": episode.source_url,
+                        }, metadata_file, ensure_ascii=False)
+                    return output
+    return await _download_link(link, out_dir, status_msg)
+
+
+async def _collect_pack_videos_interactive(message, folder_path, folder_name, status_msg, min_size_bytes):
+    current_size = await get_path_size(folder_path)
+    if current_size >= min_size_bytes:
+        return True
+
+    token = f"hfp_{message.id}_{int(time() * 1000)}"
+    buttons = ButtonMaker()
+    buttons.data_button("✅ Done / Process Pack", f"{token}:done")
+    buttons.data_button("❌ Cancel", f"{token}:cancel")
+
+    def _format_prompt(c_size):
+        c_gb = c_size / (1024**3)
+        target_gb = min_size_bytes / (1024**3)
+        missing_gb = max(0.0, target_gb - c_gb)
+        try:
+            from os import listdir as os_listdir
+            videos = [
+                f for f in os_listdir(folder_path)
+                if ospath.splitext(f)[1].lower() in VIDEO_EXTENSIONS
+            ]
+        except Exception:
+            videos = []
+        return (
+            f"⚠️ <b>HappyFappy Pack: Under {target_gb:.1f} GB Minimum Threshold</b>\n\n"
+            f"📁 <b>Pack Folder:</b> <code>{escape(folder_name)}</code>\n"
+            f"📊 <b>Current Size:</b> <code>{c_gb:.2f} GiB</code> / <code>{target_gb:.2f} GiB</code>\n"
+            f"⏳ <b>Missing:</b> <code>{missing_gb:.2f} GiB</code>\n"
+            f"🎬 <b>Videos in Pack:</b> <code>{len(videos)}</code>\n\n"
+            f"👉 <i>Send more video links or Telegram video files to add them to this pack.</i>\n"
+            f"Or click <b>Done</b> to proceed with the current size anyway."
+        )
+
+    prompt = await send_message(message, _format_prompt(current_size), buttons.build_menu(2))
+    event = Event()
+    result = [True]
+
+    async def callback(_, query):
+        if query.from_user.id != message.from_user.id or not query.data.startswith(f"{token}:"):
+            return
+        await query.answer()
+        action = query.data.split(":", 1)[1]
+        result[0] = (action != "cancel")
+        event.set()
+
+    async def incoming_handler(_, incoming):
+        if incoming.from_user is None or incoming.from_user.id != message.from_user.id:
+            return
+        incoming_text = str(getattr(incoming, "text", "") or getattr(incoming, "caption", "") or "").strip()
+        new_links = [w.strip("(),;\"'<>") for w in incoming_text.split() if w.strip("(),;\"'<>").startswith(("http://", "https://"))]
+        has_media = bool(getattr(incoming, "video", None) or getattr(incoming, "document", None))
+        if not new_links and not has_media:
+            return
+
+        if new_links:
+            for l in new_links:
+                try:
+                    await _download_pack_link(l, folder_path, status_msg, incoming)
+                except Exception as dl_err:
+                    LOGGER.warning("Pack link download failed: %s", dl_err)
+        elif has_media:
+            try:
+                await _download_reply(incoming, folder_path, status_msg)
+            except Exception as dl_err:
+                LOGGER.warning("Pack telegram media download failed: %s", dl_err)
+
+        nonlocal current_size
+        current_size = await get_path_size(folder_path)
+        try:
+            extra_notice = "\n\n🎉 <b>30GB+ minimum reached! Click Done to upload.</b>" if current_size >= min_size_bytes else ""
+            await edit_message(prompt, _format_prompt(current_size) + extra_notice, buttons.build_menu(2))
+        except Exception:
+            pass
+
+    cb_handler = TgClient.bot.add_handler(
+        CallbackQueryHandler(callback, filters=create(lambda _, __, update: getattr(update, "data", "").startswith(token)))
+    )
+    msg_handler = TgClient.bot.add_handler(
+        MessageHandler(incoming_handler, filters=create(lambda _, __, msg: getattr(msg, "chat", None) and msg.chat.id == message.chat.id))
+    )
+
+    try:
+        await wait_for(event.wait(), timeout=900)
+    except TimeoutError:
+        result[0] = True
+    finally:
+        try:
+            TgClient.bot.remove_handler(*cb_handler)
+            TgClient.bot.remove_handler(*msg_handler)
+            await delete_message(prompt)
+        except Exception:
+            pass
+
+    return result[0]
+
+
+async def _generate_pack_artifacts(folder_path, folder_name, status_msg=None):
+    output_dir = str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
+    await makedirs(output_dir, exist_ok=True)
+    screenshots_dir = ospath.join(folder_path, "Screenshots")
+    await makedirs(screenshots_dir, exist_ok=True)
+
+    videos = []
+    for item in sorted(await listdir(folder_path)):
+        p = ospath.join(folder_path, item)
+        if await aiopath.isfile(p) and ospath.splitext(item)[1].lower() in VIDEO_EXTENSIONS:
+            videos.append(p)
+
+    if not videos:
+        raise RuntimeError(f"No video files found in pack folder: {folder_path}")
+
+    # 1. 10s animated WebP pack cover from first video
+    cover_path = ospath.join(output_dir, f"{_safe_name(folder_name, 'cover')}.preview.webp")
+    if not await aiopath.isfile(cover_path):
+        if status_msg:
+            await _edit_progress(status_msg, "Create Torrent: generating 10-second animated pack cover (.webp)...")
+        cover_path = await _create_preview_webp(videos[0], folder_name)
+    cover_details = await upload_image_details(cover_path)
+
+    # 2. Generate contact sheets for ALL videos into Screenshots/
+    if status_msg:
+        await _edit_progress(status_msg, f"Create Torrent: generating contact sheets for {len(videos)} scenes in Screenshots/...")
+
+    all_sheets = []
+    combined_genres = set()
+    combined_descriptions = []
+
+    for v in videos:
+        v_stem = ospath.splitext(ospath.basename(v))[0]
+        sheet_path = ospath.join(screenshots_dir, f"{v_stem}_12screens.jpg")
+        meta = _read_hstream_metadata(v)
+        if meta.get("genres"):
+            combined_genres.update(meta["genres"])
+        if meta.get("description"):
+            combined_descriptions.append(f"{meta.get('title', v_stem)}: {meta['description']}")
+
+        if not await aiopath.isfile(sheet_path):
+            summary = await _probe_summary(v)
+            v_title, _, _ = format_clean_poster_title(ospath.basename(v))
+            v_title = v_title or v_stem
+            if meta.get("sample_urls"):
+                sheet_path = await _create_hstream_contact_sheet(meta, v_title, screenshots_dir)
+            else:
+                sheet_path = await _create_contact_sheet_with_header(v, summary, v_title, screenshots_dir)
+        all_sheets.append((v, sheet_path))
+
+    # 3. Upload representative contact sheets to Pixhost for BBCode presentation
+    max_preview = int(getattr(Config, "HAPPYFAPPY_PACK_MAX_PREVIEW_SHEETS", 15))
+    preview_items = all_sheets[:max_preview]
+    if status_msg:
+        await _edit_progress(status_msg, f"Create Torrent: uploading {len(preview_items)} preview contact sheets to Pixhost...")
+
+    spoilers_list = []
+    for idx, (v, s_path) in enumerate(preview_items, 1):
+        try:
+            s_details = await upload_image_details(s_path)
+            v_sum = await _probe_summary(v)
+            v_title, _, _ = format_clean_poster_title(ospath.basename(v))
+            v_title = v_title or ospath.splitext(ospath.basename(v))[0]
+            res = f"{v_sum.get('width', '')}x{v_sum.get('height', '')}" if v_sum.get('width') else "HD"
+            dur = v_sum.get("duration", "N/A")
+            sz = get_readable_file_size(await aiopath.getsize(v))
+            spoilers_list.append(
+                f"[spoiler=Scene {idx:02d}: {v_title} ({res}, {dur}, {sz})]\n"
+                f"[center][url={s_details['page']}][img]{s_details['thumbnail']}[/img][/url][/center]\n"
+                f"[/spoiler]"
+            )
+        except Exception as up_err:
+            LOGGER.warning("Failed to upload preview contact sheet %s: %s", s_path, up_err)
+
+    # 4. Generate BBCode description
+    total_size = await get_path_size(folder_path)
+    clean_genres = [g for g in combined_genres if "rape" not in g.casefold()]
+    pack_desc = (
+        f"{folder_name} is a comprehensive video pack containing {len(videos)} scenes.\n"
+        + ("\n".join(combined_descriptions[:5]) if combined_descriptions else "")
+    )
+    tech_specs = f"Total Size: {get_readable_file_size(total_size)}\nScene Count: {len(videos)} videos\nFormats: MKV/MP4\nVideo Codec: H.264 / AVC\nAudio: AAC / 2.0 Channels"
+
+    template = await _load_bbcode_template("happyfappy_pack")
+    rendered = template
+    values = {
+        "title": folder_name,
+        "description": pack_desc,
+        "total_size": get_readable_file_size(total_size),
+        "files_count": str(len(videos)),
+        "genres": ", ".join(clean_genres) or "Pack, Hentai, Anime",
+        "media_info": tech_specs,
+        "thumbnail_link": cover_details.get("direct") or cover_details["thumbnail"],
+        "thumbnail_page": cover_details["page"],
+        "spoilers": "\n\n".join(spoilers_list),
+    }
+    for k, v in values.items():
+        rendered = rendered.replace("{" + k + "}", str(v or ""))
+
+    desc_path = ospath.join(output_dir, f"{_safe_name(folder_name, 'pack')}.description.txt")
+    async with aiopen(desc_path, "w", encoding="utf-8") as df:
+        await df.write(rendered.rstrip() + "\n")
+
+    return {
+        "cover_path": cover_path,
+        "cover_details": cover_details,
+        "desc_path": desc_path,
+        "total_size": total_size,
+        "videos": videos,
+        "genres": clean_genres,
+    }
+
+
+async def _handle_happyfappy_pack(message, folder_name, links, status_msg=None, skip_dupe=False):
+    required = ("HAPPYFAPPY_ANNOUNCE_URL", "HAPPYFAPPY_USERNAME", "HAPPYFAPPY_PASSWORD")
+    missing = [key for key in required if not str(getattr(Config, key, "") or "").strip()]
+    if missing:
+        raise RuntimeError(f"HappyFappy is not configured: {', '.join(missing)}")
+
+    storage_dir = str(Config.CTORRENT_STORAGE_DIR or "/usr/src/app/torrents/seeding")
+    folder_path = ospath.join(storage_dir, folder_name)
+    await makedirs(folder_path, exist_ok=True)
+    output_dir = str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
+    await makedirs(output_dir, exist_ok=True)
+
+    if not links and message.reply_to_message:
+        links = _extract_links_from_message(message.reply_to_message)
+
+    if links:
+        for index, link in enumerate(links, start=1):
+            await _edit_progress(
+                status_msg,
+                f"Create Torrent: downloading pack video {index}/{len(links)}...",
+                extra=f"Folder: <code>{escape(folder_name)}</code>",
+            )
+            try:
+                await _download_pack_link(link, folder_path, status_msg, message, index, len(links))
+            except Exception as dl_err:
+                LOGGER.warning("Pack link %s download failed: %s", link, dl_err)
+
+    min_gb = float(getattr(Config, "HAPPYFAPPY_PACK_MIN_SIZE_GB", 30.0))
+    min_bytes = int(min_gb * (1024 ** 3))
+    proceed = await _collect_pack_videos_interactive(message, folder_path, folder_name, status_msg, min_bytes)
+    if not proceed:
+        await edit_message(status_msg, f"Create Torrent HappyFappy Pack: stopped by owner. Files preserved in <code>{escape(folder_name)}</code>.")
+        return None
+
+    update_pack_transaction(folder_name, "GENERATING_ARTIFACTS", output_dir=output_dir, folder_path=folder_path)
+    artifacts = await _generate_pack_artifacts(folder_path, folder_name, status_msg)
+    update_pack_transaction(folder_name, "ARTWORK_READY", output_dir=output_dir, desc_path=artifacts["desc_path"])
+
+    await send_file(message, artifacts["desc_path"], f"HappyFappy Megapack BBCode: {escape(folder_name)}")
+    if artifacts["cover_path"] and await aiopath.isfile(artifacts["cover_path"]):
+        await send_file(message, artifacts["cover_path"], "10-second animated preview pack cover (.webp)")
+
+    if status_msg:
+        await _edit_progress(status_msg, "Create Torrent: creating private torrent for pack...")
+    announce = str(getattr(Config, "HAPPYFAPPY_ANNOUNCE_URL", "") or "").strip()
+    torrent_path, trackers = await _make_torrent(
+        folder_path,
+        private=True,
+        trackers=[announce],
+        piece_length=getattr(Config, "CTORRENT_PIECE_LENGTH", 23),
+        source_tag="HF",
+    )
+    update_pack_transaction(folder_name, "TORRENT_CREATED", output_dir=output_dir, torrent_path=torrent_path)
+
+    client = HappyFappyClient(
+        getattr(Config, "HAPPYFAPPY_URL", "https://www.happyfappy.net"),
+        Config.HAPPYFAPPY_USERNAME,
+        Config.HAPPYFAPPY_PASSWORD,
+        getattr(Config, "HAPPYFAPPY_COOKIE", "") or getattr(Config, "HAPPYFAPPY_COOKIE_FILE", ""),
+    )
+    skip_configured = bool(getattr(Config, "HAPPYFAPPY_SKIP_DUPE", True))
+    if status_msg:
+        await _edit_progress(
+            status_msg,
+            "Create Torrent: checking HappyFappy login..."
+            if skip_configured
+            else "Create Torrent: checking HappyFappy login and pack duplicates...",
+        )
+    await client.login()
+    if not (skip_configured or skip_dupe):
+        positive, _ = await client.check_dupe(torrent_path)
+        if positive:
+            await send_message(message, "HappyFappy dupe check found a match. Batch folder preserved.")
+            return None
+
+    async with aiopen(artifacts["desc_path"], encoding="utf-8") as desc_file:
+        description = await desc_file.read()
+    if status_msg:
+        await _edit_progress(status_msg, "Create Torrent: submitting approved pack to HappyFappy...")
+
+    tags = _happyfappy_tags(folder_name, {"genres": artifacts["genres"]})
+    if len(tags.split()) < 5:
+        for extra in ("hentai", "anime", "pack", "megapack", "video", "hd", "pron"):
+            if extra not in tags.split():
+                tags += f" {extra}"
+            if len(tags.split()) >= 5:
+                break
+
+    cover_direct_url = artifacts["cover_details"].get("direct") or artifacts["cover_details"]["thumbnail"]
+    upload_url = await client.submit(
+        torrent_path,
+        folder_name,
+        tags,
+        cover_direct_url,
+        description,
+        getattr(Config, "HAPPYFAPPY_CATEGORY", "1"),
+        bool(getattr(Config, "HAPPYFAPPY_ANONYMOUS", False)),
+    )
+    update_pack_transaction(folder_name, "HAPPYFAPPY_ACCEPTED", output_dir=output_dir, upload_url=upload_url)
+
+    if status_msg:
+        await _edit_progress(status_msg, "Create Torrent: downloading accepted torrent and initiating qBittorrent seeding...")
+    accepted_torrent_path = f"{torrent_path}.accepted.torrent"
+    try:
+        await client.download_uploaded_torrent(accepted_torrent_path)
+    except HappyFappyError as error:
+        LOGGER.warning("HappyFappy official torrent download failed (%s); seeding with local torrent", error)
+        await sync_to_async(copy2, torrent_path, accepted_torrent_path)
+
+    torrent_hash = await _seed_with_qbit(
+        accepted_torrent_path,
+        folder_path,
+        status_msg,
+        transaction_torrent_path=torrent_path,
+    )
+    update_pack_transaction(folder_name, "SEEDING", output_dir=output_dir, torrent_hash=torrent_hash)
+
+    completion_text = (
+        f"✅ <b>HappyFappy Pack Uploaded & Seeding</b>\n\n"
+        f"📁 <b>Pack:</b> <code>{escape(folder_name)}</code>\n"
+        f"🎬 <b>Videos:</b> <code>{len(artifacts['videos'])}</code>\n"
+        f"📊 <b>Total Size:</b> <code>{get_readable_file_size(artifacts['total_size'])}</code>\n"
+        f"🌐 <b>Tracker Release:</b> <a href=\"{escape(upload_url)}\">Open on HappyFappy</a>\n"
+        f"🌱 <b>qBittorrent Seeding:</b> <code>{torrent_hash}</code>"
+    )
+    await send_message(message, completion_text)
+    await send_file(message, accepted_torrent_path, f"Official HappyFappy Torrent: {escape(folder_name)}")
+
+    seeding_channel = str(getattr(Config, "HAPPYFAPPY_SEEDING_CHANNEL", "") or "").strip()
+    if seeding_channel:
+        try:
+            chan_id = int(seeding_channel) if seeding_channel.lstrip("-").isdigit() else seeding_channel
+            if artifacts["cover_path"] and await aiopath.isfile(artifacts["cover_path"]):
+                await TgClient.bot.send_photo(chan_id, artifacts["cover_path"], caption=completion_text)
+            else:
+                await TgClient.bot.send_message(chan_id, completion_text)
+            await TgClient.bot.send_document(chan_id, accepted_torrent_path, caption=f"Torrent: {escape(folder_name)}")
+            if artifacts["desc_path"] and await aiopath.isfile(artifacts["desc_path"]):
+                await TgClient.bot.send_document(chan_id, artifacts["desc_path"], caption=f"BBCode: {escape(folder_name)}")
+        except Exception as chan_err:
+            LOGGER.warning("Failed to forward pack to HAPPYFAPPY_SEEDING_CHANNEL (%s): %s", seeding_channel, chan_err)
+
+    return upload_url
+
+
 @new_task
 async def create_torrent(_, message):
     status_msg = await send_message(message, "Create Torrent: preparing source...")
@@ -1561,10 +2051,11 @@ async def create_torrent(_, message):
             return
         folder_mode = _parse_folder_mode(message)
         if folder_mode:
-            if happyfappy_mode:
-                await edit_message(status_msg, "HappyFappy mode currently supports one video per upload; folder mode remains available for manual upload.")
-                return
             folder_name, links = folder_mode
+            if happyfappy_mode:
+                return await _handle_happyfappy_pack(
+                    message, folder_name, links, status_msg=status_msg, skip_dupe=skip_dupe
+                )
             if not links:
                 await edit_message(
                     status_msg,

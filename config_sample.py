@@ -448,4 +448,7 @@ HAPPYFAPPY_ANONYMOUS = False
 HAPPYFAPPY_AUTO_UPLOAD = False
 HAPPYFAPPY_SKIP_DUPE = True
 HAPPYFAPPY_DELETE_SOURCE_ON_FAILURE = False
+HAPPYFAPPY_PACK_MIN_SIZE_GB = 30.0  # Minimum pack size in GiB (e.g. 30.0)
+HAPPYFAPPY_SEEDING_CHANNEL = ""  # Optional Telegram channel ID/username for .torrent & artwork backup
+HAPPYFAPPY_PACK_MAX_PREVIEW_SHEETS = 15  # Max contact sheets uploaded to BBCode (rest remain in torrent)
 
