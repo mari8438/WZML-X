@@ -140,6 +140,7 @@ class HappyFappyPreviewAndCookiesTest(unittest.TestCase):
                 client = FakeClient()
                 result = await px_mod.upload_image_details(str(webp_path), client=client)
                 self.assertEqual(result["thumbnail"], "https://t1.pixhost.cc/thumbs/1/test.webp")
+                self.assertEqual(result["direct"], "https://img1.pixhost.cc/images/1/test.webp")
                 files = client.calls[0]["files"]
                 self.assertEqual(files["img"][2], "image/webp")
 

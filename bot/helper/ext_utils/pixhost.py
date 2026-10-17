@@ -1,3 +1,4 @@
+import re
 from os import path as ospath
 from urllib.parse import urlsplit
 
@@ -16,6 +17,7 @@ class PixhostError(RuntimeError):
 def validate_pixhost_url(value):
     parsed = urlsplit(str(value or "").strip())
     host = (parsed.hostname or "").lower()
+    path_lower = parsed.path.lower()
     if (
         parsed.scheme != "https"
         or not any(host == item or host.endswith(f".{item}") for item in PIXHOST_HOSTS)
@@ -23,7 +25,7 @@ def validate_pixhost_url(value):
         or parsed.password
         or parsed.query
         or parsed.fragment
-        or not parsed.path.lower().startswith("/thumbs/")
+        or not (path_lower.startswith("/thumbs/") or path_lower.startswith("/images/"))
         or not ospath.splitext(parsed.path)[1].lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif"}
     ):
         raise PixhostError("Pixhost returned an invalid direct image URL")
@@ -71,8 +73,18 @@ async def upload_image_details(path, content_type=1, max_th_size=500, client=Non
         payload = response.json()
         th = validate_pixhost_url(payload.get("th_url"))
         show = payload.get("show_url")
+        direct = re.sub(
+            r"^https://t(\d*)\.((?:pixhost\.(?:cc|to))|pixho\.st)/thumbs/",
+            r"https://img\1.\2/images/",
+            th,
+        )
+        try:
+            direct = validate_pixhost_url(direct)
+        except Exception:
+            direct = th
         return {
             "thumbnail": th,
+            "direct": direct,
             "page": validate_pixhost_page_url(show) if show else th,
         }
     except PixhostError:

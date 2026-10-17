@@ -1369,8 +1369,13 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         await _edit_progress(status_msg, "Create Torrent: uploading cover and 12-image contact sheet to Pixhost...")
     if artifacts.get("resume"):
         image_url = artifacts["resume_image_url"]
+        direct_cover = re.sub(
+            r"^https://t(\d*)\.((?:pixhost\.(?:cc|to))|pixho\.st)/thumbs/",
+            r"https://img\1.\2/images/",
+            image_url,
+        )
         links = {
-            "thumbnail": image_url,
+            "thumbnail": direct_cover,
             "thumbnail_page": image_url,
             "contact_sheet": image_url,
             "contact_sheet_page": image_url,
@@ -1380,7 +1385,7 @@ async def _publish_happyfappy(message, source_path, torrent_path, artifacts, sta
         cover = await upload_image_details(artifacts["thumb"])
         contact_sheet = await upload_image_details(artifacts["sheet"])
         links = {
-            "thumbnail": cover["thumbnail"],
+            "thumbnail": cover.get("direct") or cover["thumbnail"],
             "thumbnail_page": cover["page"],
             "contact_sheet": contact_sheet["thumbnail"],
             "contact_sheet_page": contact_sheet["page"],

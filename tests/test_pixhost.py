@@ -42,6 +42,10 @@ class PixhostValidationTest(IsolatedAsyncioTestCase):
             pixhost.validate_pixhost_url("https://t1.pixhost.cc/thumbs/1/a.jpg"),
             "https://t1.pixhost.cc/thumbs/1/a.jpg",
         )
+        self.assertEqual(
+            pixhost.validate_pixhost_url("https://img1.pixhost.cc/images/1/a.webp"),
+            "https://img1.pixhost.cc/images/1/a.webp",
+        )
         for value in (
             "http://t1.pixhost.cc/thumbs/1/a.jpg",
             "https://pixhost.to/show/1/a.jpg",
@@ -56,7 +60,12 @@ class PixhostValidationTest(IsolatedAsyncioTestCase):
         image_path = Path(self.id().replace(".", "_") + ".jpg")
         image_path.write_bytes(b"test image")
         try:
-            client = FakeClient(FakeResponse({"th_url": "https://t1.pixhost.cc/thumbs/1/a.jpg"}))
+            client = FakeClient(FakeResponse({"th_url": "https://t1.pixhost.cc/thumbs/1/a.jpg", "show_url": "https://pixhost.cc/show/1/a.jpg"}))
+            details = await pixhost.upload_image_details(str(image_path), client=client)
+            self.assertEqual(details["thumbnail"], "https://t1.pixhost.cc/thumbs/1/a.jpg")
+            self.assertEqual(details["direct"], "https://img1.pixhost.cc/images/1/a.jpg")
+            self.assertEqual(details["page"], "https://pixhost.cc/show/1/a.jpg")
+
             result = await pixhost.upload_image(str(image_path), client=client)
             self.assertTrue(result.endswith("a.jpg"))
             _, kwargs = client.calls[0]
