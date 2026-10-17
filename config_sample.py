@@ -441,7 +441,7 @@ HAPPYFAPPY_USERNAME = ""
 HAPPYFAPPY_PASSWORD = ""
 HAPPYFAPPY_COOKIE = ""  # Paste daily changing cookie string directly, e.g. "sid=...; cid=..."
 HAPPYFAPPY_COOKIE_FILE = "secrets/happyfappy.cookies.txt"  # Optional file path fallback
-HAPPYFAPPY_CATEGORY = ""
+HAPPYFAPPY_CATEGORY = "1"  # "1" for Pron/Video, "11" for Asian, "15" for AI, etc.
 HAPPYFAPPY_TAGS = ""
 HAPPYFAPPY_IMAGE_HOST = "pixhost"
 HAPPYFAPPY_ANONYMOUS = False

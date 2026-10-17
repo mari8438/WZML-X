@@ -243,7 +243,7 @@ class Config:
     HAPPYFAPPY_PASSWORD = ""
     HAPPYFAPPY_COOKIE = ""
     HAPPYFAPPY_COOKIE_FILE = "/usr/src/app/secrets/happyfappy.cookies.txt"
-    HAPPYFAPPY_CATEGORY = ""
+    HAPPYFAPPY_CATEGORY = "1"
     HAPPYFAPPY_TAGS = ""
     HAPPYFAPPY_IMAGE_HOST = "pixhost"
     HAPPYFAPPY_ANONYMOUS = False

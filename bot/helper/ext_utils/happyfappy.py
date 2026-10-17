@@ -10,20 +10,39 @@ from httpx import AsyncClient
 
 
 class _HiddenFields(HTMLParser):
-    def __init__(self):
+    def __init__(self, target_form_id=None):
         super().__init__()
         self.fields = {}
         self.forms = []
-        self._form = None
+        self._target_form_id = target_form_id
+        self._current_form = None
+        self._in_target = False
 
     def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
+        attrs_dict = dict(attrs)
         if tag == "form":
-            self._form = attrs
-            self.forms.append(attrs)
-        elif tag == "input" and self._form is not None:
-            if attrs.get("type", "").lower() == "hidden" and attrs.get("name"):
-                self.fields[attrs["name"]] = attrs.get("value", "")
+            self._current_form = attrs_dict
+            self.forms.append(attrs_dict)
+            form_id = attrs_dict.get("id", "")
+            form_enctype = attrs_dict.get("enctype", "").lower()
+            if self._target_form_id:
+                self._in_target = (form_id == self._target_form_id)
+            else:
+                self._in_target = ("multipart/form-data" in form_enctype or form_id == "upload_table")
+        elif tag == "input":
+            if attrs_dict.get("type", "").lower() == "hidden" and attrs_dict.get("name"):
+                name = attrs_dict["name"]
+                value = attrs_dict.get("value", "")
+                if self._target_form_id:
+                    if self._in_target:
+                        self.fields[name] = value
+                elif self._in_target or not self.fields:
+                    self.fields[name] = value
+
+    def handle_endtag(self, tag):
+        if tag == "form":
+            self._current_form = None
+            self._in_target = False
 
 
 class HappyFappyError(RuntimeError):
@@ -129,7 +148,7 @@ class HappyFappyClient:
         except (TypeError, ValueError, json.JSONDecodeError):
             return ""
 
-    async def _get_form(self, url):
+    async def _get_form(self, url, target_form_id=None):
         response = await self.client.get(url)
         response.raise_for_status()
         visible_response = re.sub(r"<[^>]+>", " ", unescape(response.text))
@@ -142,7 +161,7 @@ class HappyFappyClient:
             visible_response,
             re.I,
         )[:10]
-        parser = _HiddenFields()
+        parser = _HiddenFields(target_form_id=target_form_id)
         parser.feed(response.text)
         return response, parser
 
@@ -180,11 +199,14 @@ class HappyFappyClient:
             raise HappyFappyError(f"HappyFappy login failed{detail}")
 
     async def _upload_form(self):
-        response, parser = await self._get_form(f"{self.base_url}/upload.php")
+        response, parser = await self._get_form(f"{self.base_url}/upload.php", target_form_id="upload_table")
         if "/login" in str(response.url) or 'name="username"' in response.text:
             raise HappyFappyError("HappyFappy session is not authenticated")
         self._upload_html = response.text
-        return parser.fields
+        fields = dict(parser.fields)
+        fields.pop("action", None)
+        fields.pop("token", None)
+        return fields
 
     def _capture_download_link(self, page, title="", torrent_id="", require_title=False):
         page = str(page or "").replace(r"\/", "/")
@@ -244,20 +266,53 @@ class HappyFappyClient:
 
     def _category_value(self, category):
         value = str(category or "").strip()
-        if not value or value.isdigit():
+        if not value or value == "0":
+            return "1"
+        if value.isdigit() and value != "0":
             return value
-        match = re.search(r'<select[^>]+id=["\']category["\'][^>]*>(.*?)</select>', self._upload_html, re.I | re.S)
+        category_map = {
+            "pron": "1",
+            "porn": "1",
+            "video": "1",
+            "movie": "1",
+            "hentai": "1",
+            "anime": "1",
+            "asian": "11",
+            "ai": "15",
+            "fansite": "6",
+            "games": "13",
+            "game": "13",
+            "gay": "3",
+            "gay / bi": "3",
+            "bi": "3",
+            "interracial": "4",
+            "lesbian": "5",
+            "packs": "9",
+            "pack": "9",
+            "pics": "10",
+            "pic": "10",
+            "pictures": "10",
+            "retro": "8",
+            "scat": "14",
+            "transexual": "12",
+            "trans": "12",
+            "vr": "7",
+        }
+        normalized = re.sub(r"\s+", " ", value).strip().casefold()
+        if normalized in category_map:
+            return category_map[normalized]
+        match = re.search(r'<select[^>]+(?:id|name)=["\']category["\'][^>]*>(.*?)</select>', getattr(self, "_upload_html", ""), re.I | re.S)
         if match:
             options = re.findall(
                 r'<option[^>]+value=["\']([^"\']+)["\'][^>]*>(.*?)</option>',
                 match.group(1),
                 re.I | re.S,
             )
-            normalized = re.sub(r"\s+", " ", value).strip().casefold()
             for option_value, label in options:
-                if re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", label)).strip().casefold() == normalized:
+                clean_label = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", label)).strip().casefold()
+                if clean_label == normalized and option_value != "0":
                     return option_value
-        raise HappyFappyError(f"Unknown HappyFappy category: {value}")
+        return "1"
 
     async def check_dupe(self, torrent_path):
         fields = await self._upload_form()
@@ -323,14 +378,21 @@ class HappyFappyClient:
                 and re.search(r"torrents\.php\?[^\"'<>\s]*\bid=\d+", recent_text, re.I)
             )
         if "/torrents.php" not in str(response.url) and not success_marker:
-            visible = re.sub(r"<[^>]+>", " ", response.text)
-            visible = re.sub(r"\s+", " ", visible).strip()
-            hints = re.findall(
-                r"[^.]{0,80}(?:error|invalid|must|required|not allowed|rejected|failed|warning)[^.]{0,180}",
-                visible,
-                re.I,
-            )
-            detail = " | ".join(dict.fromkeys(item.strip() for item in hints))[:700]
+            msg_match = re.search(r'<div[^>]+id=["\']messagebar["\'][^>]*>(.*?)</div>', response.text, re.I | re.S)
+            if not msg_match:
+                msg_match = re.search(r'<div[^>]+class=["\'][^"\']*messagebar[^"\']*["\'][^>]*>(.*?)</div>', response.text, re.I | re.S)
+            if msg_match:
+                detail = re.sub(r"<[^>]+>", " ", unescape(msg_match.group(1))).strip()
+                detail = re.sub(r"\s+", " ", detail)
+            else:
+                visible = re.sub(r"<[^>]+>", " ", response.text)
+                visible = re.sub(r"\s+", " ", visible).strip()
+                hints = re.findall(
+                    r"[^.]{0,80}(?:error validating form|error|invalid|must|required|not allowed|rejected|failed)[^.]{0,180}",
+                    visible,
+                    re.I,
+                )
+                detail = " | ".join(dict.fromkeys(item.strip() for item in hints))[:700]
             suffix = f": {detail}" if detail else ""
             raise HappyFappyError(
                 f"HappyFappy did not confirm the torrent upload "

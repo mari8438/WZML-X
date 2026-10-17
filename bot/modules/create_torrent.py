@@ -1018,13 +1018,19 @@ async def _send_artifacts(message, source_path, torrent_path, trackers, send=Tru
     return {"title": title, "summary": summary, "thumb": thumb, "sheet": sheet, "desc_path": desc_path}
 
 
+def _normalize_gazelle_tag(tag):
+    cleaned = re.sub(r"[^a-zA-Z0-9.]+", ".", str(tag or "").strip()).strip(".")
+    cleaned = re.sub(r"\.+", ".", cleaned).lower()
+    return cleaned
+
+
 def _happyfappy_tags(title, summary):
     raw = str(getattr(Config, "HAPPYFAPPY_TAGS", "") or "")
-    tags = [
-        item.strip()
-        for item in raw.replace(",", " ").split()
-        if item.strip() and "rape" not in item.casefold()
-    ]
+    tags = []
+    for item in raw.replace(",", " ").split():
+        t = _normalize_gazelle_tag(item)
+        if t and "rape" not in t and t not in tags:
+            tags.append(t)
     for value in (
         summary.get("resolution"),
         summary.get("video"),
@@ -1033,8 +1039,11 @@ def _happyfappy_tags(title, summary):
         *summary.get("genres", []),
         str(summary.get("title", "")).rsplit(".", 1)[-1],
     ):
-        if value and value.lower() not in {item.lower() for item in tags}:
-            tags.append(value)
+        if not value:
+            continue
+        t = _normalize_gazelle_tag(value)
+        if t and "rape" not in t and t not in tags:
+            tags.append(t)
     return " ".join(tags)
 
 
@@ -1217,32 +1226,64 @@ async def _resume_happyfappy_artifacts(state, source_path):
     source_name = ospath.basename(source_path)
     stem = ospath.splitext(source_name)[0]
     output_dir = str(Config.CTORRENT_OUTPUT_DIR or "/usr/src/app/torrents/output")
+    title = str(state.get("title") or source_name)
+    title_clean = ospath.splitext(title)[0]
+
+    thumb = str(state.get("thumb") or "")
+    if not thumb or not await aiopath.isfile(thumb):
+        thumb_candidates = [
+            ospath.join(output_dir, f"{title_clean}.preview.webp"),
+            ospath.join(output_dir, f"{stem}.preview.webp"),
+            ospath.join(ospath.dirname(source_path), f"{title_clean}.hstream-cover.jpg"),
+            ospath.join(ospath.dirname(source_path), f"{stem}.hstream-cover.jpg"),
+        ]
+        for c in thumb_candidates:
+            if await aiopath.isfile(c):
+                thumb = c
+                break
+
+    sheet = str(state.get("sheet") or "")
+    if not sheet or not await aiopath.isfile(sheet):
+        sheet_candidates = [
+            ospath.join(output_dir, f"{title_clean}_12screens.jpg"),
+            ospath.join(output_dir, f"{stem}_12screens.jpg"),
+        ]
+        for c in sheet_candidates:
+            if await aiopath.isfile(c):
+                sheet = c
+                break
+
+    desc_path = str(state.get("description_path") or "")
+    if not desc_path or not await aiopath.isfile(desc_path):
+        desc_candidates = [
+            ospath.join(output_dir, f"{title_clean}.description.txt"),
+            ospath.join(output_dir, f"{stem}.description.txt"),
+        ]
+        for c in desc_candidates:
+            if await aiopath.isfile(c):
+                desc_path = c
+                break
+
     artifacts = {
-        "title": ospath.splitext(str(state.get("title") or source_name))[0],
+        "title": title_clean,
         "summary": await _probe_summary(source_path),
-        "thumb": ospath.join(ospath.dirname(source_path), f"{stem}.hstream-cover.jpg"),
-        "sheet": ospath.join(output_dir, f"{stem}_12screens.jpg"),
-        "desc_path": str(state.get("description_path") or ""),
+        "thumb": thumb,
+        "sheet": sheet,
+        "desc_path": desc_path,
     }
     for key in ("thumb", "sheet", "desc_path"):
         if not artifacts[key] or not await aiopath.isfile(artifacts[key]):
             raise RuntimeError(f"Cannot resume HappyFappy transaction; missing {key}: {artifacts[key]}")
+
     async with aiopen(artifacts["desc_path"], encoding="utf-8") as desc_file:
         description = await desc_file.read()
     image_match = re.search(r"https://[^\s\[\]()]+\.pixhost\.cc/[^\s\[\]()]+", description, re.I)
-    if not image_match:
-        raise RuntimeError("Cannot resume HappyFappy transaction; no Pixhost image link is preserved")
-    image_url = image_match.group(0).rstrip(".,")
-    artifacts["resume"] = True
-    artifacts["resume_image_url"] = image_url
+    if image_match:
+        artifacts["resume"] = True
+        artifacts["resume_image_url"] = image_match.group(0).rstrip(".,")
+    else:
+        artifacts["resume"] = False
     return artifacts
-    try:
-        await aioremove(source_path)
-        LOGGER.warning("Removed failed HappyFappy source: %s", ospath.basename(source_path))
-        return True
-    except OSError as error:
-        LOGGER.error("Could not remove failed HappyFappy source %s: %s", source_path, error)
-        return False
 
 
 async def _publish_happyfappy(message, source_path, torrent_path, artifacts, status_msg=None, skip_dupe=False):
@@ -1552,7 +1593,14 @@ async def create_torrent(_, message):
                 send=False,
                 template_preset="happyfappy",
             )
-            update_transaction(torrent_path, "ARTWORK_READY", description_path=artifacts.get("desc_path", ""))
+            update_transaction(
+                torrent_path,
+                "ARTWORK_READY",
+                description_path=artifacts.get("desc_path", ""),
+                thumb=artifacts.get("thumb", ""),
+                sheet=artifacts.get("sheet", ""),
+                title=artifacts.get("title", ""),
+            )
             upload_url = await _publish_happyfappy(
                 message,
                 source_path,

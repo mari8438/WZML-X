@@ -140,6 +140,56 @@ class HappyFappyPreviewAndCookiesTest(unittest.TestCase):
 
         asyncio.run(_test())
 
+    def test_category_value_resolution(self):
+        client = hf_mod.HappyFappyClient("https://www.happyfappy.net", "user", "pass")
+        client._upload_html = (
+            '<select id="category" name="category">'
+            '<option value="0">---</option>'
+            '<option value="1">Pron</option>'
+            '<option value="11">Asian</option>'
+            '<option value="15">AI</option>'
+            '</select>'
+        )
+        self.assertEqual(client._category_value(""), "1")
+        self.assertEqual(client._category_value(None), "1")
+        self.assertEqual(client._category_value("0"), "1")
+        self.assertEqual(client._category_value("1"), "1")
+        self.assertEqual(client._category_value("11"), "11")
+        self.assertEqual(client._category_value("Pron"), "1")
+        self.assertEqual(client._category_value("Hentai"), "1")
+        self.assertEqual(client._category_value("Asian"), "11")
+        self.assertEqual(client._category_value("AI"), "15")
+        self.assertEqual(client._category_value("NonExistentCategory"), "1")
+
+    def test_hidden_fields_target_form_id(self):
+        html = (
+            '<form id="searchbox">'
+            '<input type="hidden" name="action" value="search">'
+            '<input type="hidden" name="token" value="tok123">'
+            '</form>'
+            '<form id="upload_table" enctype="multipart/form-data">'
+            '<input type="hidden" name="auth" value="auth456">'
+            '<input type="hidden" name="submit" value="true">'
+            '</form>'
+        )
+        parser = hf_mod._HiddenFields(target_form_id="upload_table")
+        parser.feed(html)
+        self.assertIn("auth", parser.fields)
+        self.assertIn("submit", parser.fields)
+        self.assertNotIn("action", parser.fields)
+        self.assertNotIn("token", parser.fields)
+
+    def test_tag_normalization(self):
+        _CT_PATH = _REPO_ROOT / "bot" / "modules" / "create_torrent.py"
+        with open(_CT_PATH, encoding="utf-8") as f:
+            code = f.read()
+        import re
+        self.assertIn("def _normalize_gazelle_tag", code)
+        clean = re.sub(r"[^a-zA-Z0-9.]+", ".", "Hand Job").strip(".")
+        self.assertEqual(clean.lower(), "hand.job")
+        clean2 = re.sub(r"[^a-zA-Z0-9.]+", ".", "4K 48Fps").strip(".")
+        self.assertEqual(clean2.lower(), "4k.48fps")
+
 
 if __name__ == "__main__":
     unittest.main()
