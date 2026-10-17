@@ -22,6 +22,8 @@ cookies.txt
 youtube-cookies*
 *.cookies
 downloads/*
+download-temp/*
+torrents/*
 .github/instructions/*
 .github/skills/*
 .github/agents/*
