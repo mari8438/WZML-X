@@ -245,5 +245,83 @@ class DbManager:
             return
         await self.db[name][self._partition()].drop()
 
+    async def get_next_hstream_pack_number(self):
+        if self._return or self.db is None:
+            return 1
+        try:
+            cursor = self.db.happyfappy_hstream_packs.find(
+                {"partition": self._partition()},
+                {"pack_number": 1}
+            ).sort("pack_number", -1).limit(1)
+            docs = [d async for d in cursor]
+            if docs and "pack_number" in docs[0]:
+                return int(docs[0]["pack_number"]) + 1
+        except Exception as e:
+            LOGGER.warning(f"Failed to get next Hstream pack number from DB: {e}")
+        return 1
+
+    async def get_packaged_hstream_slugs(self):
+        if self._return or self.db is None:
+            return set()
+        slugs = set()
+        try:
+            cursor = self.db.happyfappy_hstream_packs.find(
+                {"partition": self._partition(), "status": "COMPLETED"},
+                {"episodes.slug": 1}
+            )
+            async for doc in cursor:
+                for ep in doc.get("episodes", []):
+                    if ep.get("slug"):
+                        slugs.add(ep["slug"])
+        except Exception as e:
+            LOGGER.warning(f"Failed to query packaged Hstream slugs: {e}")
+        return slugs
+
+    async def save_hstream_pack(self, pack_data):
+        if self._return or self.db is None:
+            return
+        try:
+            pack_data["partition"] = self._partition()
+            pack_id = pack_data.get("_id") or f"pack_{pack_data.get('pack_number')}_{self._partition()}"
+            pack_data["_id"] = pack_id
+            await self.db.happyfappy_hstream_packs.replace_one(
+                {"_id": pack_id}, pack_data, upsert=True
+            )
+        except Exception as e:
+            LOGGER.warning(f"Failed to save Hstream pack to DB: {e}")
+
+    async def get_all_completed_hstream_packs(self):
+        if self._return or self.db is None:
+            return []
+        try:
+            cursor = self.db.happyfappy_hstream_packs.find(
+                {"partition": self._partition(), "status": "COMPLETED"}
+            ).sort("pack_number", 1)
+            return [doc async for doc in cursor]
+        except Exception as e:
+            LOGGER.warning(f"Failed to query completed Hstream packs: {e}")
+            return []
+
+    async def get_hstream_pinned_index_id(self):
+        if self._return or self.db is None:
+            return None
+        try:
+            doc = await self.db.settings.pinned_index.find_one({"_id": self._partition()})
+            return doc.get("message_id") if doc else None
+        except Exception:
+            return None
+
+    async def set_hstream_pinned_index_id(self, message_id):
+        if self._return or self.db is None:
+            return
+        try:
+            await self.db.settings.pinned_index.update_one(
+                {"_id": self._partition()},
+                {"$set": {"message_id": message_id}},
+                upsert=True,
+            )
+        except Exception as e:
+            LOGGER.warning(f"Failed to update pinned index id in DB: {e}")
+
 
 database = DbManager()

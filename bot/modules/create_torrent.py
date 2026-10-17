@@ -408,24 +408,35 @@ def _parse_folder_mode(message):
 
     if "-" in tokens:
         sep = tokens.index("-")
+        after_sep = tokens[sep + 1 :]
+        links = [t for t in after_sep if t.startswith(("http://", "https://"))]
+        if links:
+            name_tokens = [t for t in tokens[:sep] if not t.startswith("-")]
+            folder_name = _safe_name(" ".join(name_tokens), "release_folder")
+            return folder_name, links
+        if after_sep and all(t.isdigit() or t.startswith("-") for t in after_sep):
+            pack_num = next((t for t in after_sep if t.isdigit()), "")
+            name_tokens = [t for t in tokens[:sep] if not t.startswith("-")]
+            full_name = f"{' '.join(name_tokens)} - {pack_num}".strip(" -")
+            return _safe_name(full_name, "Hanime Pack"), []
         if sep > 0:
             name_tokens = [t for t in tokens[:sep] if not t.startswith("-")]
             folder_name = _safe_name(" ".join(name_tokens), "release_folder")
-            links = [
-                token for token in tokens[sep + 1 :]
-                if token.startswith(("http://", "https://"))
-            ]
-            return folder_name, links
+            return folder_name, []
 
-    if "-m" in tokens:
-        m_idx = tokens.index("-m")
-        if m_idx + 1 < len(tokens):
-            folder_name = _safe_name(tokens[m_idx + 1], "release_folder")
-            links = [
-                t for t in tokens
-                if t.startswith(("http://", "https://"))
-            ]
-            return folder_name, links
+    for flag in ("-m", "-i"):
+        if flag in tokens:
+            idx = tokens.index(flag)
+            if idx + 1 < len(tokens):
+                folder_name = _safe_name(tokens[idx + 1], "release_folder")
+                links = [t for t in tokens if t.startswith(("http://", "https://"))]
+                return folder_name, links
+
+    if "--happyfappy" in tokens:
+        pos_args = [t for t in tokens if not t.startswith("-")]
+        if pos_args:
+            first_arg = " ".join(pos_args)
+            return _safe_name(first_arg, "release_folder"), []
 
     return None
 
@@ -1682,6 +1693,113 @@ async def _download_pack_link(link, out_dir, status_msg, message, item_index=1, 
     return await _download_link(link, out_dir, status_msg)
 
 
+async def _collect_hstream_pack_auto(message, folder_path, folder_name, status_msg, min_size_bytes, reverse=False):
+    from ..helper.ext_utils.db_handler import database
+    from ..helper.ext_utils.hstream_resolver import HstreamResolver, select_hstream_pack_stream
+
+    current_size = await get_path_size(folder_path)
+    if current_size >= min_size_bytes:
+        LOGGER.info("Pack '%s' already meets minimum size requirement: %d >= %d bytes", folder_name, current_size, min_size_bytes)
+        return True, []
+
+    await makedirs(folder_path, exist_ok=True)
+    packaged_slugs = await database.get_packaged_hstream_slugs()
+    LOGGER.info("MongoDB reported %d previously packaged Hstream slugs", len(packaged_slugs))
+
+    async with HstreamResolver() as resolver:
+        catalog_items = await resolver.discover_all(reverse=reverse)
+        LOGGER.info("Fetched %d Hstream catalog items (reverse=%s)", len(catalog_items), reverse)
+
+        candidates = [item for item in catalog_items if item.slug not in packaged_slugs]
+        LOGGER.info("Unpackaged candidate episodes available: %d", len(candidates))
+
+        collected_episodes = []
+        for index, item in enumerate(candidates, start=1):
+            if current_size >= min_size_bytes:
+                LOGGER.info("Pack '%s' reached target size %d >= %d bytes", folder_name, current_size, min_size_bytes)
+                break
+
+            await _edit_progress(
+                status_msg,
+                f"Create Torrent: resolving episode {index} for {folder_name}...",
+                extra=f"🎬 <code>{escape(item.series_title)} (Ep {item.episode})</code>\n"
+                      f"📊 Pack Size: <code>{get_readable_file_size(current_size)} / {get_readable_file_size(min_size_bytes)}</code>",
+            )
+
+            try:
+                episode = await resolver.resolve(item)
+            except Exception as res_err:
+                LOGGER.warning("Could not resolve episode %s: %s", item.slug, res_err)
+                continue
+
+            stream = select_hstream_pack_stream(episode.streams)
+            if not stream or not stream.urls:
+                LOGGER.warning("No streams available for %s", item.slug)
+                continue
+
+            fps_str = "48fps" if ("48fps" in stream.label or stream.fps >= 40) else ""
+            media_tag = " ".join(v for v in (stream.resolution, stream.codec, fps_str) if v)
+            safe_title = _safe_name(f"{episode.title} [{media_tag}] [Jap] ESub ~ [@Anime_Starfall🥰].mkv")
+            output_file = ospath.join(folder_path, safe_title)
+
+            if await aiopath.isfile(output_file) and (await aiopath.getsize(output_file)) > 0:
+                LOGGER.info("Episode already downloaded, reusing: %s", output_file)
+            else:
+                await _edit_progress(
+                    status_msg,
+                    f"Create Torrent: downloading episode for {folder_name}...",
+                    extra=f"🎬 <code>{escape(safe_title)}</code>\n"
+                          f"🎞 Quality: <code>{escape(stream.label or stream.resolution)}</code>\n"
+                          f"📊 Pack Size: <code>{get_readable_file_size(current_size)} / {get_readable_file_size(min_size_bytes)}</code>",
+                )
+                stream_url = stream.urls[0]
+                cmd = [
+                    "yt-dlp", "--newline", "--no-playlist", "--no-check-certificates",
+                    "--referer", item.url, "--merge-output-format", "mkv",
+                    "-f", "bv*+ba/b", "-o", output_file,
+                ]
+                if ospath.isfile("cookies.txt"):
+                    cmd.extend(("--cookies", "cookies.txt"))
+                cmd.append(stream_url)
+                process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+                await process.wait()
+                if not (await aiopath.isfile(output_file)) or (await aiopath.getsize(output_file)) == 0:
+                    LOGGER.warning("yt-dlp download failed for %s", item.slug)
+                    continue
+
+            meta_path = f"{output_file}.hstream.json"
+            try:
+                with open(meta_path, "w", encoding="utf-8") as mf:
+                    dump({
+                        "slug": item.slug,
+                        "title": episode.title,
+                        "year": episode.year,
+                        "description": episode.description,
+                        "genres": episode.genres,
+                        "portrait_url": episode.portrait_url,
+                        "landscape_url": episode.landscape_url,
+                        "sample_urls": episode.sample_urls,
+                        "source_url": episode.source_url,
+                        "stream_label": stream.label,
+                        "resolution": stream.resolution,
+                        "fps": stream.fps,
+                    }, mf, ensure_ascii=False)
+            except Exception as meta_err:
+                LOGGER.warning("Could not write episode metadata: %s", meta_err)
+
+            ep_size = await aiopath.getsize(output_file)
+            collected_episodes.append({
+                "slug": item.slug,
+                "title": episode.title,
+                "stream_label": stream.label,
+                "file_path": output_file,
+                "size_bytes": ep_size,
+            })
+            current_size = await get_path_size(folder_path)
+
+    return current_size >= min_size_bytes, collected_episodes
+
+
 async def _collect_pack_videos_interactive(message, folder_path, folder_name, status_msg, min_size_bytes):
     current_size = await get_path_size(folder_path)
     if current_size >= min_size_bytes:
@@ -1894,11 +2012,81 @@ async def _generate_pack_artifacts(folder_path, folder_name, status_msg=None):
     }
 
 
+async def _update_seeding_channel_pinned_index(chan_id):
+    from ..helper.ext_utils.db_handler import database
+    packs = await database.get_all_completed_hstream_packs()
+    if not packs:
+        return
+
+    clean_chan = str(chan_id).removeprefix("-100")
+    total_bytes = sum(p.get("total_size_bytes", 0) for p in packs)
+    total_episodes = sum(p.get("episodes_count", 0) for p in packs)
+
+    lines = [
+        "📚 <b>HAPPYFAPPY MEGAPACKS CATALOG</b>",
+        "──────────────────────────────",
+    ]
+    for p in packs:
+        p_name = p.get("pack_name", "Pack")
+        p_size = p.get("readable_size", "")
+        p_eps = p.get("episodes_count", 0)
+        p_url = p.get("upload_url", "")
+        post_id = p.get("channel_message_id")
+        post_link = f"https://t.me/c/{clean_chan}/{post_id}" if post_id else ""
+        link_str = f" ➔ <a href=\"{post_link}\">View Post</a>" if post_link else ""
+        lines.append(f"📁 <b>{escape(p_name)}</b> • {p_size} ({p_eps} eps){link_str}")
+        if p_url:
+            lines.append(f"   └ 🌐 <a href=\"{escape(p_url)}\">Tracker Release</a>")
+    lines.append("──────────────────────────────")
+    lines.append(f"📊 <b>Total Seeded:</b> <code>{get_readable_file_size(total_bytes)}</code> | <b>Total Packs:</b> <code>{len(packs)}</code>")
+    lines.append(f"🎬 <b>Total Episodes:</b> <code>{total_episodes} videos</code>")
+    lines.append("🌱 <i>All packs 24/7 seeded via qBittorrent</i>")
+
+    index_text = "\n".join(lines)
+    index_id = await database.get_hstream_pinned_index_id()
+
+    try:
+        if index_id:
+            try:
+                await TgClient.bot.edit_message_text(chan_id, index_id, index_text, disable_web_page_preview=True)
+                return
+            except Exception:
+                pass
+
+        new_index = await TgClient.bot.send_message(chan_id, index_text, disable_web_page_preview=True)
+        if new_index:
+            try:
+                await TgClient.bot.pin_chat_message(chan_id, new_index.id, disable_notification=True)
+            except Exception as pin_err:
+                LOGGER.warning("Could not pin index message in channel: %s", pin_err)
+            await database.set_hstream_pinned_index_id(new_index.id)
+    except Exception as e:
+        LOGGER.warning("Failed to manage seeding channel pinned index: %s", e)
+
+
 async def _handle_happyfappy_pack(message, folder_name, links, status_msg=None, skip_dupe=False):
     required = ("HAPPYFAPPY_ANNOUNCE_URL", "HAPPYFAPPY_USERNAME", "HAPPYFAPPY_PASSWORD")
     missing = [key for key in required if not str(getattr(Config, key, "") or "").strip()]
     if missing:
         raise RuntimeError(f"HappyFappy is not configured: {', '.join(missing)}")
+
+    is_hstream_auto = False
+    pack_number = None
+    fn_lower = folder_name.lower().strip()
+    if fn_lower == "auto":
+        from ..helper.ext_utils.db_handler import database
+        pack_number = await database.get_next_hstream_pack_number()
+        folder_name = f"Hanime Pack - {pack_number}"
+        is_hstream_auto = True
+    elif "hanime pack" in fn_lower:
+        is_hstream_auto = True
+        num_match = re.search(r"hanime\s*pack\s*-\s*(\d+)", folder_name, re.IGNORECASE)
+        if num_match:
+            pack_number = int(num_match.group(1))
+        else:
+            from ..helper.ext_utils.db_handler import database
+            pack_number = await database.get_next_hstream_pack_number()
+            folder_name = f"Hanime Pack - {pack_number}"
 
     storage_dir = str(Config.CTORRENT_STORAGE_DIR or "/usr/src/app/torrents/seeding")
     folder_path = ospath.join(storage_dir, folder_name)
@@ -1909,26 +2097,36 @@ async def _handle_happyfappy_pack(message, folder_name, links, status_msg=None, 
     if not links and message.reply_to_message:
         links = _extract_links_from_message(message.reply_to_message)
 
-    LOGGER.info("Starting HappyFappy pack: folder='%s', initial_links=%d", folder_name, len(links))
+    LOGGER.info("Starting HappyFappy pack: folder='%s', initial_links=%d, auto_hstream=%s", folder_name, len(links), is_hstream_auto)
 
-    if links:
-        for index, link in enumerate(links, start=1):
-            await _edit_progress(
-                status_msg,
-                f"Create Torrent: downloading pack video {index}/{len(links)}...",
-                extra=f"Folder: <code>{escape(folder_name)}</code>",
-            )
-            try:
-                await _download_pack_link(link, folder_path, status_msg, message, index, len(links))
-            except Exception as dl_err:
-                LOGGER.warning("Pack link %s download failed: %s", link, dl_err)
-
+    auto_episodes = []
     min_gb = float(getattr(Config, "HAPPYFAPPY_PACK_MIN_SIZE_GB", 30.0))
     min_bytes = int(min_gb * (1024 ** 3))
-    proceed = await _collect_pack_videos_interactive(message, folder_path, folder_name, status_msg, min_bytes)
-    if not proceed:
-        await edit_message(status_msg, f"Create Torrent HappyFappy Pack: stopped by owner. Files preserved in <code>{escape(folder_name)}</code>.")
-        return None
+
+    if is_hstream_auto and not links:
+        proceed, auto_episodes = await _collect_hstream_pack_auto(
+            message, folder_path, folder_name, status_msg, min_bytes, reverse=False
+        )
+        if not proceed:
+            await edit_message(status_msg, f"Create Torrent HappyFappy Pack: auto-collection stopped. Files preserved in <code>{escape(folder_name)}</code>.")
+            return None
+    else:
+        if links:
+            for index, link in enumerate(links, start=1):
+                await _edit_progress(
+                    status_msg,
+                    f"Create Torrent: downloading pack video {index}/{len(links)}...",
+                    extra=f"Folder: <code>{escape(folder_name)}</code>",
+                )
+                try:
+                    await _download_pack_link(link, folder_path, status_msg, message, index, len(links))
+                except Exception as dl_err:
+                    LOGGER.warning("Pack link %s download failed: %s", link, dl_err)
+
+        proceed = await _collect_pack_videos_interactive(message, folder_path, folder_name, status_msg, min_bytes)
+        if not proceed:
+            await edit_message(status_msg, f"Create Torrent HappyFappy Pack: stopped by owner. Files preserved in <code>{escape(folder_name)}</code>.")
+            return None
 
     update_pack_transaction(folder_name, "GENERATING_ARTIFACTS", output_dir=output_dir, folder_path=folder_path)
     artifacts = await _generate_pack_artifacts(folder_path, folder_name, status_msg)
@@ -2024,17 +2222,74 @@ async def _handle_happyfappy_pack(message, folder_name, links, status_msg=None, 
     await send_message(message, completion_text)
     await send_file(message, accepted_torrent_path, f"Official HappyFappy Torrent: {escape(folder_name)}")
 
+    pack_doc = None
+    if is_hstream_auto:
+        from ..helper.ext_utils.db_handler import database
+        pack_doc = {
+            "_id": folder_name,
+            "pack_number": pack_number or 1,
+            "pack_name": folder_name,
+            "status": "COMPLETED",
+            "total_size_bytes": artifacts["total_size"],
+            "readable_size": get_readable_file_size(artifacts["total_size"]),
+            "episodes_count": len(artifacts["videos"]),
+            "episodes": auto_episodes or [
+                {"slug": ospath.basename(v), "title": ospath.basename(v), "size_bytes": 0}
+                for v in artifacts["videos"]
+            ],
+            "torrent_hash": torrent_hash,
+            "upload_url": upload_url,
+            "completed_at": int(time()),
+        }
+        await database.save_hstream_pack(pack_doc)
+
     seeding_channel = str(getattr(Config, "HAPPYFAPPY_SEEDING_CHANNEL", "") or "").strip()
     if seeding_channel:
         try:
             chan_id = int(seeding_channel) if seeding_channel.lstrip("-").isdigit() else seeding_channel
+
+            ep_lines = []
+            for i, v in enumerate(artifacts["videos"][:35], start=1):
+                clean_t = ospath.splitext(ospath.basename(v))[0]
+                ep_lines.append(f"{i}. {escape(clean_t)}")
+            if len(artifacts["videos"]) > 35:
+                ep_lines.append(f"... and {len(artifacts['videos']) - 35} more videos")
+            ep_block = "\n".join(ep_lines)
+
+            tag_pack = f"Pack{pack_number}" if pack_number else "Pack"
+            channel_caption = (
+                f"📦 <b>#HanimePack #{tag_pack} #HappyFappy</b>\n\n"
+                f"📁 <b>Pack:</b> <code>{escape(folder_name)}</code>\n"
+                f"📊 <b>Total Size:</b> <code>{get_readable_file_size(artifacts['total_size'])}</code>\n"
+                f"🎬 <b>Episodes:</b> <code>{len(artifacts['videos'])} videos</code>\n"
+                f"🌱 <b>qBittorrent Seeding:</b> <code>{torrent_hash}</code>\n\n"
+                f"<blockquote expandable><b>Episodes in this pack:</b>\n{ep_block}</blockquote>\n\n"
+                f"🌐 <a href=\"{escape(upload_url)}\"><b>Open on HappyFappy Tracker</b></a>"
+            )
+
+            btn = ButtonMaker()
+            btn.url_button("🌐 Open on HappyFappy", upload_url)
+            webui = _qbit_webui_url()
+            if webui:
+                btn.url_button("🌱 Web UI", webui)
+
+            post_msg = None
             if artifacts["cover_path"] and await aiopath.isfile(artifacts["cover_path"]):
-                await TgClient.bot.send_photo(chan_id, artifacts["cover_path"], caption=completion_text)
+                post_msg = await TgClient.bot.send_photo(chan_id, artifacts["cover_path"], caption=channel_caption, reply_markup=btn.build_menu(2))
             else:
-                await TgClient.bot.send_message(chan_id, completion_text)
-            await TgClient.bot.send_document(chan_id, accepted_torrent_path, caption=f"Torrent: {escape(folder_name)}")
+                post_msg = await TgClient.bot.send_message(chan_id, channel_caption, reply_markup=btn.build_menu(2))
+
+            reply_to_id = post_msg.id if post_msg else None
+            await TgClient.bot.send_document(chan_id, accepted_torrent_path, caption=f"Torrent: {escape(folder_name)}", reply_to_message_id=reply_to_id)
             if artifacts["desc_path"] and await aiopath.isfile(artifacts["desc_path"]):
-                await TgClient.bot.send_document(chan_id, artifacts["desc_path"], caption=f"BBCode: {escape(folder_name)}")
+                await TgClient.bot.send_document(chan_id, artifacts["desc_path"], caption=f"BBCode: {escape(folder_name)}", reply_to_message_id=reply_to_id)
+
+            if pack_doc and post_msg:
+                from ..helper.ext_utils.db_handler import database
+                pack_doc["channel_message_id"] = post_msg.id
+                await database.save_hstream_pack(pack_doc)
+
+            await _update_seeding_channel_pinned_index(chan_id)
         except Exception as chan_err:
             LOGGER.warning("Failed to forward pack to HAPPYFAPPY_SEEDING_CHANNEL (%s): %s", seeding_channel, chan_err)
 

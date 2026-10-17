@@ -291,6 +291,28 @@ class HstreamResolver:
             key=lambda item: (item.series_title.casefold(), item.episode, item.slug),
         )
 
+    async def discover_all(self, reverse=False):
+        response = await self._request("GET", HSTREAM_CATALOG)
+        response.raise_for_status()
+        series_list = response.json()
+        if reverse:
+            series_list = list(reversed(series_list))
+        items = []
+        for series in series_list:
+            title = str(series.get("title") or "").strip()
+            for episode in series.get("episodes") or []:
+                slug = str(episode.get("slug") or "").strip()
+                if not slug:
+                    continue
+                items.append(
+                    HstreamCatalogItem(
+                        series_title=title,
+                        episode=_number(episode.get("episode")),
+                        slug=slug,
+                    )
+                )
+        return items
+
     async def _probe_mpd(self, url, referer, height, interpolated):
         response = await self.stream_client.get(
             url, headers={"Referer": referer, "Accept": "application/dash+xml,*/*"}
@@ -477,3 +499,22 @@ class HstreamResolver:
             subtitles=subtitles,
             sample_urls=sample_urls,
         )
+
+
+def select_hstream_pack_stream(streams: list[HstreamStream]) -> HstreamStream | None:
+    if not streams:
+        return None
+    # 1. 1080p 48fps (exact label or resolution 1080p with fps >= 40)
+    for s in streams:
+        if "1080" in s.resolution and ("48fps" in s.label or s.fps >= 40):
+            return s
+    # 2. Standard 1080p
+    for s in streams:
+        if "1080" in s.resolution:
+            return s
+    # 3. Best available fallback (e.g. 720p or highest resolution)
+    def _rank(s):
+        res_num = _number(s.resolution.rstrip("p"))
+        fps_boost = 1 if "48fps" in s.label or s.fps >= 40 else 0
+        return (res_num, fps_boost)
+    return max(streams, key=_rank)
