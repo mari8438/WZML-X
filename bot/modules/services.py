@@ -177,6 +177,7 @@ async def ping(_, message):
 @new_task
 async def log(_, message):
     uid = message.from_user.id
+    LOGGER.info("Log command invoked by user %s", uid)
     if not await aiopath.isfile("log.txt"):
         return await send_message(message, "<b>Log file not found yet.</b>")
     buttons = ButtonMaker()

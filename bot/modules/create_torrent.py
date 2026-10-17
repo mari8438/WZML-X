@@ -1685,8 +1685,10 @@ async def _download_pack_link(link, out_dir, status_msg, message, item_index=1, 
 async def _collect_pack_videos_interactive(message, folder_path, folder_name, status_msg, min_size_bytes):
     current_size = await get_path_size(folder_path)
     if current_size >= min_size_bytes:
+        LOGGER.info("Pack '%s' meets minimum size requirement: %d >= %d bytes", folder_name, current_size, min_size_bytes)
         return True
 
+    LOGGER.info("Pack '%s' under minimum threshold (%d < %d bytes); launching interactive collector", folder_name, current_size, min_size_bytes)
     token = f"hfp_{message.id}_{int(time() * 1000)}"
     buttons = ButtonMaker()
     buttons.data_button("✅ Done / Process Pack", f"{token}:done")
@@ -1723,6 +1725,7 @@ async def _collect_pack_videos_interactive(message, folder_path, folder_name, st
             return
         await query.answer()
         action = query.data.split(":", 1)[1]
+        LOGGER.info("Interactive collector action clicked: '%s' for pack '%s'", action, folder_name)
         result[0] = (action != "cancel")
         event.set()
 
@@ -1734,6 +1737,7 @@ async def _collect_pack_videos_interactive(message, folder_path, folder_name, st
         has_media = bool(getattr(incoming, "video", None) or getattr(incoming, "document", None))
         if not new_links and not has_media:
             return
+        LOGGER.info("Interactive collector received item: %d links, media=%s for pack '%s'", len(new_links), has_media, folder_name)
 
         if new_links:
             for l in new_links:
@@ -1905,6 +1909,8 @@ async def _handle_happyfappy_pack(message, folder_name, links, status_msg=None, 
     if not links and message.reply_to_message:
         links = _extract_links_from_message(message.reply_to_message)
 
+    LOGGER.info("Starting HappyFappy pack: folder='%s', initial_links=%d", folder_name, len(links))
+
     if links:
         for index, link in enumerate(links, start=1):
             await _edit_progress(
@@ -2037,21 +2043,25 @@ async def _handle_happyfappy_pack(message, folder_name, links, status_msg=None, 
 
 @new_task
 async def create_torrent(_, message):
+    command_text = message.text or message.caption or ""
+    uid = getattr(message.from_user, "id", "unknown")
+    LOGGER.info("Create Torrent command received from user %s: %s", uid, command_text)
     status_msg = await send_message(message, "Create Torrent: preparing source...")
     source_path = None
     happyfappy_mode = False
     artifacts = {}
     try:
-        command_text = message.text or message.caption or ""
         command_tokens = set(command_text.split())
         happyfappy_mode = "--happyfappy" in command_tokens
         skip_dupe = "--skip-dupe" in command_tokens
         if happyfappy_mode and message.from_user.id != Config.OWNER_ID:
+            LOGGER.warning("HappyFappy rejected: user %s is not OWNER_ID %s", uid, Config.OWNER_ID)
             await edit_message(status_msg, "HappyFappy publishing is owner-only.")
             return
         folder_mode = _parse_folder_mode(message)
         if folder_mode:
             folder_name, links = folder_mode
+            LOGGER.info("Create Torrent folder mode: name='%s', links_count=%d, happyfappy=%s", folder_name, len(links), happyfappy_mode)
             if happyfappy_mode:
                 return await _handle_happyfappy_pack(
                     message, folder_name, links, status_msg=status_msg, skip_dupe=skip_dupe
@@ -2194,6 +2204,7 @@ async def create_torrent(_, message):
             await _send_artifacts(message, source_path, torrent_path, trackers)
             await edit_message(status_msg, "Create Torrent: completed.")
     except Exception as e:
+        LOGGER.error("Create Torrent execution failed: %s", e, exc_info=True)
         source_removed = False
         if (
             happyfappy_mode
