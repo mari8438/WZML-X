@@ -75,6 +75,18 @@ def _transcribe_offline_sync(audio_path: str, srt_path: str, model_name: str = "
         LOGGER.error("faster-whisper is not installed. Please install faster-whisper>=1.0.0")
         raise RuntimeError("faster-whisper is required for offline subtitle generation.")
 
+    import wave
+    import numpy as np
+
+    # Read audio directly using wave and numpy to bypass PyAV av.open metadata_errors bugs
+    try:
+        with wave.open(audio_path, "rb") as wf:
+            frames = wf.readframes(wf.getnframes())
+            audio_input = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    except Exception as e:
+        LOGGER.warning(f"Could not load audio via wave ({e}), falling back to filepath")
+        audio_input = audio_path
+
     LOGGER.info(f"Loading faster-whisper model '{model_name}' on CPU (int8)...")
     model = WhisperModel(
         model_name,
@@ -86,7 +98,7 @@ def _transcribe_offline_sync(audio_path: str, srt_path: str, model_name: str = "
 
     LOGGER.info(f"Transcribing & translating Japanese audio from {audio_path}...")
     segments, _ = model.transcribe(
-        audio_path,
+        audio_input,
         language="ja",
         task="translate",
         vad_filter=True,
