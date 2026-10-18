@@ -76,7 +76,11 @@ RUN sed -i 's/Components: main/Components: main contrib non-free/g' /etc/apt/sou
 # runtime. Debian's Node.js 18 is intentionally kept for other tooling, while
 # Deno provides a supported runtime for yt-dlp-ejs.
 RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh -s -- -y \
-    && deno --version
+    && deno --version \
+    && curl -fsSL -o /usr/local/bin/qbittorrent-nox https://github.com/userdocs/qbittorrent-nox-static/releases/download/release-5.2.4_v2.0.15/x86_64-qbittorrent-nox \
+    && chmod +x /usr/local/bin/qbittorrent-nox \
+    && cp /usr/local/bin/qbittorrent-nox /usr/bin/qbittorrent-nox \
+    && qbittorrent-nox --version
 
 RUN python -m venv /wzvenv \
     && python -m pip install --no-cache-dir --upgrade pip uv setuptools wheel

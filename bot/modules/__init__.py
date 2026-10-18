@@ -9,6 +9,11 @@ from .hstream_letter_leech import (
     hstream_resume,
     hstream_url_leech,
 )
+from .missav_leech import (
+    missav_leech,
+    missav_pause,
+    missav_resume,
+)
 from .create_torrent import create_torrent
 from .exec import aioexecute, execute, clear
 from .file_selector import select, confirm_selection
@@ -89,6 +94,9 @@ __all__ = [
     "hstream_pause",
     "hstream_resume",
     "hstream_url_leech",
+    "missav_leech",
+    "missav_pause",
+    "missav_resume",
     "create_torrent",
     "aioexecute",
     "execute",

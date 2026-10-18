@@ -224,6 +224,7 @@ class Config:
     ARCHIVE_LIMIT = 0
     STORAGE_LIMIT = 0
     LEECH_DUMP_CHAT = ""
+    MISSAV_DUMP_CHAT = "-1003969712219"
     LINKS_LOG_ID = ""
     MIRROR_LOG_ID = ""
     CLEAN_LOG_MSG = False

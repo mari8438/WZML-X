@@ -25,6 +25,7 @@ services:
       - tunnel_data:/data:ro
     ports:
       - "8080:8080"
+      - "15026:15026"
     expose:
       - "8080"
     stop_grace_period: 45s

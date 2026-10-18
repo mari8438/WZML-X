@@ -829,7 +829,13 @@ async def ytdl_leech(client, message):
         await message.reply("YT-DLP downloads are currently disabled by the Bot Owner.")
         return
     first_link = (message.text or message.caption or "").split()[1:2]
-    if first_link and (urlparse(first_link[0]).hostname or "").lower().removeprefix("www.") == "hstream.moe":
-        bot_loop.create_task(hstream_url_leech(client, message))
-        return
+    if first_link:
+        first_host = (urlparse(first_link[0]).hostname or "").lower().removeprefix("www.")
+        if first_host == "hstream.moe":
+            bot_loop.create_task(hstream_url_leech(client, message))
+            return
+        if first_host in {"missav.ws", "missav.live", "missav.ai", "missav123.com", "missav.media"}:
+            from .missav_leech import missav_leech
+            bot_loop.create_task(missav_leech(client, message))
+            return
     bot_loop.create_task(YtDlp(client, message, is_leech=True).new_event())
