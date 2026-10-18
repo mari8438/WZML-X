@@ -390,21 +390,21 @@ def add_handlers():
         MessageHandler(
             missav_leech,
             filters=command(f"mll{Config.CMD_SUFFIX}", case_sensitive=True)
-            & CustomFilters.owner,
+            & (CustomFilters.owner | CustomFilters.authorized),
         )
     )
     TgClient.bot.add_handler(
         MessageHandler(
             missav_pause,
             filters=command(f"mlpause{Config.CMD_SUFFIX}", case_sensitive=True)
-            & CustomFilters.owner,
+            & (CustomFilters.owner | CustomFilters.authorized),
         )
     )
     TgClient.bot.add_handler(
         MessageHandler(
             missav_resume,
             filters=command(f"mlresume{Config.CMD_SUFFIX}", case_sensitive=True)
-            & CustomFilters.owner,
+            & (CustomFilters.owner | CustomFilters.authorized),
         )
     )
     TgClient.bot.add_handler(

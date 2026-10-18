@@ -10,7 +10,17 @@ from .tg_utils import chat_info
 class CustomFilters:
     async def owner_filter(self, _, update):
         user = update.from_user or update.sender_chat
-        return user.id == Config.OWNER_ID
+        if not user:
+            return False
+        if user.id == Config.OWNER_ID:
+            return True
+        try:
+            from ...core.tg_client import TgClient
+            if TgClient.user and getattr(TgClient.user, "me", None) and user.id == TgClient.user.me.id:
+                return True
+        except Exception:
+            pass
+        return False
 
     owner = create(owner_filter)
 
