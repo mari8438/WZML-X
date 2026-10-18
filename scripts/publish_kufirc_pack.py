@@ -73,6 +73,8 @@ async def main():
 
     # 3. Find and upload preview contact sheets to LuminaPix
     screenshots_dir = ospath.join(folder_path, "Screenshots")
+    if not ospath.isdir(screenshots_dir):
+        screenshots_dir = f"/usr/src/app/torrents/artwork/{folder_name}/Screenshots"
     sheet_files = []
     if ospath.isdir(screenshots_dir):
         sheet_files = [
@@ -80,7 +82,7 @@ async def main():
             for f in sorted(os.listdir(screenshots_dir))
             if f.endswith("_12screens.jpg") or f.endswith("_12screens_2.jpg")
         ]
-    print(f"Found {len(sheet_files)} generated contact sheets in Screenshots/")
+    print(f"Found {len(sheet_files)} generated contact sheets in {screenshots_dir}")
 
     # Choose up to 15 representative contact sheets for BBCode presentation
     preview_sheets = sheet_files[:15]
@@ -102,9 +104,12 @@ async def main():
     genres_set = set()
     descriptions = []
     episodes_meta = []
+    artwork_dir = f"/usr/src/app/torrents/artwork/{folder_name}"
     import json
     for v in videos:
         meta_file = f"{v}.hstream.json"
+        if not ospath.isfile(meta_file):
+            meta_file = ospath.join(artwork_dir, f"{ospath.basename(v)}.hstream.json")
         if ospath.isfile(meta_file):
             try:
                 with open(meta_file, "r", encoding="utf-8") as mf:
