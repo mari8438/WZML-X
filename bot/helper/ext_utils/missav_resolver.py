@@ -390,10 +390,10 @@ class MissAVResolver:
         return sorted(found, key=lambda quality: quality.height, reverse=True)
 
     @staticmethod
-    def request_headers(referer):
-        parsed = urlsplit(referer)
+    def request_headers(referer=""):
+        origin = "https://missav.live"
         return {
             "User-Agent": USER_AGENT,
-            "Referer": referer,
-            "Origin": f"{parsed.scheme}://{parsed.netloc}",
+            "Referer": f"{origin}/",
+            "Origin": origin,
         }

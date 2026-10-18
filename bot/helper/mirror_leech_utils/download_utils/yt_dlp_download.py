@@ -302,6 +302,11 @@ class YoutubeDLHelper:
                 "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mkv"}],
             }
         )
+        try:
+            from yt_dlp.networking.impersonate import ImpersonateTarget
+            opts["impersonate"] = ImpersonateTarget.from_str("chrome")
+        except Exception:
+            pass
         with YoutubeDL(opts) as ydl:
             ydl.download([url])
         candidates = [output, *output.parent.glob(f"{output.stem}.*")]
