@@ -161,6 +161,8 @@ async def main():
     # 6. Create private .torrent file for BitPorn using mktorrent
     announce_url = getattr(Config, "BITPORN_ANNOUNCE_URL", "") or "https://bitporn.eu/announce/21f0b107f9c57d8b4e080e8ffcb47199"
     torrent_path = ospath.join(output_dir, f"{folder_name}.bitporn.torrent")
+    if ospath.isfile(torrent_path):
+        os.remove(torrent_path)
     print(f"Creating private torrent pointing to announce: {announce_url}...")
     cmd = [
         "mktorrent",

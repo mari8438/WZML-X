@@ -175,6 +175,8 @@ async def main():
     # 6. Create private .torrent file for Kufirc using mktorrent
     announce_url = getattr(Config, "KUFIRC_ANNOUNCE_URL", "") or "http://kufirc.com:7456/pcscvrlpzrlko1pgjnunto103sg0abn6/announce"
     torrent_path = ospath.join(output_dir, f"{folder_name}.kufirc.torrent")
+    if ospath.isfile(torrent_path):
+        os.remove(torrent_path)
     print(f"Creating private torrent pointing to announce: {announce_url}...")
     cmd = [
         "mktorrent",
