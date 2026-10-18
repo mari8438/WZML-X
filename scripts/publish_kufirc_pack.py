@@ -7,13 +7,11 @@ import time
 from html import escape
 from shutil import copy2
 
-from torf import Torrent
-import qbittorrentapi
-
 from bot import LOGGER
 from bot.core.config_manager import Config
 from bot.core.torrent_manager import TorrentManager
 from bot.core.tg_client import TgClient
+from bot.helper.ext_utils.bot_utils import cmd_exec
 from bot.helper.ext_utils.kufirc import KufircClient, KufircError
 from bot.helper.ext_utils.luminapix import upload_image_details, LuminapixError
 from bot.helper.ext_utils.files_utils import get_path_size
@@ -156,19 +154,22 @@ async def main():
         df.write(bbcode)
     print(f"Generated Kufirc BBCode description ({len(bbcode)} chars) -> {desc_file_path}")
 
-    # 6. Create private .torrent file for Kufirc
+    # 6. Create private .torrent file for Kufirc using mktorrent
     announce_url = getattr(Config, "KUFIRC_ANNOUNCE_URL", "") or "http://kufirc.com:7456/pcscvrlpzrlko1pgjnunto103sg0abn6/announce"
     torrent_path = ospath.join(output_dir, f"{folder_name}.kufirc.torrent")
     print(f"Creating private torrent pointing to announce: {announce_url}...")
-    t = Torrent(
-        path=folder_path,
-        trackers=[announce_url],
-        private=True,
-        source="Kufirc",
-    )
-    t.piece_size = 8 * 1024 * 1024  # 8MB piece size
-    t.generate()
-    t.write(torrent_path, overwrite=True)
+    cmd = [
+        "mktorrent",
+        "-o", torrent_path,
+        "-p",
+        "-s", "Kufirc",
+        "-a", announce_url,
+        "-l", "23",
+        folder_path,
+    ]
+    stdout, stderr, code = await cmd_exec(cmd)
+    if code != 0 or not ospath.isfile(torrent_path):
+        raise RuntimeError(f"mktorrent failed: {stderr or stdout}")
     print(f"Torrent file generated: {torrent_path} ({ospath.getsize(torrent_path)} bytes)")
 
     # 7. Upload torrent to Kufirc
@@ -210,53 +211,32 @@ async def main():
         print(f"Copied local torrent to accepted path -> {accepted_torrent_path}")
 
     # 9. Add to qBittorrent and seed
-    print("Connecting to qBittorrent...")
-    qbit = qbittorrentapi.Client(
-        host="localhost",
-        port=8090,
-        username="admin",
-        password=getattr(Config, "BASE_URL", ""),
-    )
-    # Derive password if necessary
-    try:
-        from bot.helper.ext_utils.bot_utils import derive_service_password
-        qbit_pass = derive_service_password()
-        qbit = qbittorrentapi.Client(
-            host="localhost",
-            port=8090,
-            username="admin",
-            password=qbit_pass,
-        )
-        qbit.auth_log_in()
-        print("Logged into qBittorrent successfully")
-    except Exception as qbit_auth_err:
-        print(f"qBittorrent login note: {qbit_auth_err}")
-        try:
-            qbit = qbittorrentapi.Client(host="localhost", port=8090)
-            qbit.auth_log_in()
-        except Exception as e2:
-            print(f"qBittorrent connection fallback: {e2}")
-
+    print("Adding to qBittorrent...")
     with open(accepted_torrent_path, "rb") as tf:
-        qbit.torrents_add(
-            torrent_files=tf.read(),
-            save_path="/usr/src/app/torrents/seeding",
-            is_paused=False,
-            auto_tmm=False,
-        )
-    print("Torrent added to qBittorrent for seeding!")
+        torrent_bytes = tf.read()
 
-    # Wait a moment and fetch torrent hash
-    time.sleep(3)
-    torrents_list = qbit.torrents_info()
+    await TorrentManager.qbittorrent.torrents_add(
+        torrent_files=[torrent_bytes],
+        save_path="/usr/src/app/torrents/seeding",
+        is_paused=False,
+        auto_tmm=False,
+    )
+    print("Torrent added to qBittorrent! Triggering recheck...")
+
+    # Wait a moment, fetch torrent hash, and recheck
+    await asyncio.sleep(3)
+    torrents_list = await TorrentManager.qbittorrent.torrents_info()
     pack_torrent = None
     for item in torrents_list:
-        if item.name == folder_name:
+        if getattr(item, "name", "") == folder_name:
             pack_torrent = item
             break
 
     torrent_hash = pack_torrent.hash if pack_torrent else "N/A"
     print(f"qBittorrent Seeding Hash: {torrent_hash}")
+    if pack_torrent:
+        await TorrentManager.qbittorrent.torrents_recheck(hashes=[torrent_hash])
+        await TorrentManager.qbittorrent.torrents_start(hashes=[torrent_hash])
 
     # 10. Record in MongoDB
     try:
