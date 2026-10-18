@@ -266,6 +266,12 @@ class Config:
     KUFIRC_PACK_MIN_SIZE_GB = 30.0
     KUFIRC_SEEDING_CHANNEL = ""
     KUFIRC_PACK_MAX_PREVIEW_SHEETS = 15
+    BITPORN_URL = "https://bitporn.eu"
+    BITPORN_ANNOUNCE_URL = "https://bitporn.eu/announce/21f0b107f9c57d8b4e080e8ffcb47199"
+    BITPORN_COOKIE_FILE = "/usr/src/app/secrets/bitporn_cookies.txt"
+    BITPORN_CATEGORY = "15"
+    BITPORN_RESOLUTION = "13"
+    BITPORN_ANONYMOUS = False
     LUMINAPIX_URL = "https://luminapix.eu"
     LUMINAPIX_API_KEY = "chv_3v0_c477470feba69a79b75b31ac33bd2456d5a4d29e0adc9713af2ed616af13eb6b_ab4a85a93de3f5658c3a24ef5037deea0655b772bfaf33780c84b0402a74506b"
     LUMINAPIX_COOKIE_FILE = "/usr/src/app/secrets/luminapix_cookies.txt"
