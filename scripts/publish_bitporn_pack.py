@@ -193,7 +193,7 @@ async def main():
     async with client:
         upload_res = await client.upload_torrent(
             torrent_path=torrent_path,
-            title=f"{folder_name} [1080p]",
+            title=f"{folder_name} [1080p] [Clean Edition]",
             category_id=getattr(Config, "BITPORN_CATEGORY", "15"),
             resolution_id=getattr(Config, "BITPORN_RESOLUTION", "13"),
             cover_url=cover_direct_url,
