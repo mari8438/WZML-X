@@ -215,6 +215,14 @@ async def main():
     torrent_hash = "N/A"
     try:
         async with aiohttp.ClientSession() as qbt_session:
+            existing_hashes = set()
+            try:
+                async with qbt_session.get("http://127.0.0.1:8090/api/v2/torrents/info") as resp:
+                    if resp.status == 200:
+                        existing_hashes = {t.get("hash") for t in await resp.json()}
+            except Exception:
+                pass
+
             data = aiohttp.FormData()
             with open(accepted_torrent_path, "rb") as tf:
                 data.add_field("torrents", tf.read(), filename=ospath.basename(accepted_torrent_path), content_type="application/x-bittorrent")
@@ -226,23 +234,25 @@ async def main():
 
             print("Torrent added to qBittorrent! Waiting for torrent to register...")
             await asyncio.sleep(2)
-            for _ in range(12):
+            for _ in range(15):
                 async with qbt_session.get("http://127.0.0.1:8090/api/v2/torrents/info") as resp:
                     if resp.status == 200:
                         torrents_list = await resp.json()
                         for item in torrents_list:
+                            h = item.get("hash", "")
+                            if h and h not in existing_hashes:
+                                torrent_hash = h
+                                break
                             name = item.get("name", "")
-                            # Matches folder_name or save_path and tracker contains bitporn
                             tr = item.get("tracker", "")
-                            if (name == folder_name or item.get("save_path", "").rstrip("/\\").endswith(folder_name)) and ("bitporn" in tr or tr == ""):
-                                # Check if it's the bitporn torrent by checking trackers
-                                torrent_hash = item.get("hash", "")
+                            if (name == folder_name or "Hanime" in name) and "bitporn" in tr.lower():
+                                torrent_hash = h
                                 break
                     if torrent_hash != "N/A":
                         break
                 await asyncio.sleep(1)
 
-            print(f"qBittorrent Seeding Hash: {torrent_hash}")
+            print(f"qBittorrent BitPorn Seeding Hash: {torrent_hash}")
             if torrent_hash != "N/A":
                 async with qbt_session.post("http://127.0.0.1:8090/api/v2/torrents/recheck", data={"hashes": torrent_hash}) as resp:
                     print(f"Triggered recheck: {resp.status}")
