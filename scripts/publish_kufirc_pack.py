@@ -7,14 +7,14 @@ import time
 from html import escape
 from shutil import copy2
 
+import aiohttp
+
 from bot import LOGGER
 from bot.core.config_manager import Config
-from bot.core.torrent_manager import TorrentManager
 from bot.core.tg_client import TgClient
 from bot.helper.ext_utils.bot_utils import cmd_exec
 from bot.helper.ext_utils.kufirc import KufircClient, KufircError
 from bot.helper.ext_utils.luminapix import upload_image_details, LuminapixError
-from bot.helper.ext_utils.files_utils import get_path_size
 from bot.helper.ext_utils.media_utils import (
     format_clean_poster_title,
     get_readable_file_size,
@@ -22,8 +22,18 @@ from bot.helper.ext_utils.media_utils import (
 from bot.helper.telegram_helper.button_build import ButtonMaker
 
 
+def calculate_folder_size(path: str) -> int:
+    total = 0
+    for root, _, files in os.walk(path):
+        for f in files:
+            fp = ospath.join(root, f)
+            if not ospath.islink(fp) and ospath.isfile(fp):
+                total += ospath.getsize(fp)
+    return total
+
+
 async def main():
-    folder_name = "Hanime Pack - 1"
+    folder_name = sys.argv[1] if len(sys.argv) > 1 else "Hanime Pack - 1"
     folder_path = f"/usr/src/app/torrents/seeding/{folder_name}"
     output_dir = "/usr/src/app/torrents/output"
     os.makedirs(output_dir, exist_ok=True)
@@ -33,14 +43,14 @@ async def main():
         print(f"ERROR: folder not found: {folder_path}")
         return
 
-    # 1. Count video files
+    # 1. Count video files and calculate total size synchronously
     video_exts = {".mkv", ".mp4", ".avi", ".ts", ".webm"}
     videos = [
         ospath.join(folder_path, f)
         for f in sorted(os.listdir(folder_path))
         if ospath.splitext(f)[1].lower() in video_exts
     ]
-    total_size = await get_path_size(folder_path)
+    total_size = calculate_folder_size(folder_path)
     print(f"Found {len(videos)} videos in {folder_name}, total size: {get_readable_file_size(total_size)} ({total_size} bytes)")
 
     # 2. Upload cover to LuminaPix
@@ -51,6 +61,9 @@ async def main():
         cover_to_upload = covers[0] if covers else None
     else:
         cover_to_upload = preview_webp
+
+    if not cover_to_upload or not ospath.isfile(cover_to_upload):
+        raise FileNotFoundError(f"No cover file found to upload for {folder_name}")
 
     print(f"Uploading cover to LuminaPix: {cover_to_upload}...")
     cover_details = await upload_image_details(cover_to_upload)
@@ -210,39 +223,52 @@ async def main():
         copy2(torrent_path, accepted_torrent_path)
         print(f"Copied local torrent to accepted path -> {accepted_torrent_path}")
 
-    # 9. Add to qBittorrent and seed
+    # 9. Add to qBittorrent via Web API and seed
     print("Adding to qBittorrent...")
-    with open(accepted_torrent_path, "rb") as tf:
-        torrent_bytes = tf.read()
+    torrent_hash = "N/A"
+    try:
+        async with aiohttp.ClientSession() as qbt_session:
+            data = aiohttp.FormData()
+            with open(accepted_torrent_path, "rb") as tf:
+                data.add_field("torrents", tf.read(), filename=ospath.basename(accepted_torrent_path), content_type="application/x-bittorrent")
+            data.add_field("savepath", "/usr/src/app/torrents/seeding")
+            data.add_field("paused", "false")
+            data.add_field("autoTMM", "false")
+            async with qbt_session.post("http://127.0.0.1:8090/api/v2/torrents/add", data=data) as resp:
+                print(f"qBittorrent add response: {resp.status} {await resp.text()}")
 
-    await TorrentManager.qbittorrent.torrents_add(
-        torrent_files=[torrent_bytes],
-        save_path="/usr/src/app/torrents/seeding",
-        is_paused=False,
-        auto_tmm=False,
-    )
-    print("Torrent added to qBittorrent! Triggering recheck...")
+            print("Torrent added to qBittorrent! Waiting for torrent to register...")
+            await asyncio.sleep(2)
+            for _ in range(12):
+                async with qbt_session.get("http://127.0.0.1:8090/api/v2/torrents/info") as resp:
+                    if resp.status == 200:
+                        torrents_list = await resp.json()
+                        for item in torrents_list:
+                            name = item.get("name", "")
+                            if name == folder_name or item.get("save_path", "").rstrip("/\\").endswith(folder_name):
+                                torrent_hash = item.get("hash", "")
+                                break
+                    if torrent_hash != "N/A":
+                        break
+                await asyncio.sleep(1)
 
-    # Wait a moment, fetch torrent hash, and recheck
-    await asyncio.sleep(3)
-    torrents_list = await TorrentManager.qbittorrent.torrents_info()
-    pack_torrent = None
-    for item in torrents_list:
-        if getattr(item, "name", "") == folder_name:
-            pack_torrent = item
-            break
-
-    torrent_hash = pack_torrent.hash if pack_torrent else "N/A"
-    print(f"qBittorrent Seeding Hash: {torrent_hash}")
-    if pack_torrent:
-        await TorrentManager.qbittorrent.torrents_recheck(hashes=[torrent_hash])
-        await TorrentManager.qbittorrent.torrents_start(hashes=[torrent_hash])
+            print(f"qBittorrent Seeding Hash: {torrent_hash}")
+            if torrent_hash != "N/A":
+                async with qbt_session.post("http://127.0.0.1:8090/api/v2/torrents/recheck", data={"hashes": torrent_hash}) as resp:
+                    print(f"Triggered recheck: {resp.status}")
+                await asyncio.sleep(1)
+                async with qbt_session.post("http://127.0.0.1:8090/api/v2/torrents/start", data={"hashes": torrent_hash}) as resp:
+                    print(f"Triggered start: {resp.status}")
+    except Exception as qb_err:
+        print(f"Warning: qBittorrent integration error: {qb_err}")
 
     # 10. Record in MongoDB
     try:
         from bot.helper.ext_utils.db_handler import database
+        if database._conn is None and getattr(Config, "DATABASE_URL", ""):
+            await database.connect()
         pack_doc = {
-            "_id": folder_name,
+            "_id": f"kufirc_{folder_name}",
             "pack_number": 1,
             "pack_name": folder_name,
             "tracker": "kufirc",
@@ -256,6 +282,10 @@ async def main():
             "completed_at": int(time.time()),
         }
         await database.save_hstream_pack(pack_doc)
+        if database.db is not None:
+            await database.db.kufirc_hstream_packs.replace_one(
+                {"_id": pack_doc["_id"]}, pack_doc, upsert=True
+            )
         print("Saved pack record to MongoDB successfully!")
     except Exception as db_err:
         print(f"MongoDB save note: {db_err}")
@@ -264,37 +294,44 @@ async def main():
     seeding_chan = str(getattr(Config, "HAPPYFAPPY_SEEDING_CHANNEL", "") or getattr(Config, "KUFIRC_SEEDING_CHANNEL", "") or "").strip()
     if seeding_chan:
         try:
-            chan_id = int(seeding_chan) if seeding_chan.lstrip("-").isdigit() else seeding_chan
-            ep_lines = [f"{i}. {escape(ospath.splitext(ospath.basename(v))[0])}" for i, v in enumerate(videos[:35], start=1)]
-            if len(videos) > 35:
-                ep_lines.append(f"... and {len(videos) - 35} more videos")
-            ep_block = "\n".join(ep_lines)
+            if not getattr(TgClient, "bot", None) or not getattr(TgClient.bot, "is_connected", False):
+                try:
+                    await TgClient.start_client()
+                except Exception as tgc_err:
+                    print(f"TgClient start note: {tgc_err}")
 
-            caption = (
-                f"📦 <b>#HanimePack #Pack1 #Kufirc</b>\n\n"
-                f"📁 <b>Pack:</b> <code>{escape(folder_name)}</code>\n"
-                f"📊 <b>Total Size:</b> <code>{get_readable_file_size(total_size)}</code>\n"
-                f"🎬 <b>Episodes:</b> <code>{len(videos)} videos</code>\n"
-                f"🌱 <b>qBittorrent Seeding:</b> <code>{torrent_hash}</code>\n\n"
-                f"<blockquote expandable><b>Episodes in this pack:</b>\n{ep_block}</blockquote>\n\n"
-                f"🌐 <a href=\"{escape(upload_url)}\"><b>Open on Kufirc Tracker</b></a>"
-            )
-            btn = ButtonMaker()
-            btn.url_button("🌐 Open on Kufirc", upload_url)
-            from bot.modules.create_torrent import _qbit_webui_url
-            webui = _qbit_webui_url()
-            if webui:
-                btn.url_button("🌱 Web UI", webui)
+            if getattr(TgClient, "bot", None) and getattr(TgClient.bot, "is_connected", False):
+                chan_id = int(seeding_chan) if seeding_chan.lstrip("-").isdigit() else seeding_chan
+                ep_lines = [f"{i}. {escape(ospath.splitext(ospath.basename(v))[0])}" for i, v in enumerate(videos[:35], start=1)]
+                if len(videos) > 35:
+                    ep_lines.append(f"... and {len(videos) - 35} more videos")
+                ep_block = "\n".join(ep_lines)
 
-            if ospath.isfile(preview_webp):
-                post_msg = await TgClient.bot.send_photo(chan_id, preview_webp, caption=caption, reply_markup=btn.build_menu(2))
-            else:
-                post_msg = await TgClient.bot.send_message(chan_id, caption, reply_markup=btn.build_menu(2))
+                caption = (
+                    f"📦 <b>#HanimePack #Pack1 #Kufirc</b>\n\n"
+                    f"📁 <b>Pack:</b> <code>{escape(folder_name)}</code>\n"
+                    f"📊 <b>Total Size:</b> <code>{get_readable_file_size(total_size)}</code>\n"
+                    f"🎬 <b>Episodes:</b> <code>{len(videos)} videos</code>\n"
+                    f"🌱 <b>qBittorrent Seeding:</b> <code>{torrent_hash}</code>\n\n"
+                    f"<blockquote expandable><b>Episodes in this pack:</b>\n{ep_block}</blockquote>\n\n"
+                    f"🌐 <a href=\"{escape(upload_url)}\"><b>Open on Kufirc Tracker</b></a>"
+                )
+                btn = ButtonMaker()
+                btn.url_button("🌐 Open on Kufirc", upload_url)
+                from bot.modules.create_torrent import _qbit_webui_url
+                webui = _qbit_webui_url()
+                if webui:
+                    btn.url_button("🌱 Web UI", webui)
 
-            reply_to_id = post_msg.id if post_msg else None
-            await TgClient.bot.send_document(chan_id, accepted_torrent_path, caption=f"Torrent: {escape(folder_name)}", reply_to_message_id=reply_to_id)
-            await TgClient.bot.send_document(chan_id, desc_file_path, caption=f"BBCode: {escape(folder_name)}", reply_to_message_id=reply_to_id)
-            print(f"Posted release to Telegram channel {chan_id} successfully!")
+                if ospath.isfile(preview_webp):
+                    post_msg = await TgClient.bot.send_photo(chan_id, preview_webp, caption=caption, reply_markup=btn.build_menu(2))
+                else:
+                    post_msg = await TgClient.bot.send_message(chan_id, caption, reply_markup=btn.build_menu(2))
+
+                reply_to_id = post_msg.id if post_msg else None
+                await TgClient.bot.send_document(chan_id, accepted_torrent_path, caption=f"Torrent: {escape(folder_name)}", reply_to_message_id=reply_to_id)
+                await TgClient.bot.send_document(chan_id, desc_file_path, caption=f"BBCode: {escape(folder_name)}", reply_to_message_id=reply_to_id)
+                print(f"Posted release to Telegram channel {chan_id} successfully!")
         except Exception as tg_err:
             print(f"Telegram notification note: {tg_err}")
 

@@ -241,13 +241,20 @@ class KufircClient:
 
         # Download accepted torrent file
         accepted_torrent_bytes = None
-        if self.authkey and self.passkey:
+        dl_link_m = re.search(r'href=[\'"]([^\'"]*action=download[^\'"]*)[\'"]', resp_text)
+        if dl_link_m:
+            dl_url = urljoin(f"{self.base_url}/", unescape(dl_link_m.group(1)))
+        elif self.authkey and self.passkey:
             dl_url = f"{self.base_url}/torrents.php?action=download&id={torrent_id}&authkey={self.authkey}&torrent_pass={self.passkey}"
+        else:
+            dl_url = None
+
+        if dl_url:
             try:
                 dl_resp = await self.client.get(dl_url)
                 if dl_resp.status_code == 200 and len(dl_resp.content) > 100:
                     accepted_torrent_bytes = dl_resp.content
-                    LOGGER.info("Downloaded accepted torrent from Kufirc (%d bytes)", len(accepted_torrent_bytes))
+                    LOGGER.info("Downloaded accepted torrent from Kufirc (%d bytes) from %s", len(accepted_torrent_bytes), dl_url)
             except Exception as dl_err:
                 LOGGER.warning("Could not download accepted torrent: %s", dl_err)
 
