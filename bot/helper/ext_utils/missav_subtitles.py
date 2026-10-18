@@ -61,9 +61,9 @@ async def extract_audio_wav(video_path: str, audio_path: str) -> str:
         "pcm_s16le",
         audio_path,
     ]
-    code, stdout, stderr = await cmd_exec(command)
+    stdout, stderr, code = await cmd_exec(command)
     if code != 0 or not ospath.isfile(audio_path) or ospath.getsize(audio_path) == 0:
-        raise RuntimeError(f"FFmpeg audio extraction failed: {stderr}")
+        raise RuntimeError(f"FFmpeg audio extraction failed: {stderr or stdout}")
     return audio_path
 
 
