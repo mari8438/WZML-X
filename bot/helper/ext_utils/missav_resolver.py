@@ -6,6 +6,12 @@ from urllib.parse import quote, urljoin, urlsplit
 from httpx import AsyncClient
 from lxml import html
 
+try:
+    from curl_cffi.requests import AsyncSession
+    _HAS_CURL_CFFI = True
+except ImportError:
+    _HAS_CURL_CFFI = False
+
 from ... import LOGGER
 
 MISSAV_HOSTS = {
@@ -177,20 +183,29 @@ def _extract_sample_urls(source):
 def _catalog_links(source, page_url):
     tree = html.fromstring(source)
     links = []
+    ignored_slugs = {
+        "en", "ja", "ko", "cn", "ms", "th", "de", "fr", "vi", "id", "fil", "pt",
+        "genres", "tags", "categories", "makers", "actresses", "search", "new", "release"
+    }
     for href in tree.xpath('//div[contains(@class,"thumbnail")]//a/@href | //div[contains(@class,"aspect-w-16")]//a/@href'):
         url = urljoin(page_url, href)
         parsed = urlsplit(url)
         parts = [part for part in parsed.path.split("/") if part]
-        if not _valid_missav_url(url) or len(parts) < 2:
+        if not _valid_missav_url(url) or not parts:
             continue
         # Check standard languages or single video path
-        if parts[0].lower() in {"en", "ja", "ko", "cn", "ms", "th", "de", "fr", "vi", "id", "fil", "pt"}:
+        if parts[0].lower() in ignored_slugs:
+            if len(parts) < 2:
+                continue
             video_slug = parts[1]
-        elif parts[0].lower().startswith("dm") and len(parts) >= 3:
-            video_slug = parts[-1]
+        elif parts[0].lower().startswith("dm"):
+            if len(parts) >= 3:
+                video_slug = parts[-1]
+            else:
+                continue
         else:
             video_slug = parts[0]
-        if is_fc2_title(video_slug):
+        if video_slug.lower() in ignored_slugs or is_fc2_title(video_slug):
             continue
         if url not in links:
             links.append(url)
@@ -199,17 +214,27 @@ def _catalog_links(source, page_url):
 
 class MissAVResolver:
     def __init__(self):
-        self.client = AsyncClient(
-            follow_redirects=True,
-            timeout=40,
-            headers=PAGE_HEADERS,
-        )
+        if _HAS_CURL_CFFI:
+            self.client = AsyncSession(
+                impersonate="chrome124",
+                timeout=40,
+                headers=PAGE_HEADERS,
+            )
+        else:
+            self.client = AsyncClient(
+                follow_redirects=True,
+                timeout=40,
+                headers=PAGE_HEADERS,
+            )
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *_):
-        await self.client.aclose()
+        if _HAS_CURL_CFFI:
+            await self.client.close()
+        else:
+            await self.client.aclose()
 
     async def _get(self, url, *, stream=False, referer=""):
         if stream and not _valid_stream_url(url):
@@ -217,11 +242,16 @@ class MissAVResolver:
         if not stream and not _valid_missav_url(url):
             raise ValueError(f"Only public HTTPS MissAV URLs are supported: {url}")
 
-        # When accessing missav.ws, fallback to missav.live if blocked
         parsed = urlsplit(url)
-        urls_to_try = [url]
-        if parsed.hostname in {"missav.ws", "www.missav.ws"}:
+        urls_to_try = []
+        if not stream and parsed.hostname in {"missav.ws", "www.missav.ws", "missav.ai", "www.missav.ai"}:
             urls_to_try.append(url.replace(parsed.hostname, "missav.live"))
+            urls_to_try.append(url.replace(parsed.hostname, "missav123.com"))
+            urls_to_try.append(url)
+        else:
+            urls_to_try.append(url)
+            if not stream and parsed.hostname not in {"missav.live", "missav123.com"}:
+                urls_to_try.append(url.replace(parsed.hostname, "missav.live"))
 
         last_error = None
         for target_url in urls_to_try:
@@ -240,7 +270,9 @@ class MissAVResolver:
             try:
                 response = await self.client.get(target_url, headers=headers)
                 if response.status_code in {401, 403}:
-                    if "captcha" in response.text[:5000].lower() or "challenge" in response.headers.get("cf-mitigated", "").lower():
+                    text_lower = response.text[:5000].lower() if hasattr(response, "text") else ""
+                    cf_mitigated = response.headers.get("cf-mitigated", "").lower()
+                    if "captcha" in text_lower or "challenge" in cf_mitigated or "just a moment" in text_lower:
                         last_error = MissAVProtectedPageError(
                             f"MissAV returned a Cloudflare protected page for {target_url}."
                         )
