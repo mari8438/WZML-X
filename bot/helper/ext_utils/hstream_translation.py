@@ -30,12 +30,15 @@ class _NllbEngine:
         import ctranslate2
         from transformers import AutoTokenizer
 
+        from os import cpu_count
+        intra = max(1, (cpu_count() or 2) // 2)
+
         self.translator = ctranslate2.Translator(
             model_dir,
             device="cpu",
             compute_type="int8",
             inter_threads=1,
-            intra_threads=2,
+            intra_threads=intra,
         )
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_dir,

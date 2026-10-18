@@ -27,7 +27,7 @@ from httpx import AsyncClient
 from PIL import Image, ImageFilter, ImageOps
 from pyrogram.errors import FloodWait
 
-from .. import DOWNLOAD_DIR, LOGGER, user_data
+from .. import DOWNLOAD_DIR, LOGGER, cpu_eater_lock, user_data
 from ..core.config_manager import Config
 from ..core.tg_client import TgClient
 from ..helper.ext_utils.bot_utils import cmd_exec, sync_to_async
@@ -291,11 +291,14 @@ async def _remux_with_subtitles(
     """Remux downloaded video with Starfall brand, English, and Tamil subtitle tracks."""
     # subtitle_tracks: list of (lang_code, file_path), e.g. [("brand", path), ("eng", path), ("tam", path)]
     inputs = [path for _, path in subtitle_tracks if ospath.isfile(path)]
+    threads = str(max(1, (ospath.os.cpu_count() or 2) // 2))
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
+        "-threads",
+        threads,
         "-y",
         "-i",
         source_video,
@@ -820,20 +823,23 @@ async def missav_leech(_, message):
                     duration = info["duration"] or item.duration
 
                     # 3. Generate subtitles (Audio -> Whisper English -> NLLB Tamil + Brand)
-                    subtitle_tracks, tamil_available = await generate_all_subtitles_for_video(
-                        raw_base_path,
-                        title_dir,
-                        duration,
-                        translator,
-                    )
+                    async with cpu_eater_lock:
+                        subtitle_tracks, tamil_available = await generate_all_subtitles_for_video(
+                            raw_base_path,
+                            title_dir,
+                            duration,
+                            translator,
+                        )
 
-                    # 4. Process and mux each available quality
+                    # 4. Process and mux each available quality sequentially
                     videos = []
                     for q_idx, quality in enumerate(item.qualities):
                         if cancel_event.is_set():
                             break
                         if not await _wait_until_resumed(pause_event, cancel_event):
                             break
+                        if q_idx > 0:
+                            await sleep(2)  # Safety cooldown pause between quality muxing
 
                         target_filename = _video_filename(item, quality, tamil_available)
                         target_mkv = ospath.join(title_dir, target_filename)
@@ -891,6 +897,7 @@ async def missav_leech(_, message):
                 finally:
                     await sync_to_async(rmtree, title_dir, ignore_errors=True)
                     gc.collect()
+                    await sleep(3)  # Safety cooldown pause between sequential titles
 
                 if status and not cancel_event.is_set():
                     with suppress(Exception):

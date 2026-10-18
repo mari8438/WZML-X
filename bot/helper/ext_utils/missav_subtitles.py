@@ -44,11 +44,14 @@ Dialogue: 0,0:00:00.00,{end},Starfall,,0,0,0,,{{\\b1}}{BRAND_TEXT}
 async def extract_audio_wav(video_path: str, audio_path: str) -> str:
     """Extract 16kHz mono audio from video file for speech-to-text processing."""
     Path(audio_path).parent.mkdir(parents=True, exist_ok=True)
+    threads = str(max(1, (ospath.os.cpu_count() or 2) // 2))
     command = [
         "ffmpeg",
         "-hide_banner",
         "-loglevel",
         "error",
+        "-threads",
+        threads,
         "-y",
         "-i",
         video_path,
@@ -70,6 +73,13 @@ async def extract_audio_wav(video_path: str, audio_path: str) -> str:
 def _transcribe_offline_sync(audio_path: str, srt_path: str, model_name: str = "small") -> str:
     """Transcribe Japanese audio directly to English text using faster-whisper on CPU."""
     try:
+        import os
+        if hasattr(os, "nice"):
+            os.nice(10)
+    except Exception:
+        pass
+
+    try:
         from faster_whisper import WhisperModel
     except ImportError:
         LOGGER.error("faster-whisper is not installed. Please install faster-whisper>=1.0.0")
@@ -87,12 +97,15 @@ def _transcribe_offline_sync(audio_path: str, srt_path: str, model_name: str = "
         LOGGER.warning(f"Could not load audio via wave ({e}), falling back to filepath")
         audio_input = audio_path
 
-    LOGGER.info(f"Loading faster-whisper model '{model_name}' on CPU (int8)...")
+    from os import cpu_count
+    threads = max(1, (cpu_count() or 2) // 2)
+
+    LOGGER.info(f"Loading faster-whisper model '{model_name}' on CPU (int8, safety_threads={threads}, nice=10)...")
     model = WhisperModel(
         model_name,
         device="cpu",
         compute_type="int8",
-        cpu_threads=2,
+        cpu_threads=threads,
         num_workers=1,
     )
 
