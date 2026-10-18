@@ -468,9 +468,40 @@ async def _telegram_call(method, **kwargs):
 async def _upload_title(prepared, destination, thread_id, cancel_event):
     if not prepared or cancel_event.is_set():
         return 0
-    kwargs = {"chat_id": destination}
-    if thread_id is not None:
+
+    main_dump = getattr(Config, "LEECH_DUMP_CHAT", "")
+    try:
+        main_dump = int(main_dump) if main_dump else None
+    except (ValueError, TypeError):
+        pass
+
+    use_dump_stage = bool(main_dump and main_dump != destination)
+    stage_chat = main_dump if use_dump_stage else destination
+
+    kwargs = {"chat_id": stage_chat}
+    if not use_dump_stage and thread_id is not None:
         kwargs["message_thread_id"] = thread_id
+
+    async def _copy_and_delete(msg, reply_to_id=None):
+        if not msg or not use_dump_stage:
+            return msg
+        copy_kwargs = {
+            "chat_id": destination,
+            "from_chat_id": msg.chat.id,
+            "message_id": msg.id,
+        }
+        if thread_id is not None:
+            copy_kwargs["message_thread_id"] = thread_id
+        if reply_to_id is not None:
+            copy_kwargs["reply_to_message_id"] = reply_to_id
+        try:
+            copied = await _telegram_call(TgClient.bot.copy_message, **copy_kwargs)
+            with suppress(Exception):
+                await msg.delete()
+            return copied
+        except Exception as error:
+            LOGGER.warning(f"copy_message to destination failed: {error}")
+            return msg
 
     # 1. Poster + Caption
     poster_msg = None
@@ -496,13 +527,19 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
             **kwargs,
         )
 
+    final_poster_msg = await _copy_and_delete(poster_msg) if poster_msg else None
+
     for reply in prepared.get("caption_replies", []):
         if cancel_event.is_set():
             break
         reply_kwargs = dict(kwargs)
         if poster_msg:
             reply_kwargs["reply_to_message_id"] = poster_msg.id
-        await _telegram_call(TgClient.bot.send_message, text=reply, **reply_kwargs)
+        reply_msg = await _telegram_call(TgClient.bot.send_message, text=reply, **reply_kwargs)
+        await _copy_and_delete(
+            reply_msg,
+            reply_to_id=final_poster_msg.id if final_poster_msg else None,
+        )
 
     # 2. Upload video qualities
     uploaded = 0
@@ -543,7 +580,7 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
 
         async def _send_media_or_doc(c, m, p):
             try:
-                await _telegram_call(c.send_video, **m)
+                return await _telegram_call(c.send_video, **m)
             except Exception as err:
                 LOGGER.warning(f"send_video failed ({err}), falling back to document...")
                 doc_m = dict(m)
@@ -555,13 +592,12 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
                 doc_m.pop("cover", None)
                 doc_m["document"] = p
                 try:
-                    await _telegram_call(c.send_document, **doc_m)
+                    return await _telegram_call(c.send_document, **doc_m)
                 except Exception as doc_err:
                     if c != TgClient.user and TgClient.user:
                         LOGGER.info(f"Retrying upload via TgClient.user for {p}: {doc_err}")
-                        await _telegram_call(TgClient.user.send_document, **doc_m)
-                    else:
-                        raise doc_err
+                        return await _telegram_call(TgClient.user.send_document, **doc_m)
+                    raise doc_err
 
         if file_size > max_upload_size:
             LOGGER.info(f"File {path} ({file_size} bytes) exceeds limit {max_upload_size}. Splitting...")
@@ -586,23 +622,26 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
                             f"<b>{escape(ospath.basename(part_path), quote=False)} "
                             f"[Part {part_idx}/{len(parts)}]</b>"
                         )
-                        await _send_media_or_doc(client, part_media, part_path)
+                        part_msg = await _send_media_or_doc(client, part_media, part_path)
+                        await _copy_and_delete(part_msg)
                     uploaded += 1
                     continue
 
-        await _send_media_or_doc(client, media, path)
+        video_msg = await _send_media_or_doc(client, media, path)
+        await _copy_and_delete(video_msg)
         uploaded += 1
 
     # 3. Sample collage
     collage = prepared.get("sample_collage")
     if not cancel_event.is_set() and collage and ospath.isfile(collage):
         try:
-            await _telegram_call(
+            collage_msg = await _telegram_call(
                 TgClient.bot.send_photo,
                 photo=collage,
                 caption=f"<b>Sample Images</b>\n<b>{escape(prepared['item'].title, quote=False)}</b>",
                 **kwargs,
             )
+            await _copy_and_delete(collage_msg)
         except Exception as error:
             LOGGER.warning(f"MissAV sample collage upload failed: {error}")
 
