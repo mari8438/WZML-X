@@ -15,11 +15,13 @@ from asyncio.subprocess import PIPE
 from contextlib import suppress
 from html import escape
 from json import loads
-from os import path as ospath
+from os import listdir as oslistdir, path as ospath
 from pathlib import Path
 from re import sub
 from shutil import rmtree
 from urllib.parse import urlsplit
+
+from ..helper.ext_utils.files_utils import split_file
 
 from httpx import AsyncClient
 from PIL import Image, ImageFilter, ImageOps
@@ -510,6 +512,15 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         info = await _video_info(path)
         height = info["height"] or quality.height or 720
         width = info["width"] or round(height * 16 / 9)
+        file_size = ospath.getsize(path) if ospath.isfile(path) else 0
+
+        # Select client: route large files (> 2000 MiB) through Premium user session if available
+        client = (
+            TgClient.user
+            if (TgClient.user and (file_size > TgClient.NON_PREMIUM_SPLIT_SIZE or not TgClient.bot))
+            else TgClient.bot
+        )
+
         media = {
             **kwargs,
             "video": path,
@@ -524,18 +535,62 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         if prepared["cover"] and ospath.isfile(prepared["cover"]):
             media["cover"] = prepared["cover"]
 
-        try:
-            await _telegram_call(TgClient.bot.send_video, **media)
-        except Exception as error:
-            LOGGER.warning(f"send_video failed, falling back to document: {error}")
-            media.pop("video")
-            media.pop("supports_streaming", None)
-            media.pop("duration", None)
-            media.pop("width", None)
-            media.pop("height", None)
-            media.pop("cover", None)
-            media["document"] = path
-            await _telegram_call(TgClient.bot.send_document, **media)
+        max_upload_size = (
+            TgClient.PREMIUM_SPLIT_SIZE
+            if (client == TgClient.user and TgClient.IS_PREMIUM_USER)
+            else TgClient.NON_PREMIUM_SPLIT_SIZE
+        )
+
+        async def _send_media_or_doc(c, m, p):
+            try:
+                await _telegram_call(c.send_video, **m)
+            except Exception as err:
+                LOGGER.warning(f"send_video failed ({err}), falling back to document...")
+                doc_m = dict(m)
+                doc_m.pop("video", None)
+                doc_m.pop("supports_streaming", None)
+                doc_m.pop("duration", None)
+                doc_m.pop("width", None)
+                doc_m.pop("height", None)
+                doc_m.pop("cover", None)
+                doc_m["document"] = p
+                try:
+                    await _telegram_call(c.send_document, **doc_m)
+                except Exception as doc_err:
+                    if c != TgClient.user and TgClient.user:
+                        LOGGER.info(f"Retrying upload via TgClient.user for {p}: {doc_err}")
+                        await _telegram_call(TgClient.user.send_document, **doc_m)
+                    else:
+                        raise doc_err
+
+        if file_size > max_upload_size:
+            LOGGER.info(f"File {path} ({file_size} bytes) exceeds limit {max_upload_size}. Splitting...")
+            listener = _DirectListener(prepared.get("user_id", 0), cancel_event)
+            split_ok = await split_file(path, max_upload_size, listener)
+            if split_ok:
+                parent = ospath.dirname(path)
+                stem = ospath.splitext(ospath.basename(path))[0]
+                ext = ospath.splitext(path)[1]
+                parts = sorted(
+                    [
+                        ospath.join(parent, f)
+                        for f in oslistdir(parent)
+                        if f.startswith(f"{stem}.part") and f.endswith(ext)
+                    ]
+                )
+                if parts:
+                    for part_idx, part_path in enumerate(parts, start=1):
+                        part_media = dict(media)
+                        part_media["video"] = part_path
+                        part_media["caption"] = (
+                            f"<b>{escape(ospath.basename(part_path), quote=False)} "
+                            f"[Part {part_idx}/{len(parts)}]</b>"
+                        )
+                        await _send_media_or_doc(client, part_media, part_path)
+                    uploaded += 1
+                    continue
+
+        await _send_media_or_doc(client, media, path)
         uploaded += 1
 
     # 3. Sample collage
@@ -785,6 +840,7 @@ async def missav_leech(_, message):
                         "cover": cover,
                         "videos": videos,
                         "sample_collage": sample_collage,
+                        "user_id": controller.user_id,
                     }
 
                     # 6. Upload
