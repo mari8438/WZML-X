@@ -334,6 +334,53 @@ class TestMissAV(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_upload_title_deletes_from_main_dump(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+
+        item = resolver_mod.MissAVTitle(url="https://missav.live/en/test-del-1", title="TEST-DEL-1")
+        prepared = {
+            "item": item,
+            "preview_video": None,
+            "poster": None,
+            "thumb": None,
+            "caption": "test caption",
+            "caption_replies": [],
+            "videos": [],
+            "sample_collage": None,
+            "quality_label": "720p",
+        }
+
+        async def run_test():
+            cancel_event = asyncio.Event()
+            stage_msg = MagicMock(id=999, chat=MagicMock(id=-1003887117402))
+            backup_msg = MagicMock(id=888)
+            dest_msg = MagicMock(id=777)
+
+            leech_mod.TgClient.bot.send_message = AsyncMock(return_value=stage_msg)
+            leech_mod.TgClient.bot.copy_message = AsyncMock(side_effect=[backup_msg, dest_msg])
+            leech_mod.TgClient.bot.delete_messages = AsyncMock(return_value=True)
+            leech_mod.Config.LEECH_DUMP_CHAT = "-1003887117402"
+            leech_mod.Config.MISSAV_BACKUP_CHANNEL = "-1003969712219"
+
+            await leech_mod._upload_title(prepared, destination=-1004326682090, thread_id=12, cancel_event=cancel_event)
+
+            # Check that delete_messages was called for stage_chat (-1003887117402) with [999]
+            leech_mod.TgClient.bot.delete_messages.assert_called_with(
+                chat_id=-1003887117402,
+                message_ids=[999],
+            )
+
+            # Check that archive was saved with backup_channel (-1003969712219) and [888]
+            rec = await archive_mod.MissAVArchive.get(item)
+            self.assertIsNotNone(rec)
+            self.assertEqual(rec["chat_id"], -1003969712219)
+            self.assertEqual(rec["message_ids"], [888])
+
+            await archive_mod.MissAVArchive.remove(item)
+
+        asyncio.run(run_test())
+
 
 if __name__ == "__main__":
     unittest.main()

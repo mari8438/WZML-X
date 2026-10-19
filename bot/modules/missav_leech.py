@@ -727,6 +727,8 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         kwargs["message_thread_id"] = thread_id
 
     stage_msg_ids = []
+    backup_msg_ids = []
+    dest_msg_ids = []
     backup_copied_success = False
 
     async def _copy_to_destination(msg, reply_to_id=None):
@@ -737,18 +739,22 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         # 1. Copy to backup channel (e.g. Jav - 1) if configured and distinct
         if backup_channel and backup_channel != msg.chat.id and backup_channel != destination:
             try:
-                await _telegram_call(
+                b_msg = await _telegram_call(
                     TgClient.bot.copy_message,
                     chat_id=backup_channel,
                     from_chat_id=msg.chat.id,
                     message_id=msg.id,
                 )
+                if b_msg and hasattr(b_msg, "id"):
+                    backup_msg_ids.append(b_msg.id)
                 backup_copied_success = True
             except Exception as b_err:
                 LOGGER.warning(f"copy_message to backup channel failed: {b_err}")
 
         # 2. If staging dump was not used, message is already at destination
         if not use_dump_stage:
+            if hasattr(msg, "id"):
+                dest_msg_ids.append(msg.id)
             return msg
 
         # 3. Copy to destination forum topic
@@ -763,6 +769,8 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
             copy_kwargs["reply_to_message_id"] = reply_to_id
         try:
             copied = await _telegram_call(TgClient.bot.copy_message, **copy_kwargs)
+            if copied and hasattr(copied, "id"):
+                dest_msg_ids.append(copied.id)
             return copied
         except Exception as error:
             LOGGER.warning(f"copy_message to destination failed: {error}")
@@ -937,18 +945,42 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         except Exception as error:
             LOGGER.warning(f"MissAV sample collage upload failed: {error}")
 
-    # Record all staged message IDs in MissAVArchive for fast-forward deduplication
-    if stage_msg_ids and prepared.get("item"):
+    # Record in MissAVArchive for fast-forward deduplication
+    archive_chat = backup_channel if (backup_channel and backup_msg_ids) else (destination if dest_msg_ids else stage_chat)
+    archive_msg_ids = backup_msg_ids if (backup_channel and backup_msg_ids) else (dest_msg_ids if dest_msg_ids else stage_msg_ids)
+
+    if archive_msg_ids and prepared.get("item"):
         try:
             await MissAVArchive.save(
                 item=prepared["item"],
-                chat_id=stage_chat,
-                message_ids=stage_msg_ids,
+                chat_id=archive_chat,
+                message_ids=archive_msg_ids,
                 quality=prepared.get("quality_label", ""),
                 backup_copied=backup_copied_success,
             )
         except Exception as arc_err:
             LOGGER.warning(f"Failed archiving MissAV title {prepared['item'].title}: {arc_err}")
+
+    # Delete staged messages from main dump after forward
+    if use_dump_stage and stage_msg_ids:
+        LOGGER.info(f"Deleting {len(stage_msg_ids)} staged messages from main dump ({stage_chat}) after forward...")
+        for i in range(0, len(stage_msg_ids), 100):
+            chunk = stage_msg_ids[i : i + 100]
+            try:
+                await _telegram_call(
+                    TgClient.bot.delete_messages,
+                    chat_id=stage_chat,
+                    message_ids=chunk,
+                )
+            except Exception as del_err:
+                LOGGER.warning(f"Bot failed deleting staged messages from main dump ({stage_chat}): {del_err}")
+                if TgClient.user:
+                    with suppress(Exception):
+                        await _telegram_call(
+                            TgClient.user.delete_messages,
+                            chat_id=stage_chat,
+                            message_ids=chunk,
+                        )
 
     return uploaded
 
@@ -1086,14 +1118,22 @@ async def missav_leech(_, message):
                 # Deduplication check: if video was already leeched, fast-forward/copy it from dump!
                 cached_rec = await MissAVArchive.get(item)
                 if cached_rec and cached_rec.get("message_ids") and cached_rec.get("chat_id"):
-                    LOGGER.info(f"Video '{item.title}' is already archived in chat {cached_rec['chat_id']}! Fast-forwarding {len(cached_rec['message_ids'])} messages to topic {thread_id}...")
+                    source_chat = cached_rec["chat_id"]
+                    LOGGER.info(f"Video '{item.title}' is already archived in chat {source_chat}! Fast-forwarding {len(cached_rec['message_ids'])} messages to topic {thread_id}...")
                     fast_forward_ok = True
                     backup_copied_now = False
+                    new_backup_mids = []
+                    main_dump = getattr(Config, "LEECH_DUMP_CHAT", "")
+                    try:
+                        main_dump = int(main_dump) if main_dump else None
+                    except (ValueError, TypeError):
+                        pass
+
                     should_backup = bool(
                         backup_channel
-                        and backup_channel != cached_rec["chat_id"]
+                        and backup_channel != source_chat
                         and backup_channel != destination
-                        and not cached_rec.get("backup_copied")
+                        and (not cached_rec.get("backup_copied") or source_chat == main_dump)
                     )
 
                     for mid in cached_rec["message_ids"]:
@@ -1102,12 +1142,14 @@ async def missav_leech(_, message):
                         try:
                             if should_backup:
                                 try:
-                                    await _telegram_call(
+                                    b_msg = await _telegram_call(
                                         TgClient.bot.copy_message,
                                         chat_id=backup_channel,
-                                        from_chat_id=cached_rec["chat_id"],
+                                        from_chat_id=source_chat,
                                         message_id=mid,
                                     )
+                                    if b_msg and hasattr(b_msg, "id"):
+                                        new_backup_mids.append(b_msg.id)
                                     backup_copied_now = True
                                 except Exception as bkp_err:
                                     LOGGER.warning(f"Fast-forward backup copy failed for msg {mid}: {bkp_err}")
@@ -1115,7 +1157,7 @@ async def missav_leech(_, message):
                             await _telegram_call(
                                 TgClient.bot.copy_message,
                                 chat_id=destination,
-                                from_chat_id=cached_rec["chat_id"],
+                                from_chat_id=source_chat,
                                 message_id=mid,
                                 message_thread_id=thread_id,
                             )
@@ -1125,10 +1167,29 @@ async def missav_leech(_, message):
                             fast_forward_ok = False
                             break
 
-                    if backup_copied_now:
-                        await MissAVArchive.update_backup_status(item, True)
-
                     if fast_forward_ok:
+                        if main_dump and source_chat == main_dump:
+                            if new_backup_mids:
+                                await MissAVArchive.save(
+                                    item=item,
+                                    chat_id=backup_channel,
+                                    message_ids=new_backup_mids,
+                                    quality=cached_rec.get("quality", ""),
+                                    backup_copied=True,
+                                )
+                            for i in range(0, len(cached_rec["message_ids"]), 100):
+                                chunk = cached_rec["message_ids"][i : i + 100]
+                                try:
+                                    await _telegram_call(
+                                        TgClient.bot.delete_messages,
+                                        chat_id=main_dump,
+                                        message_ids=chunk,
+                                    )
+                                except Exception as del_err:
+                                    LOGGER.warning(f"Failed deleting legacy dump messages: {del_err}")
+                        elif backup_copied_now:
+                            await MissAVArchive.update_backup_status(item, True)
+
                         uploaded += 1
                         LOGGER.info(f"Successfully fast-forwarded {item.title} to {destination} (topic {thread_id})")
                         if status and not cancel_event.is_set():
