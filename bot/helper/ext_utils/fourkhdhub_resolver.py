@@ -105,19 +105,25 @@ class FourKHDHubResolver:
         if "hubcloud" in domain or "hubhold" in domain:
             return mediator_url
 
-        try:
-            html = await cls.fetch_html(mediator_url)
-            match = search(
-                r"s\s*\(\s*['\"]o['\"]\s*,\s*['\"]([A-Za-z0-9+/=]+)['\"]",
-                html,
-            )
-            if match:
-                payload = match.group(1)
-                hub_url = cls.decode_mediator_payload(payload)
-                if hub_url:
-                    return hub_url
-        except Exception as err:
-            LOGGER.warning(f"Failed to resolve intermediate mediator URL {mediator_url}: {err}")
+        # Prefer greenmotors.cc over greenmotors.club to bypass Cloudflare challenge on VPS datacenter IPs
+        urls_to_try = [mediator_url.replace("greenmotors.club", "greenmotors.cc")]
+        if mediator_url not in urls_to_try:
+            urls_to_try.append(mediator_url)
+
+        for target_url in urls_to_try:
+            try:
+                html = await cls.fetch_html(target_url)
+                match = search(
+                    r"s\s*\(\s*['\"]o['\"]\s*,\s*['\"]([A-Za-z0-9+/=]+)['\"]",
+                    html,
+                )
+                if match:
+                    payload = match.group(1)
+                    hub_url = cls.decode_mediator_payload(payload)
+                    if hub_url:
+                        return hub_url
+            except Exception as err:
+                LOGGER.warning(f"Failed to resolve intermediate mediator URL {target_url}: {err}")
 
         return mediator_url
 
