@@ -977,14 +977,21 @@ async def missav_leech(_, message):
         )
 
         uploaded = failed = 0
+        sub_gen_enabled = getattr(Config, "MISSAV_SUBTITLE_GENERATION", False)
+        translation_enabled = getattr(Config, "MISSAV_TRANSLATION", False) and sub_gen_enabled
+
         try:
-            # Initialize NLLB Tamil translator
-            translator = HstreamTranslator()
-            try:
-                await translator.start(cancel_event)
-                LOGGER.info("MissAV NLLB Tamil translator started successfully.")
-            except Exception as error:
-                LOGGER.warning(f"MissAV Tamil translation unavailable; falling back to ESub: {error}")
+            if translation_enabled:
+                # Initialize NLLB Tamil translator only when enabled
+                translator = HstreamTranslator()
+                try:
+                    await translator.start(cancel_event)
+                    LOGGER.info("MissAV NLLB Tamil translator started successfully.")
+                except Exception as error:
+                    LOGGER.warning(f"MissAV Tamil translation unavailable; falling back to ESub: {error}")
+                    translator = None
+            else:
+                LOGGER.info("MissAV NLLB Tamil translation disabled via config.")
                 translator = None
 
             async with MissAVResolver() as resolver:
@@ -1028,7 +1035,8 @@ async def missav_leech(_, message):
                 f"Topic: <code>{escape(topic_display)}</code>\n"
                 f"Preferred Quality: <code>{preferred_quality or 'All available'}</code>\n"
                 f"Titles to process: <code>{len(items)}</code>\n"
-                f"Tamil Translation: <code>{'Ready' if translator else 'ESub only'}</code>\n"
+                f"Subtitle Generation: <code>{'Enabled' if sub_gen_enabled else 'Disabled'}</code>\n"
+                f"Tamil Translation: <code>{'Ready' if translator else 'Disabled'}</code>\n"
                 f"{controls}",
             )
 
@@ -1116,8 +1124,11 @@ async def missav_leech(_, message):
                     raw_base_path = None
                     base_quality = None
 
-                    if has_eng_sub:
-                        LOGGER.info(f"English subtitles detected for {item.title}; skipping subtitle generation and translation (hardcoded subtitles).")
+                    if not sub_gen_enabled or has_eng_sub:
+                        if has_eng_sub:
+                            LOGGER.info(f"English subtitles detected for {item.title}; skipping subtitle generation and translation (hardcoded subtitles).")
+                        else:
+                            LOGGER.info(f"Subtitle generation disabled via config; skipping for {item.title}.")
                         tamil_available = False
                         subtitle_tracks = []
                     else:
