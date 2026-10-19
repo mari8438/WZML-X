@@ -60,21 +60,15 @@ spec_mod.loader.exec_module(leech_mod)
 
 
 class TestMissAV(unittest.TestCase):
-    def test_fc2_filter(self):
+    def test_fc2_filter_disabled(self):
         is_fc2 = resolver_mod.is_fc2_title
-        # Should be filtered out
-        self.assertTrue(is_fc2("FC2-PPV-4993751"))
-        self.assertTrue(is_fc2("FC2PPV-123456"))
-        self.assertTrue(is_fc2("fc2-ppv-4993188"))
-        self.assertTrue(is_fc2("https://missav.live/en/fc2-ppv-4993751"))
-        self.assertTrue(is_fc2("Something FC2 Amateur video"))
-
-        # Should NOT be filtered out (keep uncensored studio releases)
+        # All titles should be accepted (not filtered out)
+        self.assertFalse(is_fc2("FC2-PPV-4993751"))
+        self.assertFalse(is_fc2("FC2PPV-123456"))
+        self.assertFalse(is_fc2("fc2-ppv-4993188"))
+        self.assertFalse(is_fc2("https://missav.live/en/fc2-ppv-4993751"))
         self.assertFalse(is_fc2("EBWH-373 Uncensored Leaked"))
         self.assertFalse(is_fc2("FNS-270"))
-        self.assertFalse(is_fc2("MAAN-1200"))
-        self.assertFalse(is_fc2("JERA-049"))
-        self.assertFalse(is_fc2("https://missav.live/en/ebwh-373"))
 
     def test_unpack_player_script(self):
         sample_packed = (

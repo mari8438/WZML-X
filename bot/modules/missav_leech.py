@@ -842,7 +842,7 @@ async def missav_leech(_, message):
             f"<b>MissAV resolving...</b>\n{controls}",
         )
 
-        uploaded = fc2_skipped = failed = 0
+        uploaded = failed = 0
         try:
             # Initialize NLLB Tamil translator
             translator = HstreamTranslator()
@@ -869,7 +869,7 @@ async def missav_leech(_, message):
                     items = await resolver.discover_query(target_query)
 
             if not items:
-                raise RuntimeError("No eligible MissAV videos found (or all were FC2-PPV skipped).")
+                raise RuntimeError("No eligible MissAV videos found.")
 
             status = await edit_message(
                 status,
@@ -877,7 +877,6 @@ async def missav_leech(_, message):
                 f"Query/Target: <code>{escape(target_query)}</code>\n"
                 f"Preferred Quality: <code>{preferred_quality or 'All available'}</code>\n"
                 f"Titles to process: <code>{len(items)}</code>\n"
-                f"FC2 Filter: <code>Enabled (skipped)</code>\n"
                 f"Tamil Translation: <code>{'Ready' if translator else 'ESub only'}</code>\n"
                 f"{controls}",
             )
@@ -888,11 +887,6 @@ async def missav_leech(_, message):
                     break
                 if not await _wait_until_resumed(pause_event, cancel_event):
                     break
-
-                if is_fc2_title(item.title) or is_fc2_title(item.url):
-                    LOGGER.info(f"Skipping FC2-PPV video: {item.title}")
-                    fc2_skipped += 1
-                    continue
 
                 if not item.qualities:
                     LOGGER.warning(f"No stream qualities available for {item.title}")
@@ -1026,7 +1020,7 @@ async def missav_leech(_, message):
                             status,
                             f"<b>MissAV Leech Progress</b>\n"
                             f"Processed: <code>{index}/{len(items)}</code>\n"
-                            f"Uploaded: <code>{uploaded}</code> | FC2 Skipped: <code>{fc2_skipped}</code> | Failed: <code>{failed}</code>\n"
+                            f"Uploaded: <code>{uploaded}</code> | Failed: <code>{failed}</code>\n"
                             f"State: <code>{'paused' if not pause_event.is_set() else 'running'}</code>\n"
                             f"{controls}",
                         )
@@ -1036,7 +1030,7 @@ async def missav_leech(_, message):
                 await edit_message(
                     status,
                     f"<b>MissAV leech {final_state}.</b>\n"
-                    f"Uploaded: <code>{uploaded}</code> | FC2 Skipped: <code>{fc2_skipped}</code> | Failed: <code>{failed}</code>",
+                    f"Uploaded: <code>{uploaded}</code> | Failed: <code>{failed}</code>",
                 )
 
         except Exception as error:

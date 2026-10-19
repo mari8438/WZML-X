@@ -74,8 +74,8 @@ class MissAVTitle:
 
 
 def is_fc2_title(text: str) -> bool:
-    """Detect if title, code, or URL is an FC2-PPV release."""
-    return bool(search(r"(?:^|[^a-z0-9])fc2(?:-?ppv)?(?:[^a-z0-9]|$)", str(text or ""), IGNORECASE))
+    """FC2 filtering disabled: allows all releases."""
+    return False
 
 
 def is_english_subtitled(item: MissAVTitle | str) -> bool:
@@ -223,7 +223,7 @@ def _catalog_links(source, page_url):
                 continue
         else:
             video_slug = parts[0]
-        if video_slug.lower() in ignored_slugs or is_fc2_title(video_slug):
+        if video_slug.lower() in ignored_slugs:
             continue
         if url not in links:
             links.append(url)
@@ -313,9 +313,6 @@ class MissAVResolver:
         source = await self._get(url)
         if _player_urls(source):
             title_item = await self.resolve_title(url, source)
-            if is_fc2_title(title_item.title):
-                LOGGER.info(f"Skipping FC2-PPV video: {title_item.title}")
-                return []
             if is_sub_category and "English Subtitles" not in title_item.genres:
                 title_item.genres.append("English Subtitles")
             return [title_item]
@@ -323,13 +320,8 @@ class MissAVResolver:
         links = _catalog_links(source, url)
         items = []
         for link in links:
-            if is_fc2_title(link):
-                continue
             try:
                 item = await self.resolve_title(link)
-                if is_fc2_title(item.title):
-                    LOGGER.info(f"Skipping FC2-PPV video: {item.title}")
-                    continue
                 if is_sub_category and "English Subtitles" not in item.genres:
                     item.genres.append("English Subtitles")
                 items.append(item)
@@ -352,12 +344,8 @@ class MissAVResolver:
         source = await self._get(page_url)
         items = []
         for link in _catalog_links(source, page_url):
-            if is_fc2_title(link):
-                continue
             try:
                 item = await self.resolve_title(link)
-                if is_fc2_title(item.title):
-                    continue
                 if has_sub_filter and "English Subtitles" not in item.genres:
                     item.genres.append("English Subtitles")
                 items.append(item)
@@ -374,12 +362,8 @@ class MissAVResolver:
         source = await self._get(page_url)
         items = []
         for link in _catalog_links(source, page_url):
-            if is_fc2_title(link):
-                continue
             try:
                 item = await self.resolve_title(link)
-                if is_fc2_title(item.title):
-                    continue
                 items.append(item)
             except Exception:
                 continue
