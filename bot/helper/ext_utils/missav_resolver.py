@@ -78,6 +78,24 @@ def is_fc2_title(text: str) -> bool:
     return bool(search(r"(?:^|[^a-z0-9])fc2(?:-?ppv)?(?:[^a-z0-9]|$)", str(text or ""), IGNORECASE))
 
 
+def is_english_subtitled(item: MissAVTitle | str) -> bool:
+    """Detect if MissAV title or genre belongs to the English Subtitle category."""
+    if isinstance(item, str):
+        candidates = [item]
+    else:
+        candidates = [
+            getattr(item, "title", ""),
+            getattr(item, "url", ""),
+            getattr(item, "description", ""),
+            *getattr(item, "genres", []),
+        ]
+    pattern = r"(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)"
+    for text in candidates:
+        if text and search(pattern, str(text), IGNORECASE):
+            return True
+    return False
+
+
 def _valid_missav_url(url):
     parsed = urlsplit(str(url or ""))
     host = (parsed.hostname or "").lower()
@@ -161,7 +179,7 @@ def _extract_views(source, tree):
 
 def _extract_genres(tree):
     genres = []
-    for text in tree.xpath('//a[contains(@href, "/genres/") or contains(@href, "/tags/") or contains(@href, "/categories/")]/text()'):
+    for text in tree.xpath('//a[contains(@href, "/genres/") or contains(@href, "/tags/") or contains(@href, "/categories/") or contains(@href, "english-subtitle")]/text()'):
         cleaned = text.strip()
         if cleaned and cleaned not in genres and len(cleaned) < 50:
             genres.append(cleaned)
@@ -291,12 +309,15 @@ class MissAVResolver:
         raise RuntimeError(f"Unable to fetch URL {url}")
 
     async def discover(self, url):
+        is_sub_category = bool(search(r"english[\s_-]*subtitle", url, IGNORECASE))
         source = await self._get(url)
         if _player_urls(source):
             title_item = await self.resolve_title(url, source)
             if is_fc2_title(title_item.title):
                 LOGGER.info(f"Skipping FC2-PPV video: {title_item.title}")
                 return []
+            if is_sub_category and "English Subtitles" not in title_item.genres:
+                title_item.genres.append("English Subtitles")
             return [title_item]
 
         links = _catalog_links(source, url)
@@ -309,17 +330,47 @@ class MissAVResolver:
                 if is_fc2_title(item.title):
                     LOGGER.info(f"Skipping FC2-PPV video: {item.title}")
                     continue
+                if is_sub_category and "English Subtitles" not in item.genres:
+                    item.genres.append("English Subtitles")
                 items.append(item)
             except Exception as error:
                 LOGGER.warning(f"Failed resolving card {link}: {error}")
                 continue
+        items.sort(key=lambda x: x.views, reverse=True)
+        return items
+
+    async def discover_query(self, query):
+        clean_query = str(query or "").strip()
+        has_sub_filter = bool(search(r"(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)", clean_query, IGNORECASE))
+        keyword = sub(r"(?i)\b(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)\b", "", clean_query).strip()
+        encoded = quote(keyword or clean_query)
+        params = ["sort=views"]
+        if has_sub_filter:
+            params.append("filters=english-subtitle")
+        page_url = f"{MISSAV_BASE}/en/search/{encoded}?{'&'.join(params)}"
+        LOGGER.info(f"MissAV search URL: {page_url} (english-subtitle filter: {has_sub_filter})")
+        source = await self._get(page_url)
+        items = []
+        for link in _catalog_links(source, page_url):
+            if is_fc2_title(link):
+                continue
+            try:
+                item = await self.resolve_title(link)
+                if is_fc2_title(item.title):
+                    continue
+                if has_sub_filter and "English Subtitles" not in item.genres:
+                    item.genres.append("English Subtitles")
+                items.append(item)
+            except Exception:
+                continue
+        items.sort(key=lambda x: x.views, reverse=True)
         return items
 
     async def discover_letter(self, letter):
         letter = str(letter or "").strip().upper()
         if len(letter) != 1 or not "A" <= letter <= "Z":
             raise ValueError("MissAV letter must be A-Z")
-        page_url = f"{MISSAV_BASE}/en/search/{quote(letter)}"
+        page_url = f"{MISSAV_BASE}/en/search/{quote(letter)}?sort=views"
         source = await self._get(page_url)
         items = []
         for link in _catalog_links(source, page_url):
@@ -332,6 +383,7 @@ class MissAVResolver:
                 items.append(item)
             except Exception:
                 continue
+        items.sort(key=lambda x: x.views, reverse=True)
         return items
 
     async def resolve_title(self, url, source=None):
@@ -351,6 +403,12 @@ class MissAVResolver:
         actors = [value.strip() for value in tree.xpath('//meta[@property="og:video:actor"]/@content') if value.strip()]
         director = _meta(tree, "og:video:director")
         genres = _extract_genres(tree)
+        has_sub_badge = (
+            bool(search(r"(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)", url, IGNORECASE))
+            or bool(tree.xpath('//a[contains(@href, "english-subtitle") or contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "english subtitle")] | //span[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "english subtitle")]'))
+        )
+        if has_sub_badge and "English Subtitles" not in genres:
+            genres.append("English Subtitles")
         sample_urls = _extract_sample_urls(source)
 
         item = MissAVTitle(

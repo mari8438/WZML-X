@@ -17,7 +17,7 @@ from html import escape
 from json import loads
 from os import listdir as oslistdir, path as ospath
 from pathlib import Path
-from re import sub
+from re import IGNORECASE, search, sub
 from shutil import rmtree
 from urllib.parse import urlsplit
 
@@ -36,11 +36,11 @@ from ..helper.ext_utils.missav_resolver import (
     MissAVQuality,
     MissAVResolver,
     MissAVTitle,
+    is_english_subtitled,
     is_fc2_title,
 )
-from ..helper.ext_utils.missav_subtitles import generate_all_subtitles_for_video
+from ..helper.ext_utils.missav_subtitles import generate_all_subtitles_for_video, write_starfall_brand_subtitle
 from ..helper.mirror_leech_utils.download_utils.yt_dlp_download import YoutubeDLHelper
-from ..helper.poster_engine.engine import POSTER_TEMPLATE_COUNT, render_poster_option
 from ..helper.telegram_helper.bot_commands import BotCommands
 from ..helper.telegram_helper.message_utils import edit_message, send_message
 from .batch_task_registry import BatchTaskController
@@ -138,16 +138,126 @@ def _parse_letter_range(value):
     raise ValueError("Use a MissAV URL, one letter, or a range such as <code>A-G</code>")
 
 
+def _is_letter_or_range(value):
+    val = str(value or "").strip().upper()
+    return (len(val) == 1 and "A" <= val <= "Z") or (
+        len(val) == 3 and val[1] == "-" and "A" <= val[0] <= "Z" and "A" <= val[2] <= "Z"
+    )
+
+
+def _parse_query_and_quality(tokens):
+    args = list(tokens[1:])
+    clean_args = []
+    i = 0
+    while i < len(args):
+        if args[i] == "-up":
+            i += 2
+            continue
+        clean_args.append(args[i])
+        i += 1
+
+    if not clean_args:
+        raise ValueError("Missing search query, URL, or letter range.")
+
+    preferred_quality = None
+    last = clean_args[-1].lower()
+    m = search(r"^(1080|720|480|360)(?:p)?$", last)
+    if m and len(clean_args) > 1:
+        preferred_quality = f"{m.group(1)}p"
+        clean_args.pop()
+
+    target_query = " ".join(clean_args).strip()
+    return target_query, preferred_quality
+
+
+def _select_quality(qualities: list[MissAVQuality], preferred: str | None) -> list[MissAVQuality]:
+    if not preferred or not qualities:
+        return qualities
+    try:
+        target_h = int(preferred.replace("p", ""))
+    except ValueError:
+        return qualities
+
+    for q in qualities:
+        if q.height == target_h or q.label.lower() == preferred.lower():
+            return [q]
+
+    lower = [q for q in qualities if 0 < q.height < target_h]
+    if lower:
+        return [lower[0]]
+
+    return [qualities[-1]]
+
+
+async def _download_preview_video(item: MissAVTitle, target_path: str) -> str:
+    slug = item.url.rstrip("/").split("/")[-1].lower()
+    m = search(r"([a-zA-Z0-9]+-[a-zA-Z0-9]+)", slug) or search(r"([a-zA-Z0-9]+-[a-zA-Z0-9]+)", item.title.lower())
+    candidates = []
+    if m:
+        candidates.append(m.group(1).lower())
+    if slug not in candidates:
+        candidates.append(slug)
+
+    for code in candidates:
+        url = f"https://fourhoi.com/{code}/preview.mp4"
+        try:
+            async with AsyncClient(follow_redirects=True, timeout=25, headers={"User-Agent": "Mozilla/5.0"}) as client:
+                resp = await client.get(url)
+                if resp.status_code == 200 and len(resp.content) > 5000:
+                    Path(target_path).write_bytes(resp.content)
+                    LOGGER.info(f"Downloaded preview video for {item.title} from {url}")
+                    return target_path
+        except Exception as e:
+            LOGGER.warning(f"Could not download preview video from {url}: {e}")
+    return ""
+
+
+def _is_non_english(text: str) -> bool:
+    if not text:
+        return False
+    return bool(search(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]", text))
+
+
+async def _translate_description_to_english(text: str) -> str:
+    clean = str(text or "").strip()
+    if not clean or not _is_non_english(clean):
+        return clean
+    chunk = clean[:500]
+    url = "https://api.mymemory.translated.net/get"
+    params = {"q": chunk, "langpair": "ja|en"}
+    try:
+        async with AsyncClient(timeout=10, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            resp = await client.get(url, params=params)
+            if resp.status_code == 200:
+                data = resp.json()
+                trans = (data.get("responseData") or {}).get("translatedText")
+                if trans and "PLEASE SELECT" not in trans and "QUERY LENGTH LIMIT EXCEEDED" not in trans:
+                    if len(clean) > 500:
+                        return f"{trans} ...\n\n(Original: {clean})"
+                    return f"{trans}\n\n(Original: {clean})"
+    except Exception as e:
+        LOGGER.warning(f"Description translation failed: {e}")
+    return clean
+
+
 def _safe_filename(value):
     value = sub(_INVALID_FILENAME, " ", str(value or ""))
     value = sub(r"\s+", " ", value).strip(" .-")
     return value[:160] or "MissAV"
 
 
-def _video_filename(item: MissAVTitle, quality: MissAVQuality, tamil_available: bool) -> str:
-    title = _safe_filename(item.title)[:110].rstrip(" .-")
+def _video_filename(item: MissAVTitle, quality: MissAVQuality, tamil_available: bool, has_eng_sub: bool = False) -> str:
+    raw_title = item.title
+    if has_eng_sub:
+        raw_title = sub(r"\[?(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)\]?", "", raw_title, flags=IGNORECASE)
+    title = _safe_filename(raw_title)[:110].rstrip(" .-")
     label = quality.label or "source"
-    subtitle_label = "Tamil + ESub" if tamil_available else "ESub"
+    if has_eng_sub:
+        subtitle_label = "[English Subtitles]"
+    elif tamil_available:
+        subtitle_label = "Tamil + ESub"
+    else:
+        subtitle_label = "ESub"
     return (
         f"🄰🅂- {title} [{label}] [Jap] {subtitle_label} ~ [@Anime_Starfall🥰].mkv"
     )
@@ -178,13 +288,19 @@ def _split_description(description, limit=3000):
     return chunks or ["N/A"]
 
 
-def _poster_caption(item: MissAVTitle, tamil_available: bool) -> tuple[str, list[str]]:
+def _poster_caption(item: MissAVTitle, tamil_available: bool, has_eng_sub: bool = False) -> tuple[str, list[str]]:
     title = escape(item.title, quote=False)
     date = escape(item.date or "N/A", quote=False)
     views = f"{item.views:,}" if item.views else "N/A"
     genres = _genre_hashtags(item.genres)
     description = escape(item.description or "N/A", quote=False)
-    subtitle_label = "Tamil + ESub" if tamil_available else "ESub"
+
+    if has_eng_sub:
+        subtitle_label = "English Subtitles"
+    elif tamil_available:
+        subtitle_label = "Tamil + ESub"
+    else:
+        subtitle_label = "ESub"
 
     cast_part = f"║ 🎭 Cast : {escape(', '.join(item.actors[:5]), quote=False)}\n" if item.actors else ""
     maker_part = f"║ 🏢 Maker : {escape(item.director, quote=False)}\n" if item.director else ""
@@ -506,13 +622,30 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
             LOGGER.warning(f"copy_message to destination failed: {error}")
             return msg
 
-    # 1. Poster + Caption
+    # 1. Preview Video / Poster + Caption
     poster_msg = None
-    if prepared["poster"] and ospath.isfile(prepared["poster"]):
+    preview_vid = prepared.get("preview_video")
+    poster_img = prepared.get("poster")
+    thumb_img = prepared.get("thumb") or poster_img
+
+    if preview_vid and ospath.isfile(preview_vid):
+        try:
+            poster_msg = await _telegram_call(
+                TgClient.bot.send_video,
+                video=preview_vid,
+                thumb=thumb_img if thumb_img and ospath.isfile(thumb_img) else None,
+                caption=prepared["caption"],
+                supports_streaming=True,
+                **kwargs,
+            )
+        except Exception as error:
+            LOGGER.warning(f"MissAV preview video upload failed, falling back to photo: {error}")
+
+    if not poster_msg and poster_img and ospath.isfile(poster_img):
         try:
             poster_msg = await _telegram_call(
                 TgClient.bot.send_photo,
-                photo=prepared["poster"],
+                photo=poster_img,
                 caption=prepared["caption"],
                 **kwargs,
             )
@@ -523,7 +656,7 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
                 text=prepared["caption"],
                 **kwargs,
             )
-    else:
+    elif not poster_msg:
         poster_msg = await _telegram_call(
             TgClient.bot.send_message,
             text=prepared["caption"],
@@ -657,14 +790,14 @@ async def missav_leech(_, message):
         await send_message(
             message,
             "<b>Usage:</b> <code>/mll URL</code>, <code>/mll A</code>, or "
-            "<code>/mll A-G [-up CHAT_ID|TOPIC_ID]</code>",
+            "<code>/mll Mother English Subtitles 720p [-up CHAT_ID|TOPIC_ID]</code>",
         )
         return
 
     try:
-        letters = None if tokens[1].startswith("http") else _parse_letter_range(tokens[1])
         destination, thread_id = _parse_destination(message, tokens)
         await TgClient.bot.get_chat(destination)
+        target_query, preferred_quality = _parse_query_and_quality(tokens)
     except Exception as error:
         await send_message(message, f"<b>Invalid parameters:</b> <code>{escape(str(error))}</code>")
         return
@@ -721,9 +854,10 @@ async def missav_leech(_, message):
                 translator = None
 
             async with MissAVResolver() as resolver:
-                if letters is None:
-                    items = await resolver.discover(tokens[1])
-                else:
+                if target_query.startswith("http://") or target_query.startswith("https://"):
+                    items = await resolver.discover(target_query)
+                elif _is_letter_or_range(target_query):
+                    letters = _parse_letter_range(target_query)
                     items = []
                     seen_urls = set()
                     for letter in letters:
@@ -731,6 +865,8 @@ async def missav_leech(_, message):
                             if item.url not in seen_urls:
                                 seen_urls.add(item.url)
                                 items.append(item)
+                else:
+                    items = await resolver.discover_query(target_query)
 
             if not items:
                 raise RuntimeError("No eligible MissAV videos found (or all were FC2-PPV skipped).")
@@ -738,6 +874,8 @@ async def missav_leech(_, message):
             status = await edit_message(
                 status,
                 f"<b>MissAV Leech</b>\n"
+                f"Query/Target: <code>{escape(target_query)}</code>\n"
+                f"Preferred Quality: <code>{preferred_quality or 'All available'}</code>\n"
                 f"Titles to process: <code>{len(items)}</code>\n"
                 f"FC2 Filter: <code>Enabled (skipped)</code>\n"
                 f"Tamil Translation: <code>{'Ready' if translator else 'ESub only'}</code>\n"
@@ -761,79 +899,56 @@ async def missav_leech(_, message):
                     failed += 1
                     continue
 
+                has_eng_sub = is_english_subtitled(item)
+                selected_qualities = _select_quality(item.qualities, preferred_quality)
+                if not selected_qualities:
+                    selected_qualities = item.qualities
+
                 title_dir = ospath.join(root, f"{index:04d}")
                 Path(title_dir).mkdir(parents=True, exist_ok=True)
 
                 try:
-                    # 1. Poster & Artwork
+                    # 1. Poster & Artwork (Preview Video / Cover fallback)
                     cover = await _download_image(item.thumbnail, ospath.join(title_dir, "cover.jpg"))
                     thumb = ""
                     if cover:
                         thumb = ospath.join(title_dir, "thumb.jpg")
                         await sync_to_async(_save_image, Path(cover).read_bytes(), thumb, True)
 
-                    # Poster rendering
-                    owner_settings = user_data.get(controller.user_id, {})
-                    template = str(owner_settings.get("POST_TEMPLATE_ID") or Config.POST_TEMPLATE_ID or 1)
-                    if template not in {str(v) for v in range(1, POSTER_TEMPLATE_COUNT + 1)}:
-                        template = "1"
-                    poster = ""
-                    try:
-                        poster_meta = {
-                            "title": item.title,
-                            "year": item.date[:4] if item.date else "",
-                            "release_date": item.date,
-                            "description": item.description,
-                            "plot": item.description,
-                            "synopsis": item.description,
-                            "genres": ", ".join(item.genres) or "N/A",
-                            "views": f"{item.views:,}" if item.views else "N/A",
-                            "cast": ", ".join(item.actors) or "N/A",
-                            "director": item.director or "N/A",
-                            "category": "movie",
-                            "landscape_url": item.thumbnail,
-                            "portrait_url": item.thumbnail,
-                            "poster_url": item.thumbnail,
-                            "filename": item.title,
-                            "brand": "MissAV",
-                        }
-                        poster = await render_poster_option(
-                            poster_meta,
-                            controller.user_id,
-                            user_dict=owner_settings,
-                            option=template,
-                        )
-                        local_poster = ospath.join(title_dir, "poster.jpg")
-                        await sync_to_async(Path(poster).replace, local_poster)
-                        poster = local_poster
-                    except Exception as error:
-                        LOGGER.warning(f"Poster engine fallback: {error}")
-                        poster = cover
+                    preview_video = await _download_preview_video(item, ospath.join(title_dir, "preview.mp4"))
+                    poster = preview_video if preview_video and ospath.isfile(preview_video) else cover
 
-                    # 2. Download lowest quality stream first to generate subtitles
-                    base_quality = item.qualities[-1]  # Sorted highest to lowest; last is lowest
+                    # 2. Subtitle generation or bypass
                     headers = MissAVResolver.request_headers(item.url)
                     helper = YoutubeDLHelper(_DirectListener(controller.user_id, cancel_event))
-                    raw_base_path = ospath.join(title_dir, f"base_{base_quality.label}.mkv")
+                    raw_base_path = None
+                    base_quality = None
 
-                    LOGGER.info(f"Downloading base stream ({base_quality.label}) for subtitle generation...")
-                    await helper.download_direct_hls(base_quality.url, raw_base_path, headers)
+                    if has_eng_sub:
+                        LOGGER.info(f"English subtitles detected for {item.title}; skipping subtitle generation and translation (hardcoded subtitles).")
+                        tamil_available = False
+                        subtitle_tracks = []
+                    else:
+                        base_quality = selected_qualities[-1] if len(selected_qualities) > 1 else selected_qualities[0]
+                        raw_base_path = ospath.join(title_dir, f"base_{base_quality.label}.mkv")
 
-                    info = await _video_info(raw_base_path)
-                    duration = info["duration"] or item.duration
+                        LOGGER.info(f"Downloading base stream ({base_quality.label}) for subtitle generation...")
+                        await helper.download_direct_hls(base_quality.url, raw_base_path, headers)
 
-                    # 3. Generate subtitles (Audio -> Whisper English -> NLLB Tamil + Brand)
-                    async with cpu_eater_lock:
-                        subtitle_tracks, tamil_available = await generate_all_subtitles_for_video(
-                            raw_base_path,
-                            title_dir,
-                            duration,
-                            translator,
-                        )
+                        info = await _video_info(raw_base_path)
+                        duration = info["duration"] or item.duration
 
-                    # 4. Process and mux each available quality sequentially
+                        async with cpu_eater_lock:
+                            subtitle_tracks, tamil_available = await generate_all_subtitles_for_video(
+                                raw_base_path,
+                                title_dir,
+                                duration,
+                                translator,
+                            )
+
+                    # 3. Process and mux each selected quality sequentially
                     videos = []
-                    for q_idx, quality in enumerate(item.qualities):
+                    for q_idx, quality in enumerate(selected_qualities):
                         if cancel_event.is_set():
                             break
                         if not await _wait_until_resumed(pause_event, cancel_event):
@@ -841,11 +956,11 @@ async def missav_leech(_, message):
                         if q_idx > 0:
                             await sleep(2)  # Safety cooldown pause between quality muxing
 
-                        target_filename = _video_filename(item, quality, tamil_available)
+                        target_filename = _video_filename(item, quality, tamil_available, has_eng_sub)
                         target_mkv = ospath.join(title_dir, target_filename)
 
-                        # If this is the already-downloaded base quality, reuse it directly
-                        if quality.url == base_quality.url and ospath.isfile(raw_base_path):
+                        # If this quality is the already-downloaded base stream, reuse it directly
+                        if raw_base_path and base_quality and quality.url == base_quality.url and ospath.isfile(raw_base_path):
                             source_path = raw_base_path
                         else:
                             source_path = ospath.join(title_dir, f"raw_{quality.label}.mkv")
@@ -867,7 +982,7 @@ async def missav_leech(_, message):
                     if not videos:
                         raise RuntimeError(f"No qualities successfully downloaded or muxed for {item.title}")
 
-                    # 5. Sample collage
+                    # 4. Sample collage
                     sample_collage = ""
                     if item.sample_urls:
                         sample_paths = await _download_sample_images(item.sample_urls, title_dir)
@@ -875,9 +990,15 @@ async def missav_leech(_, message):
                             collage_file = ospath.join(title_dir, "sample_collage.jpg")
                             sample_collage = await sync_to_async(_create_sample_collage, sample_paths, collage_file)
 
-                    caption, caption_replies = _poster_caption(item, tamil_available)
+                    # 5. Translate description if non-English
+                    translated_desc = await _translate_description_to_english(item.description)
+                    if translated_desc:
+                        item.description = translated_desc
+
+                    caption, caption_replies = _poster_caption(item, tamil_available, has_eng_sub)
                     prepared = {
                         "item": item,
+                        "preview_video": preview_video,
                         "poster": poster,
                         "caption": caption,
                         "caption_replies": caption_replies,

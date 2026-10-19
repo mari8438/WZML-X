@@ -117,7 +117,8 @@ class TestMissAV(unittest.TestCase):
         self.assertIn("🄰🅂- EBWH-373 Beautiful Woman In Love [1080p] [Jap] Tamil + ESub ~ [@Anime_Starfall🥰].mkv", filename_tamil)
 
         filename_esub = leech_mod._video_filename(item, quality, tamil_available=False)
-        self.assertIn("🄰🅂- EBWH-373 Beautiful Woman In Love [1080p] [Jap] ESub ~ [@Anime_Starfall🥰].mkv", filename_esub)
+        filename_eng = leech_mod._video_filename(item, quality, tamil_available=False, has_eng_sub=True)
+        self.assertIn("🄰🅂- EBWH-373 Beautiful Woman In Love [1080p] [Jap] [English Subtitles] ~ [@Anime_Starfall🥰].mkv", filename_eng)
 
     def test_poster_caption_format(self):
         item = resolver_mod.MissAVTitle(
@@ -139,6 +140,72 @@ class TestMissAV(unittest.TestCase):
         self.assertIn("#uncensored #creampie", caption)
         self.assertIn("A very exciting synopsis.", caption)
         self.assertIn("Dropped By ➤ [@Anime_Starfall🥰]", caption)
+
+        caption_eng, _ = leech_mod._poster_caption(item, tamil_available=False, has_eng_sub=True)
+        self.assertIn("Japanese ~ English Subtitles", caption_eng)
+
+    def test_english_subtitle_detection(self):
+        is_sub = resolver_mod.is_english_subtitled
+        # Title matches
+        t1 = resolver_mod.MissAVTitle(url="https://missav.live/en/juq-556", title="JUQ-556 [English Subtitles] Stepmother")
+        self.assertTrue(is_sub(t1))
+        # Genre matches
+        t2 = resolver_mod.MissAVTitle(url="https://missav.live/en/abp-123", title="ABP-123 Regular Title", genres=["Drama", "English Subtitles"])
+        self.assertTrue(is_sub(t2))
+        t3 = resolver_mod.MissAVTitle(url="https://missav.live/en/abp-124", title="ABP-124 Regular Title", genres=["Drama", "english-subtitle"])
+        self.assertTrue(is_sub(t3))
+        # String matches
+        self.assertTrue(is_sub("eng_sub"))
+        # Non-matching
+        t4 = resolver_mod.MissAVTitle(url="https://missav.live/en/abp-125", title="ABP-125 Normal", genres=["Drama", "Creampie"])
+        self.assertFalse(is_sub(t4))
+
+    def test_select_quality_fallback(self):
+        select_q = leech_mod._select_quality
+        q1080 = resolver_mod.MissAVQuality(label="1080p", url="http://1080.m3u8", height=1080)
+        q720 = resolver_mod.MissAVQuality(label="720p", url="http://720.m3u8", height=720)
+        q480 = resolver_mod.MissAVQuality(label="480p", url="http://480.m3u8", height=480)
+        q360 = resolver_mod.MissAVQuality(label="360p", url="http://360.m3u8", height=360)
+
+        all_q = [q1080, q720, q480, q360]
+        # Exact match
+        self.assertEqual(select_q(all_q, "720p"), [q720])
+        # Downward fallback when 720p missing
+        missing_720 = [q1080, q480, q360]
+        self.assertEqual(select_q(missing_720, "720p"), [q480])
+        # Downward fallback to 360p
+        low_only = [q360]
+        self.assertEqual(select_q(low_only, "720p"), [q360])
+        # Fallback when only higher quality is available
+        high_only = [q1080]
+        self.assertEqual(select_q(high_only, "720p"), [q1080])
+        # None preferred returns all
+        self.assertEqual(select_q(all_q, None), all_q)
+
+    def test_parse_query_and_quality(self):
+        parse = leech_mod._parse_query_and_quality
+        q, pref = parse(["/mll", "Mother", "English", "Subtitles", "720p"])
+        self.assertEqual(q, "Mother English Subtitles")
+        self.assertEqual(pref, "720p")
+
+        q2, pref2 = parse(["/mll", "Mother", "English", "Subtitles", "720p", "-up", "-100123|5"])
+        self.assertEqual(q2, "Mother English Subtitles")
+        self.assertEqual(pref2, "720p")
+
+        q3, pref3 = parse(["/mll", "A-C", "480p"])
+        self.assertEqual(q3, "A-C")
+        self.assertEqual(pref3, "480p")
+
+        q4, pref4 = parse(["/mll", "https://missav.live/en/abp-123"])
+        self.assertEqual(q4, "https://missav.live/en/abp-123")
+        self.assertIsNone(pref4)
+
+    def test_non_english_detector(self):
+        is_non_eng = leech_mod._is_non_english
+        self.assertTrue(is_non_eng("義母と息子の禁断の愛"))
+        self.assertTrue(is_non_eng("こんにちは"))
+        self.assertFalse(is_non_eng("Mother and Son forbidden love"))
+        self.assertFalse(is_non_eng(""))
 
 
 if __name__ == "__main__":
