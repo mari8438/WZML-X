@@ -81,6 +81,7 @@ class MissAVArchive:
                             "chat_id": doc.get("chat_id", 0),
                             "message_ids": doc.get("message_ids", []),
                             "quality": doc.get("quality", ""),
+                            "backup_copied": doc.get("backup_copied", False),
                             "time": doc.get("time", 0),
                         }
                         count += 1
@@ -132,6 +133,7 @@ class MissAVArchive:
                         "chat_id": doc.get("chat_id", 0),
                         "message_ids": doc.get("message_ids", []),
                         "quality": doc.get("quality", ""),
+                        "backup_copied": doc.get("backup_copied", False),
                         "time": doc.get("time", 0),
                     }
                     _ARCHIVE_CACHE[code] = rec
@@ -142,7 +144,7 @@ class MissAVArchive:
         return None
 
     @classmethod
-    async def save(cls, item, chat_id: int | str, message_ids: list[int], quality: str = ""):
+    async def save(cls, item, chat_id: int | str, message_ids: list[int], quality: str = "", backup_copied: bool = False):
         if not _INITIALIZED:
             await cls.init()
         code = _extract_video_code(item)
@@ -161,6 +163,7 @@ class MissAVArchive:
             "chat_id": int(chat_id) if str(chat_id).lstrip("-").isdigit() else chat_id,
             "message_ids": [int(mid) for mid in message_ids if mid],
             "quality": quality,
+            "backup_copied": bool(backup_copied),
             "time": time(),
         }
 
@@ -182,6 +185,26 @@ class MissAVArchive:
                 LOGGER.info(f"Recorded MissAV title '{title}' ({code}) in MongoDB archive with {len(message_ids)} message IDs.")
         except Exception as e:
             LOGGER.warning(f"MissAV archive MongoDB save failed: {e}")
+
+    @classmethod
+    async def update_backup_status(cls, item_or_code, backup_copied: bool = True):
+        if not _INITIALIZED:
+            await cls.init()
+        code = _extract_video_code(item_or_code)
+        if not code:
+            return
+        if code in _ARCHIVE_CACHE:
+            _ARCHIVE_CACHE[code]["backup_copied"] = backup_copied
+            await to_thread(cls._save_local_sync)
+        try:
+            from .db_handler import database
+            if database.db is not None:
+                await database.db.missav_archive.update_one(
+                    {"_id": code},
+                    {"$set": {"backup_copied": backup_copied}},
+                )
+        except Exception as e:
+            LOGGER.warning(f"Failed updating MissAV archive backup status for {code}: {e}")
 
     @classmethod
     async def remove(cls, item_or_url):

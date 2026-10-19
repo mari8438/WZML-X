@@ -93,8 +93,19 @@ async def missav_resume(_, message):
 
 
 MISSAV_DEFAULT_TOPIC_GROUP = -1004326682090
+MISSAV_DEFAULT_BACKUP_CHANNEL = -1003969712219
 _SPECIAL_TOPIC_CACHE: dict[int | str, int] = {}
 _TOPIC_NAME_CACHE: dict[tuple[int | str, str], int] = {}
+
+
+def _get_backup_channel() -> int | str | None:
+    raw = getattr(Config, "MISSAV_BACKUP_CHANNEL", "") or getattr(Config, "MISSAV_DUMP_CHAT", "")
+    if not isinstance(raw, (str, int)) or not raw:
+        return MISSAV_DEFAULT_BACKUP_CHANNEL
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return raw
 
 
 def format_forum_topic_name(query: str, preferred_quality: str | None) -> str:
@@ -706,6 +717,8 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
     except (ValueError, TypeError):
         pass
 
+    backup_channel = _get_backup_channel()
+
     use_dump_stage = bool(main_dump and main_dump != destination)
     stage_chat = main_dump if use_dump_stage else destination
 
@@ -714,10 +727,31 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         kwargs["message_thread_id"] = thread_id
 
     stage_msg_ids = []
+    backup_copied_success = False
 
     async def _copy_to_destination(msg, reply_to_id=None):
-        if not msg or not use_dump_stage:
+        nonlocal backup_copied_success
+        if not msg:
+            return None
+
+        # 1. Copy to backup channel (e.g. Jav - 1) if configured and distinct
+        if backup_channel and backup_channel != msg.chat.id and backup_channel != destination:
+            try:
+                await _telegram_call(
+                    TgClient.bot.copy_message,
+                    chat_id=backup_channel,
+                    from_chat_id=msg.chat.id,
+                    message_id=msg.id,
+                )
+                backup_copied_success = True
+            except Exception as b_err:
+                LOGGER.warning(f"copy_message to backup channel failed: {b_err}")
+
+        # 2. If staging dump was not used, message is already at destination
+        if not use_dump_stage:
             return msg
+
+        # 3. Copy to destination forum topic
         copy_kwargs = {
             "chat_id": destination,
             "from_chat_id": msg.chat.id,
@@ -911,6 +945,7 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
                 chat_id=stage_chat,
                 message_ids=stage_msg_ids,
                 quality=prepared.get("quality_label", ""),
+                backup_copied=backup_copied_success,
             )
         except Exception as arc_err:
             LOGGER.warning(f"Failed archiving MissAV title {prepared['item'].title}: {arc_err}")
@@ -1041,6 +1076,7 @@ async def missav_leech(_, message):
             )
 
             # Process each video sequentially to protect RAM and CPU
+            backup_channel = _get_backup_channel()
             for index, item in enumerate(items, start=1):
                 if cancel_event.is_set():
                     break
@@ -1052,10 +1088,30 @@ async def missav_leech(_, message):
                 if cached_rec and cached_rec.get("message_ids") and cached_rec.get("chat_id"):
                     LOGGER.info(f"Video '{item.title}' is already archived in chat {cached_rec['chat_id']}! Fast-forwarding {len(cached_rec['message_ids'])} messages to topic {thread_id}...")
                     fast_forward_ok = True
+                    backup_copied_now = False
+                    should_backup = bool(
+                        backup_channel
+                        and backup_channel != cached_rec["chat_id"]
+                        and backup_channel != destination
+                        and not cached_rec.get("backup_copied")
+                    )
+
                     for mid in cached_rec["message_ids"]:
                         if cancel_event.is_set():
                             break
                         try:
+                            if should_backup:
+                                try:
+                                    await _telegram_call(
+                                        TgClient.bot.copy_message,
+                                        chat_id=backup_channel,
+                                        from_chat_id=cached_rec["chat_id"],
+                                        message_id=mid,
+                                    )
+                                    backup_copied_now = True
+                                except Exception as bkp_err:
+                                    LOGGER.warning(f"Fast-forward backup copy failed for msg {mid}: {bkp_err}")
+
                             await _telegram_call(
                                 TgClient.bot.copy_message,
                                 chat_id=destination,
@@ -1068,6 +1124,10 @@ async def missav_leech(_, message):
                             LOGGER.warning(f"Fast-forward copy failed for msg {mid}: {copy_err}")
                             fast_forward_ok = False
                             break
+
+                    if backup_copied_now:
+                        await MissAVArchive.update_backup_status(item, True)
+
                     if fast_forward_ok:
                         uploaded += 1
                         LOGGER.info(f"Successfully fast-forwarded {item.title} to {destination} (topic {thread_id})")

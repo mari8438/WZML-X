@@ -281,6 +281,12 @@ class TestMissAV(unittest.TestCase):
             # Retrieve by code string
             rec3 = await archive_mod.MissAVArchive.get("test-101")
             self.assertEqual(rec3["message_ids"], [1001, 1002, 1003])
+            self.assertFalse(rec3.get("backup_copied", False))
+
+            # Test updating backup status
+            await archive_mod.MissAVArchive.update_backup_status("test-101", True)
+            rec_updated = await archive_mod.MissAVArchive.get("test-101")
+            self.assertTrue(rec_updated.get("backup_copied"))
 
             # Clean up
             await archive_mod.MissAVArchive.remove("test-101")
@@ -288,6 +294,11 @@ class TestMissAV(unittest.TestCase):
             self.assertIsNone(rec_deleted)
 
         asyncio.run(run_archive_test())
+
+    def test_backup_channel_resolution(self):
+        get_backup = leech_mod._get_backup_channel
+        # Default backup channel is -1003969712219 (Jav - 1)
+        self.assertEqual(get_backup(), -1003969712219)
 
     def test_search_pagination_discovery(self):
         import asyncio
