@@ -401,6 +401,25 @@ async def load_settings():
                     await database.update_user_data(uid)
             LOGGER.info("Users Data has been imported from MongoDB")
 
+        seed_settings_file = "configs/user_settings_8814651149.json"
+        if await aiopath.exists(seed_settings_file):
+            try:
+                from json import loads
+                async with aiopen(seed_settings_file, "r", encoding="utf-8") as f:
+                    content = await f.read()
+                    data = loads(content)
+                    seed_uid = data.get("user_id", 8814651149)
+                    settings = data.get("settings", {})
+                    if seed_uid not in user_data:
+                        user_data[seed_uid] = settings
+                    else:
+                        for k, v in settings.items():
+                            user_data[seed_uid].setdefault(k, v)
+                    LOGGER.info(f"Loaded bundled user settings for user {seed_uid}")
+            except Exception as e:
+                LOGGER.warning(f"Failed to load bundled user settings from {seed_settings_file}: {e}")
+
+
         if rss_exists:
             rows = database.db.rss[PART].find({})
         elif legacy_rss_exists:

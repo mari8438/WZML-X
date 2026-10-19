@@ -48,6 +48,7 @@ class BotCommands:
         "Link": "link",
         "Sites": "sites",
         "Rss": "rss",
+        "FourKHD": ["4khd", "fourkhd"],
         "Authorize": ["authorize", "a"],
         "UnAuthorize": ["unauthorize", "ua"],
         "AddSudo": ["addsudo", "as"],

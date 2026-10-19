@@ -56,6 +56,7 @@ from .file_link import file_link
 from .sites import sites
 from .rss import get_rss_menu, rss_listener
 from .tamilmv import tamilmv
+from .fourkhdhub import fourkhdhub_handler, fourkhdhub_monitor
 from .search import torrent_search, torrent_search_update, initiate_search_tools
 from .nzb_search import hydra_search
 from .services import start, start_cb, login, ping, log, log_cb, sudo_only
@@ -138,6 +139,8 @@ __all__ = [
     "get_rss_menu",
     "rss_listener",
     "tamilmv",
+    "fourkhdhub_handler",
+    "fourkhdhub_monitor",
     "torrent_search",
     "torrent_search_update",
     "initiate_search_tools",

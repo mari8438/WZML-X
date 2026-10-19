@@ -457,3 +457,11 @@ HAPPYFAPPY_PACK_MIN_SIZE_GB = 30.0  # Minimum pack size in GiB (e.g. 30.0)
 HAPPYFAPPY_SEEDING_CHANNEL = ""  # Optional Telegram channel ID/username for .torrent & artwork backup
 HAPPYFAPPY_PACK_MAX_PREVIEW_SHEETS = 15  # Max contact sheets uploaded to BBCode (rest remain in torrent)
 
+# 4KHDHub Auto Leech
+FOURKHDHUB_AUTO_LEECH = False
+FOURKHDHUB_HOLLYWOOD_CHANNEL_ID = 0
+FOURKHDHUB_WEBSERIES_CHANNEL_ID = 0
+FOURKHDHUB_CHECK_INTERVAL_HOURS = 24
+FOURKHDHUB_USER_ID = 8814651149
+FOURKHDHUB_SEEN_ITEMS = ""
+

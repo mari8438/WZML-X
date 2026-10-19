@@ -112,6 +112,9 @@ async def main():
     bot_loop.create_task(telegraph.create_account())
     bot_loop.create_task(rclone_serve_booter())
     bot_loop.create_task(search_images())
+    from .modules.fourkhdhub import start_fourkhdhub_scheduler
+
+    start_fourkhdhub_scheduler()
 
 
 bot_loop.run_until_complete(main())

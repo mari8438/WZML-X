@@ -326,6 +326,12 @@ class Config:
     TMV_DUMP_CHAT = ""
     TMV_SEEN_ITEMS = ""
     TMV_SITE = ""
+    FOURKHDHUB_AUTO_LEECH = False
+    FOURKHDHUB_HOLLYWOOD_CHANNEL_ID = 0
+    FOURKHDHUB_WEBSERIES_CHANNEL_ID = 0
+    FOURKHDHUB_CHECK_INTERVAL_HOURS = 24
+    FOURKHDHUB_USER_ID = 8814651149
+    FOURKHDHUB_SEEN_ITEMS = ""
     SEARCH_API_LINK = ""
     SEARCH_LIMIT = 0
     SEARCH_PLUGINS = []
@@ -512,6 +518,16 @@ class Config:
 
     @classmethod
     def load_dict(cls, config_dict):
+        aliases = {
+            "HDHUB_HOLLYWOOD_CHANNEL_ID": "FOURKHDHUB_HOLLYWOOD_CHANNEL_ID",
+            "HDHUB_WEBSERIES_CHANNEL_ID": "FOURKHDHUB_WEBSERIES_CHANNEL_ID",
+            "FOURKHD_HOLLYWOOD_CHANNEL_ID": "FOURKHDHUB_HOLLYWOOD_CHANNEL_ID",
+            "FOURKHD_WEBSERIES_CHANNEL_ID": "FOURKHDHUB_WEBSERIES_CHANNEL_ID",
+        }
+        for alias_key, target_key in aliases.items():
+            if alias_key in config_dict and target_key not in config_dict:
+                config_dict[target_key] = config_dict[alias_key]
+
         for key, value in config_dict.items():
             if hasattr(cls, key):
                 if key == "DEFAULT_UPLOAD" and value != "gd":

@@ -163,7 +163,7 @@ def direct_link_generator(link):
         return yandex_disk(link)
     elif "gdflix" in domain:
         return gdflix(link)
-    elif "hubcloud" in domain:
+    elif any(x in domain for x in ["hubcloud", "hubhold"]):
         return hubcloud(link)
     elif "buzzheavier.com" in domain:
         return buzzheavier(link)
@@ -406,7 +406,7 @@ def _hubcloud_links(session, url):
             tree = HTML(response.text)
             for generated in tree.xpath(
                 "//a[@id='download']/@href | "
-                "//a[contains(@href, '/hubcloud.php')]/@href"
+                "//a[contains(@href, '/hubcloud.php') or contains(@href, '/hubhold.php')]/@href"
             ):
                 generated_url = urljoin(response.url, generated)
                 if generated_url not in visited and generated_url not in pending:
