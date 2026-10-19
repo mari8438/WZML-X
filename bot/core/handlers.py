@@ -437,6 +437,13 @@ def add_handlers():
     )
     TgClient.bot.add_handler(
         MessageHandler(
+            hindianime_handler,
+            filters=command(BotCommands.AnimeCommand, case_sensitive=False)
+            & CustomFilters.sudo,
+        )
+    )
+    TgClient.bot.add_handler(
+        MessageHandler(
             ping,
             filters=command(BotCommands.PingCommand, case_sensitive=True)
             & CustomFilters.authorized,

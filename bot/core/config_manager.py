@@ -332,6 +332,12 @@ class Config:
     FOURKHDHUB_CHECK_INTERVAL_HOURS = 24
     FOURKHDHUB_USER_ID = 8814651149
     FOURKHDHUB_SEEN_ITEMS = ""
+    HINDIANIME_AUTO_LEECH = False
+    HINDIANIME_CHANNEL_ID = 0
+    HINDIANIME_CHECK_INTERVAL_HOURS = 24
+    HINDIANIME_USER_ID = 8814651149
+    HINDIANIME_SOLVER_URL = "http://flaresolverr:8192/solve"
+    HINDIANIME_SEEN_ITEMS = ""
     SEARCH_API_LINK = ""
     SEARCH_LIMIT = 0
     SEARCH_PLUGINS = []
@@ -523,6 +529,8 @@ class Config:
             "HDHUB_WEBSERIES_CHANNEL_ID": "FOURKHDHUB_WEBSERIES_CHANNEL_ID",
             "FOURKHD_HOLLYWOOD_CHANNEL_ID": "FOURKHDHUB_HOLLYWOOD_CHANNEL_ID",
             "FOURKHD_WEBSERIES_CHANNEL_ID": "FOURKHDHUB_WEBSERIES_CHANNEL_ID",
+            "ANIME_CHANNEL_ID": "HINDIANIME_CHANNEL_ID",
+            "HAZ_CHANNEL_ID": "HINDIANIME_CHANNEL_ID",
         }
         for alias_key, target_key in aliases.items():
             if alias_key in config_dict and target_key not in config_dict:

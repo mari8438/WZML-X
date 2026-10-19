@@ -49,6 +49,7 @@ class BotCommands:
         "Sites": "sites",
         "Rss": "rss",
         "FourKHD": ["4khd", "fourkhd"],
+        "Anime": ["anime", "haz", "hindianime"],
         "Authorize": ["authorize", "a"],
         "UnAuthorize": ["unauthorize", "ua"],
         "AddSudo": ["addsudo", "as"],

@@ -45,6 +45,23 @@ services:
     volumes:
       - tunnel_data:/data
 
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Asia/Kolkata
+    volumes:
+      - ./scripts/haz_solver.py:/app/haz_solver.py:ro
+      - ./scripts/flaresolverr_entrypoint.sh:/entrypoint.sh:ro
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
+    expose:
+      - "8191"
+      - "8192"
+    ports:
+      - "127.0.0.1:8191:8191"
+      - "127.0.0.1:8192:8192"
+
   # Second instance example:
   # app2:
   #   build:
