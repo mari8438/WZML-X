@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 from contextlib import suppress
 from asyncio import Event, create_subprocess_exec, create_task, wait_for
 from asyncio.subprocess import PIPE
@@ -81,7 +82,7 @@ async def execute_mkvmerge_with_fallback(
     repaired_input = f"{primary_input}.repaired.mkv"
     try:
         repair_cmd = [
-            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            BinConfig.FFMPEG_NAME, "-y", "-hide_banner", "-loglevel", "error",
             "-fflags", "+genpts+igndts", "-err_detect", "ignore_err",
             "-i", primary_input, "-map", "0", "-c", "copy", repaired_input,
         ]
@@ -929,6 +930,8 @@ async def process_video_tool(listener, up_path):
     """
     if getattr(listener, "_vt_processed", False):
         state = getattr(listener, "_vt_state", None)
+        listener._vt_processed = False
+        listener._vt_state = None
         if state:
             if await aiopath.isdir(up_path):
                 return await _process_vt_directory(listener, up_path, state)
@@ -1214,10 +1217,10 @@ async def _merge_video_directory(listener, root, videos):
             safe = path.replace("\\", "/").replace("'", "'\\''")
             await f.write(f"file '{safe}'\n")
 
-    cmd = [
-        "taskset",
-        "-c",
-        get_ffmpeg_cores(),
+    cmd = []
+    if shutil.which("taskset"):
+        cmd.extend(["taskset", "-c", get_ffmpeg_cores()])
+    cmd.extend([
         BinConfig.FFMPEG_NAME,
         "-hide_banner",
         "-loglevel",
@@ -1238,7 +1241,7 @@ async def _merge_video_directory(listener, root, videos):
         "-max_muxing_queue_size",
         "9999",
         output,
-    ]
+    ])
 
     from ... import task_dict, task_dict_lock
     from ..ext_utils.files_utils import get_path_size
@@ -1582,7 +1585,32 @@ async def _try_mkvmerge_pipeline(listener, input_path, output_path, state, extra
             ])
             if not intro_sub_count and default_sub is not None:
                 is_sub_default = (i == default_sub)
-                cmd.extend(["--default-track-flag", f"{tid}:{1 if is_sub_default else 0}"])
+        track_order = []
+        for t in video_tracks:
+            track_order.append(f"0:{t['id']}")
+
+        for ext_idx, (kind, _, _) in enumerate(extra_inputs, start=1):
+            if kind == "audio":
+                track_order.append(f"{ext_idx}:0")
+
+        for i in audio_keep:
+            if i < len(audio_tracks):
+                track_order.append(f"0:{audio_tracks[i]['id']}")
+
+        for ext_idx, (kind, _, _) in enumerate(extra_inputs, start=1):
+            if kind == "intro_sub":
+                track_order.append(f"{ext_idx}:0")
+
+        for i in sub_keep:
+            if i < len(sub_tracks):
+                track_order.append(f"0:{sub_tracks[i]['id']}")
+
+        for ext_idx, (kind, _, _) in enumerate(extra_inputs, start=1):
+            if kind == "sub":
+                track_order.append(f"{ext_idx}:0")
+
+        if track_order:
+            cmd.extend(["--track-order", ",".join(track_order)])
 
         cmd.append(input_path)
 
@@ -1926,7 +1954,7 @@ async def _execute_vt_pipeline(listener, input_path, state):
         process = listener.subproc
 
         if process.returncode != 0:
-            err = stderr.decode().strip() if stderr else "Unknown error"
+            err = stderr.decode(errors="replace").strip() if stderr else "Unknown error"
             LOGGER.error(f"FFmpeg muxing error: {err}")
             if await aiopath.exists(output_path):
                 await remove(output_path)
@@ -2170,17 +2198,17 @@ async def _extract_single(input_path, track, out_path):
 async def _extract_sub_as_srt(input_path, track, out_path):
     stream_index = track.get("stream_index", track.get("index"))
     map_spec = f"0:{stream_index}"
-    cmd = [
-        "taskset",
-        "-c",
-        get_ffmpeg_cores(),
+    cmd = []
+    if shutil.which("taskset"):
+        cmd.extend(["taskset", "-c", get_ffmpeg_cores()])
+    cmd.extend([
         BinConfig.FFMPEG_NAME,
         "-y", "-i", input_path,
         "-map", map_spec,
         "-c:s", "srt",
         "-threads", str(get_ffmpeg_threads()),
         out_path,
-    ]
+    ])
     async with ffmpeg_task(label="Extract subtitle for translate"):
         process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
         _, stderr = await process.communicate()
@@ -2288,12 +2316,18 @@ async def pre_probe_and_show_ui(listener, file_, reply_to):
 
             if state.get("cancelled", False):
                 listener._vt_state = None
+                listener._vt_processed = False
             else:
                 await vt_msg.delete()
         finally:
             _active_vt_sessions.pop(task_id, None)
-            listener._vt_state = None
+            if state.get("cancelled", False):
+                listener._vt_state = None
+                listener._vt_processed = False
             listener._vt_msg = None
+            if temp_dir and await aiopath.exists(temp_dir):
+                with suppress(Exception):
+                    await rmtree(temp_dir, ignore_errors=True)
 
     try:
         await wait_for(_do_pre_probe(), timeout=60.0)
@@ -2303,5 +2337,6 @@ async def pre_probe_and_show_ui(listener, file_, reply_to):
             listener.message,
             "Please wait for download to finish before opening Video Tools.",
         )
-        if temp_path and await aiopath.exists(temp_path):
-            await remove(temp_path)
+        if temp_dir and await aiopath.exists(temp_dir):
+            with suppress(Exception):
+                await rmtree(temp_dir, ignore_errors=True)

@@ -32,6 +32,7 @@ from ..core.config_manager import Config
 from ..core.tg_client import TgClient
 from ..helper.ext_utils.bot_utils import cmd_exec, sync_to_async
 from ..helper.ext_utils.hstream_translation import HstreamTranslator
+from ..helper.ext_utils.missav_archive import MissAVArchive
 from ..helper.ext_utils.missav_resolver import (
     MissAVQuality,
     MissAVResolver,
@@ -91,18 +92,108 @@ async def missav_resume(_, message):
     await send_message(message, "▶️ <b>MissAV resumed.</b>")
 
 
+MISSAV_DEFAULT_TOPIC_GROUP = -1004326682090
+_SPECIAL_TOPIC_CACHE: dict[int | str, int] = {}
+_TOPIC_NAME_CACHE: dict[tuple[int | str, str], int] = {}
+
+
+def format_forum_topic_name(query: str, preferred_quality: str | None) -> str:
+    text = str(query or "").strip()
+    # English Subtitle / English Subtitles / Eng Sub -> Esub
+    text = sub(r"(?i)\b(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)\b", "Esub", text)
+    # Uncensored Leak / Uncensored Leaked / Uncensored Leaks -> UC Leak
+    text = sub(r"(?i)\buncensored[\s_-]*leak(?:ed|s)?\b", "UC Leak", text)
+    # Uncensored -> UC
+    text = sub(r"(?i)\buncensored\b", "UC", text)
+    # Censored -> C
+    text = sub(r"(?i)\bcensored\b", "C", text)
+    # Clean up whitespace
+    text = sub(r"\s+", " ", text).strip()
+    # If preferred quality was extracted, append it if not already in text
+    if preferred_quality and not search(rf"(?i)\b{preferred_quality}\b", text):
+        text = f"{text} {preferred_quality}"
+    return text[:128].strip() or "MissAV"
+
+
+async def _resolve_special_topic(chat_id: int | str) -> int | None:
+    if chat_id in _SPECIAL_TOPIC_CACHE:
+        return _SPECIAL_TOPIC_CACHE[chat_id]
+
+    cfg_id = getattr(Config, "MISSAV_SPECIAL_TOPIC_ID", 0)
+    if cfg_id:
+        try:
+            _SPECIAL_TOPIC_CACHE[chat_id] = int(cfg_id)
+            return int(cfg_id)
+        except ValueError:
+            pass
+
+    clients = [c for c in (TgClient.bot, TgClient.user) if c]
+    for client in clients:
+        try:
+            async for topic in client.get_forum_topics(chat_id, query="Special"):
+                t_title = getattr(topic, "title", "") or getattr(topic, "name", "")
+                if t_title.strip().lower() == "special":
+                    t_id = getattr(topic, "message_thread_id", None) or getattr(topic, "id", None)
+                    if t_id:
+                        _SPECIAL_TOPIC_CACHE[chat_id] = t_id
+                        LOGGER.info(f"Found 'Special' topic with ID {t_id} in {chat_id}")
+                        return t_id
+            async for topic in client.get_forum_topics(chat_id):
+                t_title = getattr(topic, "title", "") or getattr(topic, "name", "")
+                if t_title.strip().lower() == "special":
+                    t_id = getattr(topic, "message_thread_id", None) or getattr(topic, "id", None)
+                    if t_id:
+                        _SPECIAL_TOPIC_CACHE[chat_id] = t_id
+                        LOGGER.info(f"Found 'Special' topic with ID {t_id} in {chat_id}")
+                        return t_id
+        except Exception as err:
+            LOGGER.warning(f"Could not search topics in {chat_id}: {err}")
+
+    LOGGER.info(f"'Special' topic not found in {chat_id}; creating it...")
+    return await _create_topic(chat_id, "Special")
+
+
+async def _create_topic(chat_id: int | str, topic_name: str) -> int | None:
+    cache_key = (chat_id, topic_name.lower())
+    if cache_key in _TOPIC_NAME_CACHE:
+        return _TOPIC_NAME_CACHE[cache_key]
+
+    clients = [c for c in (TgClient.bot, TgClient.user) if c]
+    for client in clients:
+        try:
+            async for topic in client.get_forum_topics(chat_id, query=topic_name):
+                t_title = getattr(topic, "title", "") or getattr(topic, "name", "")
+                if t_title.strip().lower() == topic_name.strip().lower():
+                    t_id = getattr(topic, "message_thread_id", None) or getattr(topic, "id", None)
+                    if t_id:
+                        _TOPIC_NAME_CACHE[cache_key] = t_id
+                        LOGGER.info(f"Reusing existing forum topic '{topic_name}' (ID: {t_id}) in {chat_id}")
+                        return t_id
+        except Exception:
+            pass
+
+    for client in clients:
+        try:
+            res = await _telegram_call(client.create_forum_topic, chat_id=chat_id, name=topic_name)
+            t_id = getattr(res, "message_thread_id", None) or getattr(res, "id", None)
+            if t_id:
+                _TOPIC_NAME_CACHE[cache_key] = t_id
+                LOGGER.info(f"Created new forum topic '{topic_name}' (ID: {t_id}) in {chat_id}")
+                return t_id
+        except Exception as err:
+            LOGGER.warning(f"Failed creating forum topic '{topic_name}' with {client}: {err}")
+
+    return None
+
+
 def _parse_destination(message, tokens):
-    target = getattr(Config, "MISSAV_DUMP_CHAT", "") or "-1003969712219"
+    target = getattr(Config, "MISSAV_TOPIC_GROUP", "") or str(MISSAV_DEFAULT_TOPIC_GROUP)
     try:
         destination = int(target)
     except (TypeError, ValueError):
         destination = target if target else message.chat.id
 
-    thread_id = (
-        message.message_thread_id
-        if getattr(message, "is_topic_message", False)
-        else None
-    )
+    thread_id = None
     if "-up" not in tokens:
         return destination, thread_id
     index = tokens.index("-up")
@@ -622,7 +713,9 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
     if not use_dump_stage and thread_id is not None:
         kwargs["message_thread_id"] = thread_id
 
-    async def _copy_and_delete(msg, reply_to_id=None):
+    stage_msg_ids = []
+
+    async def _copy_to_destination(msg, reply_to_id=None):
         if not msg or not use_dump_stage:
             return msg
         copy_kwargs = {
@@ -636,8 +729,6 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
             copy_kwargs["reply_to_message_id"] = reply_to_id
         try:
             copied = await _telegram_call(TgClient.bot.copy_message, **copy_kwargs)
-            with suppress(Exception):
-                await msg.delete()
             return copied
         except Exception as error:
             LOGGER.warning(f"copy_message to destination failed: {error}")
@@ -684,7 +775,9 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
             **kwargs,
         )
 
-    final_poster_msg = await _copy_and_delete(poster_msg) if poster_msg else None
+    if poster_msg:
+        stage_msg_ids.append(poster_msg.id)
+    final_poster_msg = await _copy_to_destination(poster_msg) if poster_msg else None
 
     for reply in prepared.get("caption_replies", []):
         if cancel_event.is_set():
@@ -693,7 +786,9 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         if poster_msg:
             reply_kwargs["reply_to_message_id"] = poster_msg.id
         reply_msg = await _telegram_call(TgClient.bot.send_message, text=reply, **reply_kwargs)
-        await _copy_and_delete(
+        if reply_msg:
+            stage_msg_ids.append(reply_msg.id)
+        await _copy_to_destination(
             reply_msg,
             reply_to_id=final_poster_msg.id if final_poster_msg else None,
         )
@@ -780,12 +875,16 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
                             f"[Part {part_idx}/{len(parts)}]</b>"
                         )
                         part_msg = await _send_media_or_doc(client, part_media, part_path)
-                        await _copy_and_delete(part_msg)
+                        if part_msg:
+                            stage_msg_ids.append(part_msg.id)
+                        await _copy_to_destination(part_msg)
                     uploaded += 1
                     continue
 
         video_msg = await _send_media_or_doc(client, media, path)
-        await _copy_and_delete(video_msg)
+        if video_msg:
+            stage_msg_ids.append(video_msg.id)
+        await _copy_to_destination(video_msg)
         uploaded += 1
 
     # 3. Sample collage
@@ -798,9 +897,23 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
                 caption=f"<b>Sample Images</b>\n<b>{escape(prepared['item'].title, quote=False)}</b>",
                 **kwargs,
             )
-            await _copy_and_delete(collage_msg)
+            if collage_msg:
+                stage_msg_ids.append(collage_msg.id)
+            await _copy_to_destination(collage_msg)
         except Exception as error:
             LOGGER.warning(f"MissAV sample collage upload failed: {error}")
+
+    # Record all staged message IDs in MissAVArchive for fast-forward deduplication
+    if stage_msg_ids and prepared.get("item"):
+        try:
+            await MissAVArchive.save(
+                item=prepared["item"],
+                chat_id=stage_chat,
+                message_ids=stage_msg_ids,
+                quality=prepared.get("quality_label", ""),
+            )
+        except Exception as arc_err:
+            LOGGER.warning(f"Failed archiving MissAV title {prepared['item'].title}: {arc_err}")
 
     return uploaded
 
@@ -892,10 +1005,27 @@ async def missav_leech(_, message):
             if not items:
                 raise RuntimeError("No eligible MissAV videos found.")
 
+            # Route to forum topic: single video -> 'Special' topic, multi-video -> dynamic topic
+            is_single_video = (len(items) == 1)
+            topic_display = "Default"
+            if thread_id is None:
+                if is_single_video:
+                    LOGGER.info(f"Single video leech detected: routing to 'Special' topic in {destination}...")
+                    thread_id = await _resolve_special_topic(destination)
+                    topic_display = "Special"
+                else:
+                    topic_name = format_forum_topic_name(target_query, preferred_quality)
+                    LOGGER.info(f"Multi-video leech detected: routing to forum topic '{topic_name}' in {destination}...")
+                    thread_id = await _create_topic(destination, topic_name)
+                    topic_display = topic_name or "New Topic"
+            else:
+                topic_display = f"Topic {thread_id}"
+
             status = await edit_message(
                 status,
                 f"<b>MissAV Leech</b>\n"
                 f"Query/Target: <code>{escape(target_query)}</code>\n"
+                f"Topic: <code>{escape(topic_display)}</code>\n"
                 f"Preferred Quality: <code>{preferred_quality or 'All available'}</code>\n"
                 f"Titles to process: <code>{len(items)}</code>\n"
                 f"Tamil Translation: <code>{'Ready' if translator else 'ESub only'}</code>\n"
@@ -908,6 +1038,45 @@ async def missav_leech(_, message):
                     break
                 if not await _wait_until_resumed(pause_event, cancel_event):
                     break
+
+                # Deduplication check: if video was already leeched, fast-forward/copy it from dump!
+                cached_rec = await MissAVArchive.get(item)
+                if cached_rec and cached_rec.get("message_ids") and cached_rec.get("chat_id"):
+                    LOGGER.info(f"Video '{item.title}' is already archived in chat {cached_rec['chat_id']}! Fast-forwarding {len(cached_rec['message_ids'])} messages to topic {thread_id}...")
+                    fast_forward_ok = True
+                    for mid in cached_rec["message_ids"]:
+                        if cancel_event.is_set():
+                            break
+                        try:
+                            await _telegram_call(
+                                TgClient.bot.copy_message,
+                                chat_id=destination,
+                                from_chat_id=cached_rec["chat_id"],
+                                message_id=mid,
+                                message_thread_id=thread_id,
+                            )
+                            await sleep(0.3)
+                        except Exception as copy_err:
+                            LOGGER.warning(f"Fast-forward copy failed for msg {mid}: {copy_err}")
+                            fast_forward_ok = False
+                            break
+                    if fast_forward_ok:
+                        uploaded += 1
+                        LOGGER.info(f"Successfully fast-forwarded {item.title} to {destination} (topic {thread_id})")
+                        if status and not cancel_event.is_set():
+                            with suppress(Exception):
+                                status = await edit_message(
+                                    status,
+                                    f"<b>MissAV Leech Progress</b>\n"
+                                    f"Processed: <code>{index}/{len(items)}</code>\n"
+                                    f"Uploaded: <code>{uploaded}</code> (Archived FF) | Failed: <code>{failed}</code>\n"
+                                    f"Topic: <code>{escape(topic_display)}</code>\n"
+                                    f"State: <code>{'paused' if not pause_event.is_set() else 'running'}</code>\n"
+                                    f"{controls}",
+                                )
+                        continue
+                    else:
+                        LOGGER.warning(f"Fast-forward failed for {item.title}; will re-download fresh.")
 
                 if not item.qualities:
                     LOGGER.warning(f"No stream qualities available for {item.title}")
@@ -1046,6 +1215,7 @@ async def missav_leech(_, message):
                         item.description = translated_desc
 
                     caption, caption_replies = _poster_caption(item, tamil_available, has_eng_sub)
+                    quality_label = selected_qualities[0].label if selected_qualities else (preferred_quality or "")
                     prepared = {
                         "item": item,
                         "preview_video": preview_video,
@@ -1057,6 +1227,7 @@ async def missav_leech(_, message):
                         "videos": videos,
                         "sample_collage": sample_collage,
                         "user_id": controller.user_id,
+                        "quality_label": quality_label,
                     }
 
                     # 6. Upload

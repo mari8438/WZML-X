@@ -30,3 +30,5 @@ graphify-out/*
 .graphify_*
 .agent*
 __pycache__/
+tests/temp_downloads/
+missav_archive.json

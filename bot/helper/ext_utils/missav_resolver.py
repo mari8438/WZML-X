@@ -1,3 +1,4 @@
+from asyncio import Semaphore, gather
 from dataclasses import dataclass, field
 from html import unescape
 from re import DOTALL, IGNORECASE, findall, finditer, search, sub
@@ -308,7 +309,7 @@ class MissAVResolver:
             raise last_error
         raise RuntimeError(f"Unable to fetch URL {url}")
 
-    async def discover(self, url):
+    async def discover(self, url, max_pages=20):
         is_sub_category = bool(search(r"english[\s_-]*subtitle", url, IGNORECASE))
         source = await self._get(url)
         if _player_urls(source):
@@ -317,21 +318,51 @@ class MissAVResolver:
                 title_item.genres.append("English Subtitles")
             return [title_item]
 
-        links = _catalog_links(source, url)
-        items = []
-        for link in links:
-            try:
-                item = await self.resolve_title(link)
-                if is_sub_category and "English Subtitles" not in item.genres:
-                    item.genres.append("English Subtitles")
-                items.append(item)
-            except Exception as error:
-                LOGGER.warning(f"Failed resolving card {link}: {error}")
-                continue
+        all_links = []
+        seen_links = set()
+
+        for page in range(1, max_pages + 1):
+            if page == 1:
+                cur_source = source
+                cur_url = url
+            else:
+                sep = "&" if "?" in url else "?"
+                cur_url = f"{url}{sep}page={page}"
+                try:
+                    cur_source = await self._get(cur_url)
+                except Exception:
+                    break
+            page_links = _catalog_links(cur_source, cur_url)
+            if not page_links:
+                break
+            new_links = [l for l in page_links if l not in seen_links]
+            if not new_links:
+                break
+            for l in new_links:
+                seen_links.add(l)
+                all_links.append(l)
+            if len(page_links) < 12:
+                break
+
+        sem = Semaphore(5)
+
+        async def _resolve_one(link):
+            async with sem:
+                try:
+                    item = await self.resolve_title(link)
+                    if is_sub_category and "English Subtitles" not in item.genres:
+                        item.genres.append("English Subtitles")
+                    return item
+                except Exception as error:
+                    LOGGER.warning(f"Failed resolving card {link}: {error}")
+                    return None
+
+        resolved = await gather(*(_resolve_one(link) for link in all_links))
+        items = [item for item in resolved if item is not None]
         items.sort(key=lambda x: x.views, reverse=True)
         return items
 
-    async def discover_query(self, query):
+    async def discover_query(self, query, max_pages=20):
         clean_query = str(query or "").strip()
         has_sub_filter = bool(search(r"(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)", clean_query, IGNORECASE))
         keyword = sub(r"(?i)\b(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)\b", "", clean_query).strip()
@@ -339,34 +370,100 @@ class MissAVResolver:
         params = ["sort=views"]
         if has_sub_filter:
             params.append("filters=english-subtitle")
-        page_url = f"{MISSAV_BASE}/en/search/{encoded}?{'&'.join(params)}"
-        LOGGER.info(f"MissAV search URL: {page_url} (english-subtitle filter: {has_sub_filter})")
-        source = await self._get(page_url)
-        items = []
-        for link in _catalog_links(source, page_url):
+
+        all_links = []
+        seen_links = set()
+
+        for page in range(1, max_pages + 1):
+            page_param = f"&page={page}" if page > 1 else ""
+            page_url = f"{MISSAV_BASE}/en/search/{encoded}?{'&'.join(params)}{page_param}"
+            LOGGER.info(f"MissAV search page {page} URL: {page_url} (english-subtitle filter: {has_sub_filter})")
             try:
-                item = await self.resolve_title(link)
-                if has_sub_filter and "English Subtitles" not in item.genres:
-                    item.genres.append("English Subtitles")
-                items.append(item)
-            except Exception:
-                continue
+                source = await self._get(page_url)
+            except Exception as page_err:
+                LOGGER.warning(f"Error fetching search page {page} for '{query}': {page_err}")
+                break
+
+            page_links = _catalog_links(source, page_url)
+            if not page_links:
+                LOGGER.info(f"No catalog links found on page {page}, stopping search.")
+                break
+
+            new_links = [link for link in page_links if link not in seen_links]
+            if not new_links:
+                LOGGER.info(f"Page {page} returned no new links (all {len(page_links)} already seen), stopping search.")
+                break
+
+            for link in new_links:
+                seen_links.add(link)
+                all_links.append(link)
+
+            if len(page_links) < 12:
+                LOGGER.info(f"Page {page} returned {len(page_links)} < 12 items; reached end of results.")
+                break
+
+        LOGGER.info(f"Discovered {len(all_links)} total video links for query '{query}' across {page} pages.")
+
+        sem = Semaphore(5)
+
+        async def _resolve_one(link):
+            async with sem:
+                try:
+                    item = await self.resolve_title(link)
+                    if has_sub_filter and "English Subtitles" not in item.genres:
+                        item.genres.append("English Subtitles")
+                    return item
+                except Exception as res_err:
+                    LOGGER.warning(f"Failed resolving card {link}: {res_err}")
+                    return None
+
+        resolved = await gather(*(_resolve_one(link) for link in all_links))
+        items = [item for item in resolved if item is not None]
         items.sort(key=lambda x: x.views, reverse=True)
         return items
 
-    async def discover_letter(self, letter):
+    async def discover_letter(self, letter, max_pages=20):
         letter = str(letter or "").strip().upper()
         if len(letter) != 1 or not "A" <= letter <= "Z":
             raise ValueError("MissAV letter must be A-Z")
-        page_url = f"{MISSAV_BASE}/en/search/{quote(letter)}?sort=views"
-        source = await self._get(page_url)
-        items = []
-        for link in _catalog_links(source, page_url):
+
+        all_links = []
+        seen_links = set()
+
+        for page in range(1, max_pages + 1):
+            page_param = f"&page={page}" if page > 1 else ""
+            page_url = f"{MISSAV_BASE}/en/search/{quote(letter)}?sort=views{page_param}"
             try:
-                item = await self.resolve_title(link)
-                items.append(item)
+                source = await self._get(page_url)
             except Exception:
-                continue
+                break
+
+            page_links = _catalog_links(source, page_url)
+            if not page_links:
+                break
+
+            new_links = [l for l in page_links if l not in seen_links]
+            if not new_links:
+                break
+
+            for l in new_links:
+                seen_links.add(l)
+                all_links.append(l)
+
+            if len(page_links) < 12:
+                break
+
+        sem = Semaphore(5)
+
+        async def _resolve_one(link):
+            async with sem:
+                try:
+                    return await self.resolve_title(link)
+                except Exception:
+                    return None
+
+        resolved = await gather(*(_resolve_one(link) for link in all_links))
+        items = [item for item in resolved if item is not None]
         items.sort(key=lambda x: x.views, reverse=True)
         return items
 

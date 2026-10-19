@@ -25,7 +25,12 @@ from ..ext_utils.media_utils import (
     format_clean_poster_title,
 )
 from ..ext_utils.performance import get_ffmpeg_threads
-from ..telegram_helper.message_utils import edit_message, send_file, send_message
+from ..telegram_helper.message_utils import (
+    delete_message,
+    edit_message,
+    send_file,
+    send_message,
+)
 from .video_tools import (
     VIDEO_EXTENSIONS,
     _base_state,
@@ -159,22 +164,19 @@ async def maybe_enable_auto_unzip(listener, up_path):
 async def process_auto_pipeline(listener, up_path, gid):
     if not auto_enabled(listener):
         return up_path
+    if listener.is_cancelled:
+        return up_path
 
     listener._process_gid = gid
     listener._auto_process_step = 0
     videos = await _video_files(up_path)
     auto_vt = bool_setting(listener, "AUTO_VT")
-    auto_order = bool_setting(listener, "AUTO_ORDER")
-    remove_streams = bool_setting(listener, "AUTO_REMOVE_STREAMS")
     auto_merge = bool_setting(listener, "AUTO_MERGE")
-    auto_intro = bool_setting(listener, "AUTO_INTRO_SUBTITLE")
+
     listener._auto_process_total = (
         (1 if auto_vt else 0)
-        + (len(videos) if auto_order else 0)
-        + (len(videos) if _has_keep_filters(listener) and not remove_streams else 0)
-        + (len(videos) if remove_streams else 0)
+        + (len(videos) if not auto_vt else 0)
         + (1 if auto_merge and await aiopath.isdir(up_path) else 0)
-        + (len(videos) if auto_intro else 0)
     )
     if not _quiet_messages():
         await _set_process_message(listener, "Auto Process: starting media pipeline...")
@@ -182,35 +184,143 @@ async def process_auto_pipeline(listener, up_path, gid):
     if auto_vt:
         await _next_process_step(listener, "Opening Video Tools", up_path)
         up_path = await process_video_tool(listener, up_path)
-        videos = await _video_files(up_path)
     else:
-        if auto_order:
-            up_path = await _auto_order_streams(listener, up_path)
+        up_path = await _auto_process_media_files(listener, up_path)
 
-        if _has_keep_filters(listener) and not remove_streams:
-            up_path = await _auto_keep_streams(listener, up_path)
-
-        if remove_streams:
-            up_path = await _auto_remove_streams(listener, up_path)
+    if listener.is_cancelled:
+        return up_path
 
     if auto_merge and await aiopath.isdir(up_path):
         up_path = await _smart_merge_directory(listener, up_path)
 
-    if auto_intro:
-        up_path = await _auto_intro(listener, up_path)
+    if listener.is_cancelled:
+        return up_path
 
     if not _quiet_messages():
         await _set_process_message(listener, "Auto Process: processing finished. Starting upload...")
+    elif getattr(listener, "_auto_process_msg", None):
+        with suppress(Exception):
+            await delete_message(listener._auto_process_msg)
+        listener._auto_process_msg = None
     return up_path
 
 
 async def process_auto_finish_pipeline(listener, up_path, gid):
     if not auto_enabled(listener) and not getattr(listener, "force_intro_subtitle", False):
         return up_path
+    if listener.is_cancelled:
+        return up_path
     listener._process_gid = gid
     listener._auto_process_step = 0
+    if bool_setting(listener, "AUTO_MERGE") and await aiopath.isdir(up_path):
+        up_path = await _smart_merge_directory(listener, up_path)
+    if listener.is_cancelled:
+        return up_path
     if bool_setting(listener, "AUTO_INTRO_SUBTITLE"):
         up_path = await _auto_intro(listener, up_path)
+    return up_path
+
+
+async def _auto_process_media_files(listener, up_path):
+    """
+    Unified Single-Pass Auto Process:
+    Inspects tracks and combines ordering, keep filters, stream removal,
+    and intro subtitles into a single fast remux pass per video file.
+    """
+    audio_order = _user_value(listener, "AUTO_AUDIO_ORDER") if bool_setting(listener, "AUTO_ORDER") or bool_setting(listener, "AUTO_REMOVE_STREAMS") else ""
+    sub_order = _user_value(listener, "AUTO_SUBTITLE_ORDER") if bool_setting(listener, "AUTO_ORDER") or bool_setting(listener, "AUTO_REMOVE_STREAMS") else ""
+    keep_audio = _lang_set(_user_value(listener, "AUTO_KEEP_AUDIO_LANGS"))
+    keep_sub = _lang_set(_user_value(listener, "AUTO_KEEP_SUBTITLE_LANGS"))
+    remove_streams = bool_setting(listener, "AUTO_REMOVE_STREAMS")
+    auto_intro = bool_setting(listener, "AUTO_INTRO_SUBTITLE")
+
+    has_work = bool(audio_order or sub_order or keep_audio or keep_sub or remove_streams or auto_intro)
+    if not has_work:
+        return up_path
+
+    changed = 0
+    videos = await _video_files(up_path)
+    for video in videos:
+        if listener.is_cancelled:
+            break
+        audio_tracks, sub_tracks = await probe_streams(video)
+        state = _base_state(str(listener.mid), ospath.basename(video), audio_tracks, sub_tracks, video)
+
+        # Ordering
+        if audio_order:
+            state["audio_order_value"] = audio_order
+        if sub_order:
+            state["sub_order_value"] = sub_order
+
+        # Keep / Remove filters
+        if keep_audio:
+            matched_audio = [
+                t["index"]
+                for t in audio_tracks
+                if _lang_matches(t["lang"], keep_audio, t.get("title", ""))
+            ]
+            if not matched_audio and audio_tracks:
+                if not _quiet_messages():
+                    await send_message(
+                        listener.message,
+                        f"Keep Audios warning for <code>{ospath.basename(video)}</code>: no matching audio language found for <code>{', '.join(sorted(keep_audio))}</code>.",
+                    )
+            elif remove_streams:
+                state["remove_audio"] = [t["index"] for t in audio_tracks if t["index"] not in matched_audio]
+            else:
+                state["keep_audio"] = matched_audio
+
+        if keep_sub:
+            matched_sub = [
+                t["index"]
+                for t in sub_tracks
+                if _lang_matches(t["lang"], keep_sub, t.get("title", ""))
+            ]
+            if not matched_sub and sub_tracks:
+                if not _quiet_messages():
+                    await send_message(
+                        listener.message,
+                        f"Keep Subtitles warning for <code>{ospath.basename(video)}</code>: no matching subtitle language found for <code>{', '.join(sorted(keep_sub))}</code>.",
+                    )
+            elif remove_streams:
+                state["remove_sub"] = [t["index"] for t in sub_tracks if t["index"] not in matched_sub]
+            else:
+                state["keep_sub"] = matched_sub
+
+        # Intro subtitle
+        if auto_intro:
+            state["intro_subtitle"] = True
+            state["intro_text_available"] = True
+
+        # Check if this video requires processing
+        needs_pipeline = bool(
+            state.get("audio_order_value")
+            or state.get("sub_order_value")
+            or state.get("keep_audio")
+            or state.get("keep_sub")
+            or state.get("remove_audio")
+            or state.get("remove_sub")
+            or state.get("intro_subtitle")
+        )
+        if needs_pipeline:
+            await _next_process_step(listener, "Processing media streams", video)
+            new_path = await _execute_vt_pipeline(listener, video, state)
+            if new_path and new_path != video and up_path == video:
+                up_path = new_path
+            changed += 1
+
+    if changed and not _quiet_messages():
+        await send_message(
+            listener.message,
+            "<b>Video Processing Plan</b>\n\n"
+            f"• Processed: {changed} file(s)\n"
+            f"• Audio Order: <code>{audio_order or 'Default'}</code>\n"
+            f"• Subtitle Order: <code>{sub_order or 'Default'}</code>\n"
+            f"• Keep Audios: <code>{', '.join(sorted(keep_audio)) or 'All'}</code>\n"
+            f"• Keep Subtitles: <code>{', '.join(sorted(keep_sub)) or 'All'}</code>\n"
+            f"• Intro Subtitle: <code>{'Enabled' if auto_intro else 'Disabled'}</code>\n"
+            "• Engine: Single-Pass MKV / FFmpeg",
+        )
     return up_path
 
 
@@ -241,6 +351,8 @@ async def _auto_order_streams(listener, up_path):
 
     changed = 0
     for video in await _video_files(up_path):
+        if listener.is_cancelled:
+            break
         audio_tracks, sub_tracks = await probe_streams(video)
         state = _base_state(str(listener.mid), ospath.basename(video), audio_tracks, sub_tracks)
         state["audio_order_value"] = audio_order or ""
@@ -251,7 +363,7 @@ async def _auto_order_streams(listener, up_path):
             up_path = new_path
         changed += 1
 
-    if changed and _quiet_messages():
+    if changed and not _quiet_messages():
         await send_message(
             listener.message,
             "<b>Video Processing Plan</b>\n\n"
@@ -272,6 +384,8 @@ async def _auto_keep_streams(listener, up_path):
 
     changed = 0
     for video in await _video_files(up_path):
+        if listener.is_cancelled:
+            break
         audio_tracks, sub_tracks = await probe_streams(video)
         state = _base_state(str(listener.mid), ospath.basename(video), audio_tracks, sub_tracks)
         if keep_audio:
@@ -307,7 +421,7 @@ async def _auto_keep_streams(listener, up_path):
                 up_path = new_path
             changed += 1
 
-    if changed and _quiet_messages():
+    if changed and not _quiet_messages():
         await send_message(
             listener.message,
             "<b>Video Processing Plan</b>\n\n"
@@ -334,6 +448,8 @@ async def _auto_remove_streams(listener, up_path):
 
     changed = 0
     for video in await _video_files(up_path):
+        if listener.is_cancelled:
+            break
         audio_tracks, sub_tracks = await probe_streams(video)
         state = _base_state(str(listener.mid), ospath.basename(video), audio_tracks, sub_tracks)
         state["audio_order_value"] = audio_order or ""
@@ -374,7 +490,7 @@ async def _auto_remove_streams(listener, up_path):
             if new_path and new_path != video and up_path == video:
                 up_path = new_path
             changed += 1
-    if changed and _quiet_messages():
+    if changed and not _quiet_messages():
         await send_message(
             listener.message,
             "<b>Video Processing Plan</b>\n\n"
@@ -391,6 +507,8 @@ async def _auto_intro(listener, up_path):
     targets = await _video_files(up_path)
     changed = 0
     for video in targets:
+        if listener.is_cancelled:
+            break
         audio_tracks, sub_tracks = await probe_streams(video)
         state = _base_state(str(listener.mid), ospath.basename(video), audio_tracks, sub_tracks)
         state["intro_subtitle"] = True
@@ -400,7 +518,7 @@ async def _auto_intro(listener, up_path):
         if new_path and new_path != video and up_path == video:
             up_path = new_path
         changed += 1
-    if changed and _quiet_messages():
+    if changed and not _quiet_messages():
         await send_message(
             listener.message,
             f"Auto Process: intro subtitle finished for <code>{changed}</code> file(s).",
@@ -486,9 +604,11 @@ async def _smart_merge_directory(listener, root):
     await makedirs(root, exist_ok=True)
     keep_sources = _has_keep_filters(listener)
     for batch in batches:
+        if listener.is_cancelled:
+            break
         output_paths.extend(await _merge_batch_checked(listener, root, batch, limit, keep_sources))
 
-    if output_paths and not keep_sources:
+    if output_paths and not keep_sources and not listener.is_cancelled:
         await _remove_non_outputs(root, set(output_paths), planner_path)
     if await aiopath.exists(planner_path):
         await remove(planner_path)
@@ -505,6 +625,8 @@ def _merge_group_title(title, episode=None):
     episode is planned as a one-file batch.
     """
     value = str(title or "Unknown").strip()
+    # Strip leading release group or bracketed tag if present
+    value = re.sub(r"^\[[^\]]*\]\s*", "", value)
     # A bracketed release block and everything after it is technical data,
     # not part of the show title (it may contain DD2.0/ESub tokens).
     value = re.sub(r"\s*\[[^\]]*\].*$", " ", value)
@@ -720,6 +842,8 @@ async def _merge_batch(listener, root, batch):
     if len(batch) == 1:
         src = batch[0]["path"]
         if src != final_output:
+            if await aiopath.exists(final_output):
+                await remove(final_output)
             await rename(src, final_output)
         return final_output
 
@@ -774,7 +898,6 @@ async def _merge_batch(listener, root, batch):
             safe = item["path"].replace("'", "'\\''")
             await f.write(f"file '{safe}'\n")
 
-    copy_mode = await _compatible([item["path"] for item in batch])
     cmd = [
         BinConfig.FFMPEG_NAME,
         "-hide_banner",

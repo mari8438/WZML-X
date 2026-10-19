@@ -19,6 +19,7 @@ for mod in ["httpx", "lxml", "lxml.html", "PIL", "PIL.Image", "PIL.ImageFilter",
     sys.modules[mod] = mock
 
 sys.modules["bot"] = MagicMock()
+sys.modules["bot"].DOWNLOAD_DIR = str(_REPO_ROOT / "tests" / "temp_downloads")
 sys.modules["bot.core"] = MagicMock()
 sys.modules["bot.core.config_manager"] = MagicMock()
 sys.modules["bot.core.tg_client"] = MagicMock()
@@ -50,6 +51,15 @@ subtitles_mod = importlib.util.module_from_spec(spec_sub)
 subtitles_mod.__package__ = "bot.helper.ext_utils"
 sys.modules["bot.helper.ext_utils.missav_subtitles"] = subtitles_mod
 spec_sub.loader.exec_module(subtitles_mod)
+
+_ARCHIVE_PATH = _REPO_ROOT / "bot" / "helper" / "ext_utils" / "missav_archive.py"
+
+# Load archive module
+spec_arc = importlib.util.spec_from_file_location("bot.helper.ext_utils.missav_archive", _ARCHIVE_PATH)
+archive_mod = importlib.util.module_from_spec(spec_arc)
+archive_mod.__package__ = "bot.helper.ext_utils"
+sys.modules["bot.helper.ext_utils.missav_archive"] = archive_mod
+spec_arc.loader.exec_module(archive_mod)
 
 # Load leech module
 spec_mod = importlib.util.spec_from_file_location("bot.modules.missav_leech", _MODULE_PATH)
@@ -206,6 +216,112 @@ class TestMissAV(unittest.TestCase):
         self.assertTrue(is_non_eng("こんにちは"))
         self.assertFalse(is_non_eng("Mother and Son forbidden love"))
         self.assertFalse(is_non_eng(""))
+
+    def test_forum_topic_name_formatting(self):
+        format_name = leech_mod.format_forum_topic_name
+
+        # User's exact prompt example:
+        # /mll Tall English Subtitle 360p -> Tall Esub 360p
+        self.assertEqual(format_name("Tall English Subtitle", "360p"), "Tall Esub 360p")
+
+        # Mother with plural Subtitles and 720p
+        self.assertEqual(format_name("Mother English Subtitles", "720p"), "Mother Esub 720p")
+
+        # Uncensored Leak abbreviation -> UC Leak
+        self.assertEqual(format_name("Mother Uncensored Leak English Subtitle", "360p"), "Mother UC Leak Esub 360p")
+        self.assertEqual(format_name("Uncensored Leaked Stars", "720p"), "UC Leak Stars 720p")
+
+        # Uncensored abbreviation -> UC
+        self.assertEqual(format_name("Tokyo Hot Uncensored", "1080p"), "Tokyo Hot UC 1080p")
+        self.assertEqual(format_name("FC2 Uncensored", "720p"), "FC2 UC 720p")
+
+        # Censored abbreviation -> C
+        self.assertEqual(format_name("S-Cute Censored", "480p"), "S-Cute C 480p")
+
+        # Without preferred quality
+        self.assertEqual(format_name("Mother English Subtitles", None), "Mother Esub")
+
+    def test_missav_archive_extract_code(self):
+        extract = archive_mod._extract_video_code
+        self.assertEqual(extract("https://missav.live/en/ebwh-373"), "ebwh-373")
+        self.assertEqual(extract("https://missav.live/en/dm12/ebwh-373"), "ebwh-373")
+        self.assertEqual(extract("https://missav.live/en/fc2-ppv-4993751"), "fc2-ppv-4993751")
+        self.assertEqual(extract("EBWH-373 Beautiful Woman"), "ebwh-373")
+
+        item = resolver_mod.MissAVTitle(url="https://missav.live/en/stars-999", title="STARS-999 Star")
+        self.assertEqual(extract(item), "stars-999")
+
+    def test_missav_archive_save_and_retrieve(self):
+        import asyncio
+
+        item = resolver_mod.MissAVTitle(
+            url="https://missav.live/en/test-101",
+            title="TEST-101 Title",
+        )
+
+        async def run_archive_test():
+            # Save record
+            await archive_mod.MissAVArchive.save(
+                item=item,
+                chat_id=-1003887117402,
+                message_ids=[1001, 1002, 1003],
+                quality="720p",
+            )
+            # Retrieve by item object
+            rec1 = await archive_mod.MissAVArchive.get(item)
+            self.assertIsNotNone(rec1)
+            self.assertEqual(rec1["code"], "test-101")
+            self.assertEqual(rec1["chat_id"], -1003887117402)
+            self.assertEqual(rec1["message_ids"], [1001, 1002, 1003])
+
+            # Retrieve by URL string
+            rec2 = await archive_mod.MissAVArchive.get("https://missav.live/en/test-101")
+            self.assertEqual(rec2["message_ids"], [1001, 1002, 1003])
+
+            # Retrieve by code string
+            rec3 = await archive_mod.MissAVArchive.get("test-101")
+            self.assertEqual(rec3["message_ids"], [1001, 1002, 1003])
+
+            # Clean up
+            await archive_mod.MissAVArchive.remove("test-101")
+            rec_deleted = await archive_mod.MissAVArchive.get("test-101")
+            self.assertIsNone(rec_deleted)
+
+        asyncio.run(run_archive_test())
+
+    def test_search_pagination_discovery(self):
+        import asyncio
+        from unittest.mock import patch
+
+        class DummyResolver(resolver_mod.MissAVResolver):
+            def __init__(self):
+                super().__init__()
+                self.calls = []
+
+            async def _get(self, url, **kwargs):
+                self.calls.append(url)
+                return "<html>dummy</html>"
+
+            async def resolve_title(self, link, source=None):
+                return resolver_mod.MissAVTitle(url=link, title=link.split('/')[-1].upper(), views=100)
+
+        def mock_links(source, page_url):
+            if "page=2" in page_url:
+                return [f"https://missav.live/en/card-{i}" for i in range(13, 18)]  # 5 links (last page)
+            else:
+                return [f"https://missav.live/en/card-{i}" for i in range(1, 13)]  # 12 links (full page)
+
+        async def run_test():
+            r = DummyResolver()
+            with patch.object(resolver_mod, "_catalog_links", side_effect=mock_links):
+                items = await r.discover_query("Mother English Subtitles", max_pages=5)
+            # Page 1 (12) + Page 2 (5) = 17 items total
+            self.assertEqual(len(items), 17)
+            self.assertEqual(len(r.calls), 2)
+            self.assertIn("card-1", items[0].url)
+            self.assertIn("card-17", items[-1].url)
+
+        asyncio.run(run_test())
 
 
 if __name__ == "__main__":

@@ -21,17 +21,16 @@ if "bot" not in sys.modules:
     sys.modules["bot"] = types.ModuleType("bot")
 if "bot.core" not in sys.modules:
     sys.modules["bot.core"] = types.ModuleType("bot.core")
-if "bot.core.config_manager" not in sys.modules:
-    cfg_mod = types.ModuleType("bot.core.config_manager")
-    class DummyConfig:
-        PERFORMANCE_PROFILE = "auto"
-        SAFE_FREE_RAM_MB = 600
-        FFMPEG_THREADS = 0
-        FFMPEG_CPU_CORES = ""
-        SAFE_CPU_PERCENT = 88
-        MAX_PARALLEL_TASKS = 2
-    cfg_mod.Config = DummyConfig
-    sys.modules["bot.core.config_manager"] = cfg_mod
+cfg_mod = types.ModuleType("bot.core.config_manager")
+class DummyConfig:
+    PERFORMANCE_PROFILE = "auto"
+    SAFE_FREE_RAM_MB = 600
+    FFMPEG_THREADS = 0
+    FFMPEG_CPU_CORES = ""
+    SAFE_CPU_PERCENT = 88
+    MAX_PARALLEL_TASKS = 2
+cfg_mod.Config = DummyConfig
+sys.modules["bot.core.config_manager"] = cfg_mod
 
 _REPO_ROOT = Path(__file__).parents[1]
 
