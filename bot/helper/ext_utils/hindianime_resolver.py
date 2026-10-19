@@ -233,6 +233,10 @@ class HindiAnimeResolver:
                 gateway_url = unescape(gateway_url.strip())
                 quality_clean = quality_label.strip()
 
+                q_lower = quality_clean.lower()
+                if any(bad in q_lower for bad in ["telegram", "join", "group", "how to download", "watch online", "stream"]):
+                    continue
+
                 is_pack = "batch" in quality_clean.lower() or "zip" in gateway_url.lower()
 
                 episodes_raw.append({
