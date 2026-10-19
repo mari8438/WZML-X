@@ -170,9 +170,15 @@ class TestMissAV(unittest.TestCase):
         # Downward fallback to 360p
         low_only = [q360]
         self.assertEqual(select_q(low_only, "720p"), [q360])
-        # Fallback when only higher quality is available
+        # Fallback when only higher quality is available (request 360p -> closest higher 480p)
+        higher_only = [q1080, q480]
+        self.assertEqual(select_q(higher_only, "360p"), [q480])
+        # Fallback when only higher quality is available (request 720p -> 1080p)
         high_only = [q1080]
         self.assertEqual(select_q(high_only, "720p"), [q1080])
+        # Fallback to source when height is 0
+        q_source = resolver_mod.MissAVQuality(label="source", url="http://s.m3u8", height=0)
+        self.assertEqual(select_q([q_source], "720p"), [q_source])
         # None preferred returns all
         self.assertEqual(select_q(all_q, None), all_q)
 

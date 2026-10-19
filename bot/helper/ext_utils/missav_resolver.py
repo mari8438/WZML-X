@@ -409,7 +409,12 @@ class MissAVResolver:
             master_url=master_urls[0],
             sample_urls=sample_urls,
         )
-        item.qualities = await self.resolve_qualities(item.master_url, item.url)
+        try:
+            item.qualities = await self.resolve_qualities(item.master_url, item.url)
+        except Exception as q_err:
+            LOGGER.warning(f"Failed parsing qualities playlist for {item.title}: {q_err}")
+            if _valid_stream_url(item.master_url):
+                item.qualities = [MissAVQuality("source", item.master_url)]
         return item
 
     async def resolve_qualities(self, master_url, referer):

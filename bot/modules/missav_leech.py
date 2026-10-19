@@ -171,22 +171,37 @@ def _parse_query_and_quality(tokens):
 
 
 def _select_quality(qualities: list[MissAVQuality], preferred: str | None) -> list[MissAVQuality]:
-    if not preferred or not qualities:
-        return qualities
-    try:
-        target_h = int(preferred.replace("p", ""))
-    except ValueError:
+    if not qualities:
+        return []
+    if not preferred:
         return qualities
 
+    clean_pref = preferred.lower().strip()
+    target_h = None
+    m = search(r"(\d+)", clean_pref)
+    if m:
+        target_h = int(m.group(1))
+
+    # 1. Exact height or label match
     for q in qualities:
-        if q.height == target_h or q.label.lower() == preferred.lower():
+        if (target_h and q.height == target_h) or q.label.lower() == clean_pref or q.label.lower().rstrip("p") == str(target_h):
             return [q]
 
-    lower = [q for q in qualities if 0 < q.height < target_h]
-    if lower:
-        return [lower[0]]
+    if target_h:
+        # 2. Prefer closest lower resolution (e.g. requested 720p -> 480p -> 360p)
+        lower = [q for q in qualities if 0 < q.height < target_h]
+        if lower:
+            chosen = max(lower, key=lambda x: x.height)
+            return [chosen]
 
-    return [qualities[-1]]
+        # 3. If no lower resolution exists, fallback to closest higher resolution (e.g. requested 360p but only 480p/720p available)
+        higher = [q for q in qualities if q.height > target_h]
+        if higher:
+            chosen = min(higher, key=lambda x: x.height)
+            return [chosen]
+
+    # 4. Fallback to any available quality
+    return [qualities[0]]
 
 
 async def _download_preview_video(item: MissAVTitle, target_path: str) -> str:
@@ -349,15 +364,21 @@ async def _download_image(url, path, thumbnail=False):
 
 def _save_image(content, path, thumbnail):
     from io import BytesIO
+    from PIL import ImageFile
 
-    image = Image.open(BytesIO(content)).convert("RGB")
-    if thumbnail:
-        image = ImageOps.fit(image, (320, 180), Image.Resampling.LANCZOS)
-        image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=2))
-        image.save(path, "JPEG", quality=94, optimize=True, subsampling=0)
-    else:
-        image = ImageOps.fit(image, (1280, 720), Image.Resampling.LANCZOS)
-        image.save(path, "JPEG", quality=94, optimize=True, subsampling=0)
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    try:
+        image = Image.open(BytesIO(content)).convert("RGB")
+        if thumbnail:
+            image = ImageOps.fit(image, (320, 180), Image.Resampling.LANCZOS)
+            image = image.filter(ImageFilter.UnsharpMask(radius=1, percent=120, threshold=2))
+            image.save(path, "JPEG", quality=90, optimize=True)
+        else:
+            image = ImageOps.fit(image, (1280, 720), Image.Resampling.LANCZOS)
+            image.save(path, "JPEG", quality=92, optimize=True)
+    except Exception as e:
+        LOGGER.warning(f"PIL image processing failed ({e}), writing raw image bytes directly to {path}")
+        Path(path).write_bytes(content)
 
 
 async def _video_info(video_path):
@@ -903,11 +924,19 @@ async def missav_leech(_, message):
 
                 try:
                     # 1. Poster & Artwork (Preview Video / Cover fallback)
-                    cover = await _download_image(item.thumbnail, ospath.join(title_dir, "cover.jpg"))
+                    cover = ""
                     thumb = ""
-                    if cover:
-                        thumb = ospath.join(title_dir, "thumb.jpg")
-                        await sync_to_async(_save_image, Path(cover).read_bytes(), thumb, True)
+                    try:
+                        cover = await _download_image(item.thumbnail, ospath.join(title_dir, "cover.jpg"))
+                        if cover and ospath.isfile(cover):
+                            thumb = ospath.join(title_dir, "thumb.jpg")
+                            try:
+                                await sync_to_async(_save_image, Path(cover).read_bytes(), thumb, True)
+                            except Exception as thumb_err:
+                                LOGGER.warning(f"Failed generating thumbnail for {item.title}: {thumb_err}")
+                                thumb = cover
+                    except Exception as img_err:
+                        LOGGER.warning(f"Failed downloading artwork for {item.title}: {img_err}")
 
                     preview_video = await _download_preview_video(item, ospath.join(title_dir, "preview.mp4"))
                     poster = preview_video if preview_video and ospath.isfile(preview_video) else cover
@@ -972,6 +1001,33 @@ async def missav_leech(_, message):
                         )
                         if muxed and ospath.isfile(muxed):
                             videos.append((quality, muxed))
+
+                    # Fallback: if preferred quality failed to download or mux, try remaining available qualities
+                    if not videos and len(selected_qualities) < len(item.qualities):
+                        LOGGER.warning(f"Preferred quality failed for {item.title}; trying other available qualities...")
+                        remaining = [q for q in item.qualities if all(q.url != sq.url for sq in selected_qualities)]
+                        for quality in remaining:
+                            if cancel_event.is_set():
+                                break
+                            target_filename = _video_filename(item, quality, tamil_available, has_eng_sub)
+                            target_mkv = ospath.join(title_dir, target_filename)
+                            source_path = ospath.join(title_dir, f"raw_{quality.label}.mkv")
+                            try:
+                                LOGGER.info(f"Fallback downloading quality {quality.label} for {item.title}...")
+                                await helper.download_direct_hls(quality.url, source_path, headers)
+                                muxed = await _remux_with_subtitles(
+                                    source_path,
+                                    target_mkv,
+                                    item,
+                                    subtitle_tracks,
+                                    cancel_event,
+                                    processes,
+                                )
+                                if muxed and ospath.isfile(muxed):
+                                    videos.append((quality, muxed))
+                                    break
+                            except Exception as fb_err:
+                                LOGGER.warning(f"Fallback quality {quality.label} failed: {fb_err}")
 
                     if not videos:
                         raise RuntimeError(f"No qualities successfully downloaded or muxed for {item.title}")
