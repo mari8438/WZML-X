@@ -26,9 +26,11 @@ from ..ext_utils.media_utils import (
     get_video_thumbnail,
 )
 
+from .template_eleven import _template_eleven
+
 POSTER_SIZE = (1280, 720)
 TMDB_IMAGE = "https://image.tmdb.org/t/p/{size}{path}"
-POSTER_TEMPLATE_COUNT = 10
+POSTER_TEMPLATE_COUNT = 11
 _IMDB_DISABLED_UNTIL = 0.0
 _IMDB_FAILURES = 0
 _PROVIDER_CACHE = {}
@@ -1408,6 +1410,7 @@ def _render_template(style, bg, side, data, logo=None):
         "8": _template_eight,
         "9": _template_nine,
         "10": _template_ten,
+        "11": _template_eleven,
     }
     return renderers.get(style, _template_one)(bg, side, data, logo)
 
