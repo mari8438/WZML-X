@@ -196,7 +196,7 @@ class HindiAnimeResolver:
 
     @classmethod
     def parse_post_episodes(
-        cls, html_content: str, post_title: str, post_url: str, quality_filter: Optional[str] = "1080p"
+        cls, html_content: str, post_title: str, post_url: str, quality_filter: Optional[str] = None
     ) -> list[dict]:
         """Parses episode blocks and quality download links from post HTML content."""
         # Check language line

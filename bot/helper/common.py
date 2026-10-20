@@ -432,17 +432,18 @@ class TaskConfig:
                 and rss_chat
                 and str(getattr(self.message.chat, "id", "")) == rss_chat
             )
-            is_chat_dump_task = (
-                self.is_leech
-                and self.up_dest
-                and self.is_super_chat
-                and not self.is_clone
-            )
             rss_dump_chat = (
                 getattr(self.message, "_rss_dump_chat", None)
                 or (Config.RSS_CHAT if is_rss_chat_task else None)
                 or Config.RSS_CHAT
             )
+            main_dump = Config.LEECH_DUMP_CHAT or self.user_dict.get("LEECH_DUMP_CHAT")
+            group_dest = ""
+            if self.is_super_chat:
+                group_dest = f"{self.message.chat.id}"
+                if getattr(self.message, "topic_message", False):
+                    group_dest += f"|{self.message.message_thread_id}"
+
             if (
                 getattr(self, "rss_auto_leech", False) or is_rss_chat_task
             ) and rss_dump_chat:
@@ -451,19 +452,27 @@ class TaskConfig:
                 self.bot_trans = True
                 self.user_trans = False
                 self._relax_upload_chat_permissions = True
-            elif is_chat_dump_task:
-                self.leech_dest = self.up_dest
-                self.up_dest = f"{self.message.chat.id}"
-                if getattr(self.message, "topic_message", False):
-                    self.up_dest += f"|{self.message.message_thread_id}"
-                self.bot_trans = True
-                self.user_trans = False
-                self._relax_upload_chat_permissions = True
-            else:
-                self.leech_dest = self.up_dest or self.user_dict.get(
-                    "LEECH_DUMP_CHAT"
+            elif main_dump:
+                # Always upload to the main dump channel first so 4GB user transmissions
+                # stay unsplit, then copy/forward to the target destination (group/topic/user).
+                target_dest = (
+                    self.up_dest
+                    or group_dest
+                    or self.user_dict.get("LEECH_DUMP_CHAT")
+                    or ""
                 )
-                self.up_dest = Config.LEECH_DUMP_CHAT
+                if str(target_dest).split("|", 1)[0] == str(main_dump).split("|", 1)[0]:
+                    target_dest = ""
+                self.leech_dest = target_dest
+                self.up_dest = main_dump
+            else:
+                self.leech_dest = (
+                    self.up_dest
+                    or self.user_dict.get("LEECH_DUMP_CHAT")
+                    or ""
+                )
+                if not self.up_dest and group_dest:
+                    self.up_dest = group_dest
             self.hybrid_leech = TgClient.IS_PREMIUM_USER and (
                 self.user_dict.get("HYBRID_LEECH")
                 or Config.HYBRID_LEECH

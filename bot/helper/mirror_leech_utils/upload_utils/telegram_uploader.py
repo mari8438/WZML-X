@@ -186,15 +186,13 @@ class TelegramUploader:
                     )
                 else:
                     self._is_private = self._sent_msg.chat.type.name == "PRIVATE"
-                if self._listener.leech_dest:
+                leech_dest, thread_id = self._get_leech_dest()
+                if leech_dest and str(leech_dest) != str(self._listener.up_dest):
                     try:
-                        leech_dest = self._listener.leech_dest
-                        if not isinstance(leech_dest, int):
-                            if "|" in str(leech_dest):
-                                leech_dest, _ = str(leech_dest).split("|", 1)
-                            if leech_dest.lstrip("-").isdigit():
-                                leech_dest = int(leech_dest)
-                        await self._log_msg.copy(chat_id=leech_dest)
+                        copy_kwargs = {"chat_id": leech_dest}
+                        if thread_id is not None:
+                            copy_kwargs["message_thread_id"] = thread_id
+                        await self._log_msg.copy(**copy_kwargs)
                     except Exception as e:
                         if not self._listener.is_cancelled:
                             LOGGER.error(
@@ -611,7 +609,7 @@ class TelegramUploader:
                 )
             except Exception as err:
                 LOGGER.error(f"Failed To Send in BotPM:\n{str(err)}")
-        if leech_dest:
+        if leech_dest and str(leech_dest) != str(chat_id):
             try:
                 await self._copy_message_with_backoff(
                     chat_id=leech_dest,
