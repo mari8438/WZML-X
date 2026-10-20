@@ -70,6 +70,11 @@ def _prepare_user_settings(user_id: int):
     settings["AUTO_POSTER_ENABLED"] = True
     settings["POST_TEMPLATE_ID"] = 8
 
+    # Auto Thumbnail & AniList Landscape Thumbnail
+    settings["AUTO_THUMBNAIL"] = True
+    settings["THUMBNAIL_MODE"] = "automatic"
+    settings["FORCE_ANIME_THUMBNAIL"] = True
+
     # Auto Processing & Intro Subtitles (5min gap, 10sec show across full video length)
     settings["AUTO_PROCESS"] = True
     settings["AUTO_INTRO_SUBTITLE"] = True
@@ -139,6 +144,8 @@ async def queue_hindianime_candidates(
     queued = 0
     for item in candidates:
         if not item.gdflix_url:
+            continue
+        if item.quality and "1080p" not in item.quality.lower():
             continue
         key = item.dedupe_key
         if key in seen:

@@ -922,7 +922,11 @@ class TelegramUploader:
                             merge_source_name=getattr(self._listener, "merge_source_name", ""),
                             prefer_filename=True,
                         )
-                        force_anime_thumb = getattr(self._listener, "force_anime_thumbnail", False)
+                        force_anime_thumb = (
+                            getattr(self._listener, "force_anime_thumbnail", False)
+                            or bool(self._listener.user_dict.get("FORCE_ANIME_THUMBNAIL"))
+                            or int(self._listener.user_dict.get("POST_TEMPLATE_ID") or 0) == 8
+                        )
                         rename_regex = (
                             self._listener.user_dict.get("lremname_regex")
                             or Config.LEECH_FILENAME_REMNAME_REGEX

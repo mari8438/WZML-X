@@ -147,13 +147,26 @@ async def download_image_thumb(url, landscape=False):
                 with Image.open(src) as im:
                     im = ImageOps.exif_transpose(im).convert("RGB")
                     if landscape:
-                        aspect = im.width / max(im.height, 1)
-                        if im.width <= im.height or aspect < 1.45 or aspect > 2.35 or im.height < 360:
+                        if im.width <= im.height or im.height < 150:
                             raise ValueError(
                                 f"provider image is not a usable landscape thumbnail: {im.width}x{im.height}"
                             )
-                        # Preserve provider composition; only scale down oversized images.
-                        im.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+                        aspect = im.width / max(im.height, 1)
+                        if aspect > 2.2:
+                            # Auto-crop ultra-wide banners (e.g. AniList 1900x400) to 16:9
+                            target_w, target_h = 1280, 720
+                            scale = max(target_w / im.width, target_h / im.height)
+                            new_size = (int(im.width * scale), int(im.height * scale))
+                            im = im.resize(new_size, Image.Resampling.LANCZOS)
+                            left = (new_size[0] - target_w) // 2
+                            top = (new_size[1] - target_h) // 2
+                            im = im.crop((left, top, left + target_w, top + target_h))
+                        elif aspect < 1.35 or im.height < 300:
+                            raise ValueError(
+                                f"provider image is not a usable landscape thumbnail: {im.width}x{im.height}"
+                            )
+                        else:
+                            im.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
                     im.save(
                         dst, "JPEG", quality=_thumb_quality(), optimize=True
                     )
@@ -3260,21 +3273,241 @@ async def get_landscape_provider_thumbnail_url(raw_filename, rename_regex=None):
     return await get_anilist_poster_link(title, as_doc=False)
 
 
-async def get_anime_landscape_thumbnail(video_file, raw_filename, duration=None, rename_regex=None, force=False):
-    title, _, _ = format_clean_poster_title(raw_filename, rename_regex)
-    if not force and not _looks_like_anime_name(raw_filename, title):
+async def render_anime_titled_thumbnail(
+    english_title: str,
+    banner_url: Optional[str] = None,
+    cover_url: Optional[str] = None,
+    episode_tag: str = "1080p HD",
+    brand: str = "[@Anime_Starfall🥰]",
+) -> Optional[str]:
+    """Generates a high-quality 16:9 (1280x720) landscape thumbnail with English title.
+
+    Uses AniList banner (or blurred cover backdrop) with the sharp cover art card
+    on the left, official English title on the right, and quality/episode badge.
+    """
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
+    from io import BytesIO
+    from httpx import AsyncClient
+
+    banner_bytes = None
+    cover_bytes = None
+
+    async with AsyncClient(verify=False, follow_redirects=True, timeout=20) as client:
+        if banner_url:
+            try:
+                resp = await client.get(banner_url)
+                if resp.status_code == 200 and resp.content:
+                    banner_bytes = resp.content
+            except Exception as e:
+                LOGGER.debug(f"Failed downloading AniList banner: {e}")
+        if cover_url:
+            try:
+                resp = await client.get(cover_url)
+                if resp.status_code == 200 and resp.content:
+                    cover_bytes = resp.content
+            except Exception as e:
+                LOGGER.debug(f"Failed downloading AniList cover: {e}")
+
+    if not banner_bytes and not cover_bytes:
         return None
 
-    # Preserve the proven automatic anime lookup: AniList banner first, then
-    # normal TMDb artwork. This intentionally avoids season/episode matching.
-    poster_url = (
-        await get_anilist_poster_link(title, as_doc=False)
-        or await get_tmdb_poster_link(title, as_doc=False)
-    )
+    def _render():
+        target_size = (1280, 720)
+        canvas = Image.new("RGB", target_size, (15, 17, 23))
+
+        cover_img = None
+        if cover_bytes:
+            try:
+                cover_img = Image.open(BytesIO(cover_bytes)).convert("RGB")
+            except Exception:
+                pass
+
+        banner_img = None
+        if banner_bytes:
+            try:
+                banner_img = Image.open(BytesIO(banner_bytes)).convert("RGB")
+            except Exception:
+                pass
+
+        # 1. Background (Banner scaled or blurred cover)
+        if banner_img:
+            bw, bh = banner_img.size
+            scale = max(target_size[0] / bw, target_size[1] / bh)
+            nw, nh = int(bw * scale), int(bh * scale)
+            scaled = banner_img.resize((nw, nh), Image.Resampling.LANCZOS)
+            left = (nw - target_size[0]) // 2
+            top = (nh - target_size[1]) // 2
+            bg = scaled.crop((left, top, left + target_size[0], top + target_size[1]))
+            canvas.paste(bg, (0, 0))
+        elif cover_img:
+            cw, ch = cover_img.size
+            scale = max(target_size[0] / cw, target_size[1] / ch)
+            nw, nh = int(cw * scale), int(ch * scale)
+            scaled = cover_img.resize((nw, nh), Image.Resampling.BILINEAR)
+            left = (nw - target_size[0]) // 2
+            top = (nh - target_size[1]) // 2
+            bg = scaled.crop((left, top, left + target_size[0], top + target_size[1]))
+            bg = bg.filter(ImageFilter.GaussianBlur(radius=25))
+            canvas.paste(bg, (0, 0))
+
+        # 2. Gradient / Vignette overlay for text legibility
+        overlay = Image.new("RGBA", target_size, (0, 0, 0, 0))
+        d_overlay = ImageDraw.Draw(overlay)
+        for y in range(target_size[1]):
+            alpha = int(220 * (y / target_size[1]) ** 1.5)
+            d_overlay.line([(0, y), (target_size[0], y)], fill=(10, 12, 18, alpha))
+        for x in range(target_size[0]):
+            alpha = int(140 * max(0, (1 - x / (target_size[0] * 0.7))))
+            d_overlay.line([(x, 0), (x, target_size[1])], fill=(10, 12, 18, alpha))
+        canvas.paste(overlay, (0, 0), overlay)
+
+        draw = ImageDraw.Draw(canvas)
+
+        # 3. Cover Art card on the left
+        content_x = 60
+        if cover_img:
+            target_h = 540
+            cw, ch = cover_img.size
+            target_w = min(int(cw * (target_h / ch)), 380)
+            c_thumb = cover_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+
+            mask = Image.new("L", (target_w, target_h), 0)
+            m_draw = ImageDraw.Draw(mask)
+            m_draw.rounded_rectangle([(0, 0), (target_w, target_h)], radius=18, fill=255)
+
+            shadow = Image.new("RGBA", (target_w + 40, target_h + 40), (0, 0, 0, 0))
+            s_draw = ImageDraw.Draw(shadow)
+            s_draw.rounded_rectangle([(15, 15), (target_w + 25, target_h + 25)], radius=20, fill=(0, 0, 0, 160))
+            shadow = shadow.filter(ImageFilter.GaussianBlur(radius=12))
+            canvas.paste(shadow, (40, 70), shadow)
+            canvas.paste(c_thumb, (55, 90), mask)
+            content_x = 55 + target_w + 50
+
+        # 4. Text & Badges on the right
+        available_width = target_size[0] - content_x - 50
+
+        def _get_font(size, bold=False):
+            candidates = (
+                ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"]
+                if bold
+                else ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "DejaVuSans.ttf", "arial.ttf"]
+            )
+            for name in candidates:
+                try:
+                    return ImageFont.truetype(name, size=size)
+                except Exception:
+                    pass
+            return ImageFont.load_default()
+
+        font_title = _get_font(48, bold=True)
+        font_sub = _get_font(24, bold=True)
+        font_brand = _get_font(22, bold=False)
+
+        # Brand Tag
+        clean_brand = brand.replace("🥰", "").strip() if brand else "[@Anime_Starfall]"
+        draw.text((content_x, 110), clean_brand, font=font_brand, fill=(240, 205, 90))
+
+        # English Title (wrapped to max 3 lines)
+        words = str(english_title).split()
+        lines = []
+        cur_line = []
+        for w in words:
+            test_line = " ".join(cur_line + [w])
+            bbox = draw.textbbox((0, 0), test_line, font=font_title)
+            if bbox[2] - bbox[0] > available_width and cur_line:
+                lines.append(" ".join(cur_line))
+                cur_line = [w]
+            else:
+                cur_line.append(w)
+        if cur_line:
+            lines.append(" ".join(cur_line))
+        lines = lines[:3]
+
+        ty = 160
+        for line in lines:
+            draw.text((content_x + 3, ty + 3), line, font=font_title, fill=(0, 0, 0))
+            draw.text((content_x, ty), line, font=font_title, fill=(255, 255, 255))
+            bbox = draw.textbbox((0, 0), line, font=font_title)
+            ty += (bbox[3] - bbox[1]) + 14
+
+        # Episode & Quality Badge
+        if episode_tag:
+            badge_text = episode_tag.upper()
+            bbox = draw.textbbox((0, 0), badge_text, font=font_sub)
+            bw = (bbox[2] - bbox[0]) + 30
+            bh = (bbox[3] - bbox[1]) + 16
+            by = ty + 24
+            draw.rounded_rectangle([(content_x, by), (content_x + bw, by + bh)], radius=10, fill=(220, 35, 65))
+            draw.text((content_x + 15, by + 8), badge_text, font=font_sub, fill=(255, 255, 255))
+
+        out_dir = f"{DOWNLOAD_DIR}thumbnails"
+        os.makedirs(out_dir, exist_ok=True)
+        out_path = ospath.join(out_dir, f"{time()}.jpg")
+        canvas.save(out_path, "JPEG", quality=95, optimize=True)
+        return out_path
+
+    try:
+        return await sync_to_async(_render)
+    except Exception as e:
+        LOGGER.error(f"Failed rendering anime titled thumbnail: {e}")
+        return None
+
+
+async def get_anime_landscape_thumbnail(video_file, raw_filename, duration=None, rename_regex=None, force=False):
+    title, season, _ = format_clean_poster_title(raw_filename, rename_regex)
+    if not title or len(title.strip()) < 2 or is_hash_like_title(title):
+        return None
+
+    # Episode extraction
+    ep_match = search(r"(?i)(?:E|EP(?:ISODE)?)\s*0*(\d{1,4})", str(raw_filename or ""))
+    episode = ep_match.group(1) if ep_match else None
+
+    # 1. Query AniList
+    media = await _fetch_anilist_media(title)
+    if not media and not force and not _looks_like_anime_name(raw_filename, title):
+        return None
+
+    if media:
+        titles = media.get("title") or {}
+        eng_title = titles.get("english") or titles.get("romaji") or title
+        banner_url = media.get("bannerImage")
+        cover_dict = media.get("coverImage") or {}
+        cover_url = cover_dict.get("extraLarge") or cover_dict.get("large")
+
+        # Episode & quality tag
+        ep_tag_parts = []
+        if season and episode:
+            ep_tag_parts.append(f"S{int(season):02d} E{int(episode):02d}")
+        elif episode:
+            ep_tag_parts.append(f"EP {int(episode):02d}")
+        ep_tag_parts.append("1080p HD")
+        ep_tag = " • ".join(ep_tag_parts)
+
+        # Generate landscape English titled thumbnail
+        titled_thumb = await render_anime_titled_thumbnail(
+            english_title=eng_title,
+            banner_url=banner_url,
+            cover_url=cover_url,
+            episode_tag=ep_tag,
+            brand="[@Anime_Starfall🥰]",
+        )
+        if titled_thumb and await aiopath.exists(titled_thumb):
+            LOGGER.info(f"AniList English-titled landscape thumbnail selected: {eng_title}")
+            return titled_thumb
+
+        # Fallback to direct banner download if custom compositor had an issue
+        if banner_url:
+            thumb = await download_image_thumb(banner_url, landscape=True)
+            if thumb:
+                LOGGER.info("Anime landscape banner selected from AniList")
+                return thumb
+
+    # 2. Fallback to TMDb artwork if AniList has no artwork
+    poster_url = await get_tmdb_poster_link(title, as_doc=False)
     if poster_url:
         thumb = await download_image_thumb(poster_url, landscape=True)
         if thumb:
-            LOGGER.info("Anime landscape thumbnail selected from metadata provider")
+            LOGGER.info("Anime landscape thumbnail selected from TMDb")
             return thumb
 
     LOGGER.info("Anime metadata thumbnail missing; continuing provider fallback")

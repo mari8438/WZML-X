@@ -208,6 +208,67 @@ class HindiAnimeResolver:
             return []
 
         post_season, _ = cls.extract_season_episode(post_title)
+
+        # 1. Prioritize Complete Season / Batch Zip Packs if available
+        zip_candidates = []
+        containers = findall(r'<div class="download-container">(.*?)</div>\s*</div>', html_content, flags=DOTALL)
+        for c in containers:
+            buttons = findall(r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare)[^"]*)"[^>]*>([^<]+)</a>', c)
+            for gateway_url, quality_label in buttons:
+                gateway_url = unescape(gateway_url.strip())
+                quality_clean = quality_label.strip()
+                if quality_filter and quality_filter.lower() not in quality_clean.lower():
+                    continue
+                s_num = post_season
+                sm = search(r'Season\s*(\d+)', quality_clean, flags=IGNORECASE)
+                if sm:
+                    s_num = int(sm.group(1))
+                zip_candidates.append({
+                    "post_title": post_title,
+                    "post_url": post_url,
+                    "episode_title": f"Complete Batch Zip ({quality_clean})",
+                    "season": s_num or 1,
+                    "episode": None,
+                    "quality": quality_clean,
+                    "gateway_url": gateway_url,
+                    "is_season_pack": True,
+                })
+
+        if not zip_candidates:
+            # Also check any quality links with 'batch' or 'zip' or '(Season ' in label
+            general_buttons = findall(
+                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare)[^"]*)"[^>]*>([^<]*(?:batch|zip|complete|\(season)[^<]*)</a>',
+                html_content,
+                flags=IGNORECASE,
+            )
+            for gateway_url, quality_label in general_buttons:
+                gateway_url = unescape(gateway_url.strip())
+                quality_clean = quality_label.strip()
+                if quality_filter and quality_filter.lower() not in quality_clean.lower():
+                    continue
+                s_num = post_season
+                sm = search(r'Season\s*(\d+)', quality_clean, flags=IGNORECASE)
+                if sm:
+                    s_num = int(sm.group(1))
+                zip_candidates.append({
+                    "post_title": post_title,
+                    "post_url": post_url,
+                    "episode_title": f"Complete Batch Zip ({quality_clean})",
+                    "season": s_num or 1,
+                    "episode": None,
+                    "quality": quality_clean,
+                    "gateway_url": gateway_url,
+                    "is_season_pack": True,
+                })
+
+        # If matching Zip pack(s) found for the requested quality, use them and SKIP individual episode solving!
+        if zip_candidates:
+            LOGGER.info(
+                f"HindiAnimeZone: Found {len(zip_candidates)} Zip pack(s) for '{post_title}'. "
+                f"Skipping {html_content.count('class=\"episode\"')} individual episode links."
+            )
+            return zip_candidates
+
         episodes_raw = []
 
         # Find all episode containers
@@ -240,7 +301,7 @@ class HindiAnimeResolver:
                 # Filter strictly by quality if requested (e.g. 1080p only)
                 if quality_filter:
                     q_target = quality_filter.lower()
-                    if q_target not in q_lower and q_target not in ep_title.lower() and q_target not in post_title.lower():
+                    if q_target not in q_lower:
                         continue
 
                 is_pack = "batch" in quality_clean.lower() or "zip" in gateway_url.lower()
