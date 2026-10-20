@@ -14,7 +14,9 @@ from asyncio import (
 from asyncio.subprocess import PIPE
 from os import path as ospath
 from pathlib import Path
-from re import search as re_search, escape
+from typing import Optional
+import os
+from re import search, search as re_search, escape
 from time import time
 from aioshutil import rmtree
 from langcodes import Language

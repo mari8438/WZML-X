@@ -382,8 +382,13 @@ def new_task(func):
 
 
 async def sync_to_async(func, *args, wait=True, **kwargs):
+    import asyncio
     pfunc = partial(func, *args, **kwargs)
-    future = bot_loop.run_in_executor(THREAD_POOL, pfunc)
+    try:
+        loop = asyncio.get_running_loop()
+    except Exception:
+        loop = bot_loop
+    future = loop.run_in_executor(THREAD_POOL, pfunc)
     return await future if wait else future
 
 
