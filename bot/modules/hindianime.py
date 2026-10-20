@@ -156,7 +156,7 @@ async def queue_hindianime_candidates(
 
         LOGGER.info(
             f"HindiAnimeZone: queuing '{item.file_title}' ({item.quality}) -> "
-            f"Anime Channel ({dest_chat}) via GDFlix: {item.gdflix_url} (staging: {staging_chat_id})"
+            f"Anime Channel ({dest_chat}) via: {item.gdflix_url} (staging: {staging_chat_id})"
         )
 
         try:
@@ -195,7 +195,7 @@ async def hindianime_monitor():
         return
 
     LOGGER.info("HindiAnimeZone: running daily scheduled crawl...")
-    solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+    solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
     try:
         candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=2, solver_url=solver_url)
         if candidates:
@@ -214,7 +214,7 @@ async def hindianime_handler(_, message):
     if subcmd == "check":
         pages = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
         notice = await send_message(message, f"🔎 <b>HindiAnimeZone:</b> Crawling 1080p Tamil anime releases (pages: {pages})...")
-        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
         try:
             candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=pages, solver_url=solver_url, quality_filter="1080p")
             if not candidates:
@@ -232,7 +232,7 @@ async def hindianime_handler(_, message):
     elif subcmd in ["backlog", "sync", "start"]:
         days = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 60
         notice = await send_message(message, f"🔎 <b>HindiAnimeZone:</b> Crawling last {days} days 1080p Tamil releases...")
-        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
         try:
             candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=5, solver_url=solver_url, days=days, quality_filter="1080p")
             if not candidates:

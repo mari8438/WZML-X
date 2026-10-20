@@ -1,4 +1,4 @@
-from asyncio import create_task, sleep
+from asyncio import Lock, create_task, sleep
 from html import escape, unescape
 from logging import getLogger
 from os import path as ospath, walk
@@ -82,6 +82,9 @@ PERMANENT_DESTINATION_ERRORS = {
 def _retry_direct_upload(error):
     error_text = f"{type(error).__name__}: {error}".upper()
     return not any(code in error_text for code in PERMANENT_DESTINATION_ERRORS)
+
+
+_CHANNEL_COPY_LOCKS: dict[str, Lock] = {}
 
 
 class TelegramUploader:
@@ -187,7 +190,11 @@ class TelegramUploader:
                 else:
                     self._is_private = self._sent_msg.chat.type.name == "PRIVATE"
                 leech_dest, thread_id = self._get_leech_dest()
-                if leech_dest and str(leech_dest) != str(self._listener.up_dest):
+                if (
+                    leech_dest
+                    and str(leech_dest) != str(self._listener.up_dest)
+                    and not self._sequential_leech
+                ):
                     try:
                         copy_kwargs = {"chat_id": leech_dest}
                         if thread_id is not None:
@@ -593,11 +600,19 @@ class TelegramUploader:
     async def _flush_deferred_copies(self):
         if not self._deferred_copies:
             return
-        for chat_id, msg_id in self._deferred_copies:
-            if self._listener.is_cancelled:
-                return
-            await self._copy_deferred_message(chat_id, msg_id)
-            await sleep(get_tg_copy_delay())
+        leech_dest, _ = self._get_leech_dest()
+        lock_key = str(leech_dest) if leech_dest else "default"
+        if lock_key not in _CHANNEL_COPY_LOCKS:
+            _CHANNEL_COPY_LOCKS[lock_key] = Lock()
+        async with _CHANNEL_COPY_LOCKS[lock_key]:
+            LOGGER.info(
+                f"Flushing {len(self._deferred_copies)} deferred copies to destination ({lock_key}) sequentially..."
+            )
+            for chat_id, msg_id in self._deferred_copies:
+                if self._listener.is_cancelled:
+                    return
+                await self._copy_deferred_message(chat_id, msg_id)
+                await sleep(get_tg_copy_delay())
 
     async def _copy_deferred_message(self, chat_id, msg_id):
         leech_dest, thread_id = self._get_leech_dest()

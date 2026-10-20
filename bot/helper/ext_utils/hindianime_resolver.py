@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from html import unescape
 from logging import getLogger
 from re import DOTALL, IGNORECASE, findall, search, sub
@@ -37,6 +37,8 @@ class HindiAnimeCandidate:
     episode: Optional[int] = None
     is_season_pack: bool = False
     file_title: str = ""
+    mirrors: dict[str, str] = field(default_factory=dict)
+    fallback_urls: list[str] = field(default_factory=list)
 
     @property
     def dedupe_key(self) -> str:
@@ -113,53 +115,149 @@ class HindiAnimeResolver:
 
     @classmethod
     async def resolve_via_solver(cls, gateway_url: str, solver_url: str) -> Optional[dict]:
-        """Calls the FlareSolverr/HAZ solver microservice to solve Turnstile and extract the GDFlix link."""
-        payload = {"url": gateway_url}
-        headers = {"Content-Type": "application/json"}
+        """Calls FlareSolverr or HAZ solver microservice to solve Turnstile and extract download mirrors."""
+        candidates_urls = []
+        if solver_url:
+            candidates_urls.append(solver_url)
+            if ":8192" in solver_url:
+                candidates_urls.append(
+                    solver_url.replace(":8192/solve", ":8191/v1").replace(":8192", ":8191/v1")
+                )
+        candidates_urls.extend(["http://flaresolverr:8191/v1", "http://127.0.0.1:8191/v1"])
 
-        # Try designated solver_url, fallback to localhost:8192
-        candidates_urls = [solver_url]
-        if "flaresolverr" in solver_url:
-            candidates_urls.append("http://127.0.0.1:8192/solve")
+        headers = {"Content-Type": "application/json"}
 
         for s_url in candidates_urls:
             if not s_url:
                 continue
+
+            # FlareSolverr /v1 API requires {"cmd": "request.get", "url": ...}
+            is_flaresolverr = "8191" in s_url or "/v1" in s_url or "flaresolverr" in s_url
+            if is_flaresolverr:
+                payload = {
+                    "cmd": "request.get",
+                    "url": gateway_url,
+                    "maxTimeout": 60000,
+                }
+            else:
+                payload = {"url": gateway_url}
+
+            data = None
             if AsyncClient is not None:
                 try:
-                    async with AsyncClient(timeout=45) as client:
+                    async with AsyncClient(timeout=65) as client:
                         res = await client.post(s_url, json=payload, headers=headers)
                         if res.status_code == 200:
                             data = res.json()
-                            if data.get("status") == "success":
-                                return data
                 except Exception as err:
                     LOGGER.debug(f"Solver {s_url} failed: {err}")
 
-            if cffi_requests is not None:
+            if not data and cffi_requests is not None:
                 try:
-                    with cffi_requests.Session(timeout=45) as session:
+                    with cffi_requests.Session(timeout=65) as session:
                         res = session.post(s_url, json=payload, headers=headers)
                         if res.status_code == 200:
                             data = res.json()
-                            if data.get("status") == "success":
-                                return data
                 except Exception as err:
                     LOGGER.debug(f"cffi solver {s_url} failed: {err}")
 
-            import urllib.request
-            try:
-                req = urllib.request.Request(
-                    s_url,
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers=headers,
+            if not data:
+                import urllib.request
+
+                try:
+                    req = urllib.request.Request(
+                        s_url,
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers=headers,
+                    )
+                    with urllib.request.urlopen(req, timeout=65) as response:
+                        data = json.loads(response.read().decode("utf-8"))
+                except Exception as err:
+                    LOGGER.debug(f"urllib solver {s_url} failed: {err}")
+
+            if not data:
+                continue
+
+            # Case A: FlareSolverr standard response
+            if data.get("status") == "ok" and "solution" in data:
+                html_resp = data.get("solution", {}).get("response", "")
+                mirrors = {}
+                page_title = ""
+                try:
+                    from lxml.etree import HTML
+
+                    tree = HTML(html_resp)
+                    title_nodes = tree.xpath("//title/text()")
+                    if title_nodes:
+                        page_title = title_nodes[0].strip()
+                    for a in tree.xpath("//a"):
+                        h = unescape(a.get("href", "")).strip()
+                        t = " ".join(a.xpath(".//text()")).strip().lower()
+                        if not h or h.startswith("#") or "download1.php" in h:
+                            continue
+                        if "pixeldrain" in h or "pixeldrain" in t:
+                            mirrors["pixeldrain"] = h
+                        elif "gdshare" in h or "gdshare" in t:
+                            mirrors["gdshare"] = h
+                        elif any(k in h for k in ["filepress", "filebee", "press"]):
+                            mirrors["filepress"] = h
+                        elif "gdflix" in h or "gdflix" in t:
+                            mirrors["gdflix"] = h
+                except Exception as parse_err:
+                    LOGGER.debug(f"lxml parse error: {parse_err}")
+
+                if not mirrors:
+                    for h in findall(r'href=["\']([^"\']+)["\']', html_resp):
+                        h = unescape(h).strip()
+                        hl = h.lower()
+                        if "download1.php" in hl:
+                            continue
+                        if "pixeldrain" in hl and "pixeldrain" not in mirrors:
+                            mirrors["pixeldrain"] = h
+                        elif "gdshare" in hl and "gdshare" not in mirrors:
+                            mirrors["gdshare"] = h
+                        elif ("filepress" in hl or "filebee" in hl) and "filepress" not in mirrors:
+                            mirrors["filepress"] = h
+                        elif "gdflix" in hl and "gdflix" not in mirrors:
+                            mirrors["gdflix"] = h
+
+                best_url = (
+                    mirrors.get("pixeldrain")
+                    or mirrors.get("gdshare")
+                    or mirrors.get("filepress")
+                    or mirrors.get("gdflix")
                 )
-                with urllib.request.urlopen(req, timeout=45) as response:
-                    data = json.loads(response.read().decode("utf-8"))
-                    if data.get("status") == "success":
-                        return data
-            except Exception as err:
-                LOGGER.debug(f"urllib solver {s_url} failed: {err}")
+                if not best_url and mirrors:
+                    best_url = next(iter(mirrors.values()))
+
+                if best_url:
+                    LOGGER.info(
+                        f"HindiAnimeZone: Resolved mirrors {list(mirrors.keys())}. "
+                        f"Selected primary: {best_url}"
+                    )
+                    return {
+                        "status": "success",
+                        "gdflix_url": best_url,
+                        "mirrors": mirrors,
+                        "title": page_title,
+                    }
+
+            # Case B: Custom HAZ solver response
+            elif data.get("status") == "success":
+                mirrors = data.get("mirrors") or {}
+                best_url = (
+                    mirrors.get("pixeldrain")
+                    or mirrors.get("gdshare")
+                    or mirrors.get("filepress")
+                    or mirrors.get("gdflix")
+                    or data.get("gdflix_url")
+                )
+                return {
+                    "status": "success",
+                    "gdflix_url": best_url,
+                    "mirrors": mirrors,
+                    "title": data.get("title", ""),
+                }
 
         return None
 
@@ -213,7 +311,7 @@ class HindiAnimeResolver:
         zip_candidates = []
         containers = findall(r'<div class="download-container">(.*?)</div>\s*</div>', html_content, flags=DOTALL)
         for c in containers:
-            buttons = findall(r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare)[^"]*)"[^>]*>([^<]+)</a>', c)
+            buttons = findall(r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare|pixeldrain|filebee|filepress)[^"]*)"[^>]*>([^<]+)</a>', c)
             for gateway_url, quality_label in buttons:
                 gateway_url = unescape(gateway_url.strip())
                 quality_clean = quality_label.strip()
@@ -237,7 +335,7 @@ class HindiAnimeResolver:
         if not zip_candidates:
             # Also check any quality links with 'batch' or 'zip' or '(Season ' in label
             general_buttons = findall(
-                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare)[^"]*)"[^>]*>([^<]*(?:batch|zip|complete|\(season)[^<]*)</a>',
+                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare|pixeldrain|filebee|filepress)[^"]*)"[^>]*>([^<]*(?:batch|zip|complete|\(season)[^<]*)</a>',
                 html_content,
                 flags=IGNORECASE,
             )
@@ -287,7 +385,7 @@ class HindiAnimeResolver:
 
             # Find all quality download links inside this episode block
             buttons = findall(
-                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare)[^"]*)"[^>]*>([^<]+)</a>',
+                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare|pixeldrain|filebee|filepress)[^"]*)"[^>]*>([^<]+)</a>',
                 ep_html,
             )
             for gateway_url, quality_label in buttons:
@@ -379,24 +477,29 @@ class HindiAnimeResolver:
                     gateway_url = item["gateway_url"]
                     gdflix_url = ""
 
-                    # Direct link if already a GDFlix or GDShare URL
-                    if any(x in gateway_url.lower() for x in ["gdflix", "gdshare", "pixeldrain"]):
+                    # Direct link if already a known mirror host URL
+                    mirrors_dict = {}
+                    if any(x in gateway_url.lower() for x in ["pixeldrain", "gdshare", "filepress", "filebee", "gdflix"]):
                         gdflix_url = gateway_url
+                        mirrors_dict = {"direct": gateway_url}
                     else:
                         # Resolve Turnstile and gateway via solver service
                         solved = await cls.resolve_via_solver(gateway_url, solver_url)
-                        if solved and solved.get("gdflix_url"):
-                            gdflix_url = solved["gdflix_url"]
+                        if solved:
+                            mirrors_dict = solved.get("mirrors", {})
+                            gdflix_url = solved.get("gdflix_url", "")
                             if solved.get("title") and not item.get("file_title"):
                                 item["file_title"] = solved["title"]
-                        elif solved and solved.get("mirrors"):
-                            for m_name, m_url in solved["mirrors"].items():
-                                if any(k in m_url.lower() for k in ["gdshare", "pixeldrain", "gcloud", "gdflix"]):
-                                    gdflix_url = m_url
-                                    break
+                        if not gdflix_url and mirrors_dict:
+                            gdflix_url = (
+                                mirrors_dict.get("pixeldrain")
+                                or mirrors_dict.get("gdshare")
+                                or mirrors_dict.get("filepress")
+                                or mirrors_dict.get("gdflix")
+                            )
 
                     if not gdflix_url:
-                        LOGGER.warning(f"HindiAnimeZone: Could not resolve GDFlix link for {item['episode_title']} ({item['quality']})")
+                        LOGGER.warning(f"HindiAnimeZone: Could not resolve download mirror for {item['episode_title']} ({item['quality']})")
                         continue
 
                     # Construct clean file title
@@ -405,6 +508,8 @@ class HindiAnimeResolver:
                     e_str = f"E{item['episode']:02d}" if item['episode'] else ""
                     se_tag = f"[{s_str}{e_str}]" if e_str else f"[{s_str}]"
                     file_name = f"{se_tag} {clean_post} - {item['quality']} [Tamil]"
+
+                    fallback_urls = [u for u in mirrors_dict.values() if u != gdflix_url]
 
                     candidate = HindiAnimeCandidate(
                         post_title=p_title,
@@ -417,6 +522,8 @@ class HindiAnimeResolver:
                         episode=item["episode"],
                         is_season_pack=item["is_season_pack"],
                         file_title=item.get("file_title") or file_name,
+                        mirrors=mirrors_dict,
+                        fallback_urls=fallback_urls,
                     )
                     resolved.append(candidate)
 
