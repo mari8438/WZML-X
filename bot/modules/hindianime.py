@@ -1,3 +1,4 @@
+from asyncio import sleep
 from json import dumps, loads
 from os import path as ospath
 from typing import Optional
@@ -174,6 +175,7 @@ async def queue_hindianime_candidates(
             )
             seen.add(key)
             queued += 1
+            await sleep(1.5)
         except Exception as error:
             LOGGER.error(f"HindiAnimeZone: failed to queue '{item.file_title}': {error}", exc_info=True)
 

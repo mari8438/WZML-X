@@ -488,6 +488,9 @@ def gdflix(url):
 
 def gdshare(url):
     try:
+        url = url.strip()
+        if not url.endswith("/"):
+            url = f"{url}/"
         with CurlSession(impersonate="chrome") as session:
             res = session.get(url, allow_redirects=True)
             tree = HTML(res.text)
@@ -505,11 +508,15 @@ def gdshare(url):
                 r_gen = session.get(gen_url, headers=headers)
                 tree_gen = HTML(r_gen.text)
 
-            # 1. Prefer FSL Download (Lightning-fast Cloudflare R2 direct stream)
-            fsl_btn = tree_gen.xpath("//a[contains(@class, 'btn-fsl')]")
-            if fsl_btn:
-                vault_token = fsl_btn[0].get("data-vault")
-                url_key = fsl_btn[0].get("data-key", "fsl")
+            # 1. Resolve Vault-secured download streams (FSL R2, GoFile, Mega, Buzzheavier, PixelDrain, etc.)
+            vault_btns = tree_gen.xpath(
+                "//a[contains(@class, 'dl-vault-btn') or contains(@class, 'btn-fsl') or @data-vault]"
+            )
+            for btn in vault_btns:
+                vault_token = btn.get("data-vault")
+                url_key = btn.get("data-key", "fsl")
+                if not vault_token:
+                    continue
                 ts = int(time())
                 hex1 = sha256(f"{vault_token}:{ts}:dl_gate".encode()).hexdigest()
                 sig = sha256(f"{hex1}:{vault_token[:16]}:{ts}".encode()).hexdigest()
@@ -528,17 +535,26 @@ def gdshare(url):
                     "Referer": res.url,
                     "X-Requested-With": "XMLHttpRequest",
                 }
-                r_res = session.post(resolve_url, headers=post_headers, json=payload).json()
-                if r_res.get("ok") and r_res.get("urls"):
-                    urls = r_res["urls"]
-                    if fsl := urls.get("fsl"):
-                        return fsl
-                    if pd := urls.get("pdlink_share_id"):
-                        return f"https://pixeldrain.dev/api/file/{pd}"
-                    if xcloud := urls.get("xcloud"):
-                        return xcloud
-                    if fp := urls.get("filepress"):
-                        return fp
+                try:
+                    r_res = session.post(resolve_url, headers=post_headers, json=payload, timeout=25).json()
+                    if r_res.get("ok") and r_res.get("urls"):
+                        urls = r_res["urls"]
+                        if target_url := urls.get(url_key):
+                            return target_url
+                        if fsl := urls.get("fsl"):
+                            return fsl
+                        if mega := urls.get("mega"):
+                            return mega
+                        if gofile := urls.get("gofile"):
+                            return gofile
+                        if pd := urls.get("pdlink_share_id"):
+                            return f"https://pixeldrain.dev/api/file/{pd}"
+                        if xcloud := urls.get("xcloud"):
+                            return xcloud
+                        if fp := urls.get("filepress"):
+                            return fp
+                except Exception:
+                    continue
 
             # 2. Check Instant Download button
             instant = tree_gen.xpath("//a[contains(@class, 'btn-instant-download')]/@href")
@@ -1459,6 +1475,8 @@ def filepress(url):
             headers={"Referer": f"{raw.scheme}://{raw.hostname}"},
             json=json_data,
         ).json()
+        if not isinstance(res2, dict) or "data" not in res2:
+            raise DirectDownloadLinkException("ERROR: FilePress/FileBee download token not found")
         json_data2 = {
             "id": res2["data"],
             "method": "publicDownlaod",
