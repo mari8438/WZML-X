@@ -170,7 +170,7 @@ class Config:
     AUTO_INTRO_SUBTITLE = False
     AUTO_METADATA = True
     AUTO_RENAME = True
-    INTRO_SUBTITLE_DURATION = 5
+    INTRO_SUBTITLE_DURATION = 10
     INTRO_SUBTITLE_RANGES = "00:00:00 - 00:00:05 (5s) | 00:01:20 - 00:01:25 (5s) | 00:02:40 - 00:02:45 (5s) | 00:04:00 - 00:04:05 (5s) | 00:05:20 - 00:05:25 (5s) | 00:06:40 - 00:06:45 (5s) | 00:08:00 - 00:08:05 (5s) | 00:09:20 - 00:09:25 (5s) | 00:10:40 - 00:10:45 (5s) | 00:12:00 - 00:12:05 (5s) | 00:13:20 - 00:13:25 (5s) | 00:14:40 - 00:14:45 (5s) | 00:16:00 - 00:16:05 (5s) | 00:17:20 - 00:17:25 (5s) | 00:18:40 - 00:18:45 (5s)"
     INTRO_SUBTITLE_FADE_MS = 400
     INTRO_SUBTITLE_FONT = "Arial"
@@ -353,7 +353,7 @@ class Config:
     TG_PROXY = None
     TMDB_ACCESS_TOKEN = ""
     THUMBNAIL_LAYOUT = ""
-    INTRO_SUBTITLE_TEXT = ""
+    INTRO_SUBTITLE_TEXT = "[@Anime_Starfall🥰]"
     VERIFY_TIMEOUT = 0
     LOGIN_PASS = ""
     TORRENT_TIMEOUT = 0

@@ -70,6 +70,34 @@ def _prepare_user_settings(user_id: int):
     settings["AUTO_POSTER_ENABLED"] = True
     settings["POST_TEMPLATE_ID"] = 8
 
+    # Auto Processing & Intro Subtitles (5min gap, 10sec show across full video length)
+    settings["AUTO_PROCESS"] = True
+    settings["AUTO_INTRO_SUBTITLE"] = True
+    settings["INTRO_SUBTITLE_TEXT"] = "[@Anime_Starfall🥰]"
+    settings["INTRO_SUBTITLE_DURATION"] = 10
+    settings["INTRO_SUBTITLE_RANGES"] = ""
+
+    # Source metadata removal and custom metadata [@Anime_Starfall🥰]
+    settings["AUTO_METADATA"] = True
+    settings["METADATA_TITLE"] = "[@Anime_Starfall🥰]"
+    settings["METADATA"] = {
+        "title": "[@Anime_Starfall🥰]",
+        "comment": "[@Anime_Starfall🥰]",
+        "author": "[@Anime_Starfall🥰]",
+        "artist": "[@Anime_Starfall🥰]",
+        "encoded_by": "[@Anime_Starfall🥰]",
+    }
+    settings["VIDEO_METADATA"] = {
+        "title": "[@Anime_Starfall🥰]",
+        "comment": "[@Anime_Starfall🥰]",
+    }
+    settings["AUDIO_METADATA"] = {
+        "title": "[@Anime_Starfall🥰] - {audiolang}",
+    }
+    settings["SUBTITLE_METADATA"] = {
+        "title": "[@Anime_Starfall🥰] - {sublang}",
+    }
+
     base_rename = (
         settings.get("lremname_auto")
         or getattr(Config, "LEECH_FILENAME_REMNAME_AUTO", "")

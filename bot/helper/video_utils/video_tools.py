@@ -748,7 +748,11 @@ async def _create_intro_subtitle(listener, dir_path, video_path=None):
         LOGGER.warning(f"Intro subtitle skipped; cannot create {dir_path}: {error}")
         return None
     out_path = ospath.join(dir_path, f"intro_{listener.mid}.ass")
-    duration = int(getattr(Config, "INTRO_SUBTITLE_DURATION", 5) or 5)
+    duration = int(
+        listener.user_dict.get("INTRO_SUBTITLE_DURATION")
+        or getattr(Config, "INTRO_SUBTITLE_DURATION", 10)
+        or 10
+    )
     fade_ms = int(getattr(Config, "INTRO_SUBTITLE_FADE_MS", 400) or 400)
     configured_ranges = (
         listener.user_dict.get("INTRO_SUBTITLE_RANGES")
@@ -757,11 +761,11 @@ async def _create_intro_subtitle(listener, dir_path, video_path=None):
     if configured_ranges and (
         "00:01:20 - 00:01:25" in configured_ranges
         or "00:00:00 - 00:00:05" in configured_ranges
+        or "00:00:00 - 00:00:60" in configured_ranges
     ):
         configured_ranges = ""
     ranges = _parse_intro_ranges(configured_ranges)
-    # Range covers full video length:
-    # 10 min gap for 1+ hour videos, 5 min gap for videos under 1 hour.
+    # Range covers full video length with 5 min gap and 10 sec show:
     if not configured_ranges and video_path:
         try:
             from ..ext_utils.media_utils import get_exact_duration
@@ -771,7 +775,7 @@ async def _create_intro_subtitle(listener, dir_path, video_path=None):
                 from ..ext_utils.media_utils import get_media_info
 
                 video_duration = float((await get_media_info(video_path))[0] or 0)
-            gap = 10 * 60 if video_duration >= 3600 else 5 * 60
+            gap = 5 * 60
             ranges = [
                 (start, min(start + duration, video_duration))
                 for start in range(0, int(video_duration), gap)
@@ -1507,10 +1511,27 @@ async def _try_mkvmerge_pipeline(listener, input_path, output_path, state, extra
             ordered.extend(idx for idx in sub_keep if idx not in ordered)
             sub_keep = ordered
 
+        user_meta = listener.user_dict.get("METADATA") or {}
+        if isinstance(user_meta, str):
+            from ..ext_utils.metadata_utils import MetadataProcessor
+            user_meta = MetadataProcessor.parse_string(user_meta)
+        meta_title = (
+            user_meta.get("title")
+            or listener.user_dict.get("METADATA_TITLE")
+            or getattr(Config, "METADATA_TITLE", "")
+            or "[@Anime_Starfall🥰]"
+        )
+
         cmd = [BinConfig.MKVMERGE_NAME, "-o", output_path]
+        if meta_title:
+            cmd.extend(["--title", str(meta_title)])
+        cmd.append("--no-global-tags")
 
         if video_tracks:
             cmd.extend(["--video-tracks", ",".join(str(t["id"]) for t in video_tracks)])
+            if meta_title:
+                for t in video_tracks:
+                    cmd.extend(["--track-name", f"{t['id']}:{meta_title}"])
 
         if not audio_keep:
             cmd.append("--no-audio")
@@ -1629,7 +1650,7 @@ async def _try_mkvmerge_pipeline(listener, input_path, output_path, state, extra
                 ])
             elif kind == "intro_sub":
                 cmd.extend([
-                    "--track-name", "0:Intro",
+                    "--track-name", f"0:{meta_title or 'Intro'}",
                     "--language", "0:eng",
                     "--default-track-flag", "0:1",
                     path,
