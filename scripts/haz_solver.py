@@ -1,28 +1,70 @@
+import glob
 import os
 import re
 import time
 from bottle import Bottle, request, response, run
-import undetected_chromedriver as uc
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
+
+# Import FlareSolverr's internal patched webdriver factory
+from utils import get_webdriver
 
 app = Bottle()
 
 
 def get_driver():
+    # Ensure Xvfb display is configured
     display = os.environ.get("DISPLAY")
     if not display:
-        import glob
         x_sockets = glob.glob("/tmp/.X11-unix/X*")
         if x_sockets:
-            display = ":" + x_sockets[0].split("/X")[-1]
+            display = ":" + x_sockets[-1].split("/X")[-1]
             os.environ["DISPLAY"] = display
 
-    options = uc.ChromeOptions()
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1280,720")
-    return uc.Chrome(options=options, driver_executable_path="/app/chromedriver")
+    # Cloudflare Turnstile strictly requires headful browser on Xvfb
+    os.environ["HEADLESS"] = "false"
+    return get_webdriver()
+
+
+def extract_mirrors_and_best(html: str):
+    mirrors = {}
+    gdshare_url = None
+    filepress_url = None
+    gdflix_url = None
+
+    for h, t in re.findall(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html, re.DOTALL):
+        ct = re.sub(r'<[^>]+>', ' ', t).strip()
+        hl = h.lower()
+        if not h or h.startswith("#") or "download1.php" in hl:
+            continue
+        # Exclude pixeldrain completely as requested by user
+        if "pixeldrain" in hl or "pixeldrain" in ct.lower():
+            continue
+
+        if any(k in hl for k in ["gdshare", "gcloud"]):
+            mirrors["gdshare"] = h
+            if not gdshare_url:
+                gdshare_url = h
+        elif any(k in hl for k in ["filebee", "filepress", "press"]):
+            mirrors["filepress"] = h
+            if not filepress_url:
+                filepress_url = h
+        elif "gdflix" in hl or "gdflix" in ct.lower():
+            mirrors["gdflix"] = h
+            if not gdflix_url:
+                gdflix_url = h
+        elif "mega" in hl:
+            mirrors["mega"] = h
+
+    # Strict priority: GDShare -> FileBee/FilePress -> GDFlix
+    best = gdshare_url or filepress_url or gdflix_url
+    if not best and mirrors:
+        for u in mirrors.values():
+            if any(k in u.lower() for k in ["gdshare", "gcloud", "filebee", "filepress", "gdflix"]):
+                best = u
+                break
+
+    return best, mirrors
 
 
 @app.post("/solve")
@@ -37,42 +79,22 @@ def solve_endpoint():
     try:
         driver = get_driver()
         driver.get(url)
-        time.sleep(4)
+        time.sleep(3)
 
-        # Check if already on the downloads page
-        html_initial = driver.page_source
-        if any(k in html_initial.lower() for k in ["gdflix", "gdshare", "gcloud", "filebee", "filepress"]):
-            html = html_initial
-            all_links = {}
-            gdshare_url = None
-            filepress_url = None
-            gdflix_url = None
-            for h, t in re.findall(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html, re.DOTALL):
-                ct = re.sub(r'<[^>]+>', ' ', t).strip()
-                hl = h.lower()
-                if "pixeldrain" in hl:
-                    continue
-                if any(k in hl for k in ["gdshare", "gcloud", "filebee", "filepress", "gdflix", "mega"]):
-                    all_links[ct] = h
-                    if not gdshare_url and any(k in hl for k in ["gdshare", "gcloud"]):
-                        gdshare_url = h
-                    elif not filepress_url and any(k in hl for k in ["filebee", "filepress"]):
-                        filepress_url = h
-                    elif not gdflix_url and "gdflix" in hl:
-                        gdflix_url = h
-            best = gdshare_url or filepress_url or gdflix_url
-            if best:
-                return {
-                    "status": "success",
-                    "title": driver.title,
-                    "gdflix_url": best,
-                    "mirrors": all_links,
-                    "page_url": driver.current_url,
-                }
+        # 1. Check if already on downloads page
+        best_u, m_dict = extract_mirrors_and_best(driver.page_source)
+        if best_u:
+            return {
+                "status": "success",
+                "title": driver.title,
+                "gdflix_url": best_u,
+                "mirrors": m_dict,
+                "page_url": driver.current_url,
+            }
 
-        # Try to locate submitBtn, or wait up to 10s
+        # 2. Handle Turnstile verification on download1.php
         btn = None
-        for _ in range(10):
+        for _ in range(8):
             try:
                 btn = driver.find_element(By.ID, "submitBtn")
                 break
@@ -80,13 +102,18 @@ def solve_endpoint():
                 time.sleep(1)
 
         if btn:
-            for sec in range(25):
-                disabled = btn.get_attribute("disabled")
-                if not disabled:
+            for sec in range(20):
+                is_disabled = btn.get_attribute("disabled")
+                resp = driver.execute_script(
+                    "return document.querySelector('[name=\"cf-turnstile-response\"]')?.value || window.turnstile?.getResponse();"
+                )
+                if not is_disabled or resp:
                     btn.click()
                     time.sleep(4)
                     break
-                if sec in (2, 5, 8):
+
+                # Click turnstile box to trigger challenge
+                if sec in (2, 5, 8, 12):
                     try:
                         box = driver.find_element(By.CLASS_NAME, "cf-turnstile")
                         ActionChains(driver).move_to_element(box).click().perform()
@@ -96,39 +123,16 @@ def solve_endpoint():
         else:
             time.sleep(5)
 
+        # 3. Extract mirrors from resolved downloads page
         html = driver.page_source
         title = driver.title
-
-        # Extract download mirrors (excluding pixeldrain, prioritizing gdshare -> filepress -> gdflix)
-        all_links = {}
-        gdshare_url = None
-        filepress_url = None
-        gdflix_match_url = None
-
-        for h, t in re.findall(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html, re.DOTALL):
-            ct = re.sub(r'<[^>]+>', ' ', t).strip()
-            hl = h.lower()
-            if "pixeldrain" in hl:
-                continue
-            if any(k in hl for k in ["gdshare", "gcloud", "filebee", "filepress", "gdflix", "mega"]):
-                all_links[ct] = h
-                if not gdshare_url and any(k in hl for k in ["gdshare", "gcloud"]):
-                    gdshare_url = h
-                elif not filepress_url and any(k in hl for k in ["filebee", "filepress"]):
-                    filepress_url = h
-                elif not gdflix_match_url and "gdflix" in hl:
-                    gdflix_match_url = h
-
-        gd_match = re.search(r'href="([^"]*gdflix[^"]*)"', html, re.IGNORECASE)
-        gdflix_direct = gd_match.group(1) if gd_match else None
-
-        best_url = gdshare_url or filepress_url or gdflix_match_url or gdflix_direct
+        best_url, mirrors = extract_mirrors_and_best(html)
 
         return {
             "status": "success",
             "title": title,
             "gdflix_url": best_url,
-            "mirrors": all_links,
+            "mirrors": mirrors,
             "page_url": driver.current_url,
         }
     except Exception as err:

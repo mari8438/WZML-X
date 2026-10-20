@@ -197,7 +197,7 @@ async def hindianime_monitor():
         return
 
     LOGGER.info("HindiAnimeZone: running daily scheduled crawl...")
-    solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
+    solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
     try:
         candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=2, solver_url=solver_url)
         if candidates:
@@ -216,7 +216,7 @@ async def hindianime_handler(_, message):
     if subcmd == "check":
         pages = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
         notice = await send_message(message, f"🔎 <b>HindiAnimeZone:</b> Crawling 1080p Tamil anime releases (pages: {pages})...")
-        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
         try:
             candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=pages, solver_url=solver_url, quality_filter="1080p")
             if not candidates:
@@ -234,7 +234,7 @@ async def hindianime_handler(_, message):
     elif subcmd in ["backlog", "sync", "start"]:
         days = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 60
         notice = await send_message(message, f"🔎 <b>HindiAnimeZone:</b> Crawling last {days} days 1080p Tamil releases...")
-        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
         try:
             candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=5, solver_url=solver_url, days=days, quality_filter="1080p")
             if not candidates:
