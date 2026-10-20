@@ -163,6 +163,10 @@ def direct_link_generator(link):
         return yandex_disk(link)
     elif "gdflix" in domain:
         return gdflix(link)
+    elif any(x in domain for x in ["gdshare", "gcloud"]):
+        return gdshare(link)
+    elif any(x in domain for x in ["filepress", "filebee"]):
+        return filepress(link)
     elif any(x in domain for x in ["hubcloud", "hubhold"]):
         return hubcloud(link)
     elif "buzzheavier.com" in domain:
@@ -189,7 +193,7 @@ def direct_link_generator(link):
         return hxfile(link)
     elif "1drv.ms" in domain:
         return onedrive(link)
-    elif any(x in domain for x in ["pixeldrain.com", "pixeldra.in"]):
+    elif any(x in domain for x in ["pixeldrain.com", "pixeldrain.dev", "pixeldra.in"]) or "pixeldrain" in domain:
         return pixeldrain(link)
     elif "racaty" in domain:
         return racaty(link)
@@ -480,6 +484,72 @@ def gdflix(url):
         if link := parse_qs(urlparse(location).query).get("url"):
             return link[0]
         return location
+
+
+def gdshare(url):
+    try:
+        with CurlSession(impersonate="chrome") as session:
+            res = session.get(url, allow_redirects=True)
+            tree = HTML(res.text)
+            hx_get = tree.xpath("//*[@id='generate-btn']/@hx-get")
+            if not hx_get:
+                tree_gen = tree
+            else:
+                gen_url = f"https://{urlparse(res.url).netloc}{hx_get[0]}"
+                headers = {
+                    "HX-Request": "true",
+                    "HX-Target": "download-links",
+                    "HX-Current-URL": res.url,
+                    "Referer": res.url,
+                }
+                r_gen = session.get(gen_url, headers=headers)
+                tree_gen = HTML(r_gen.text)
+
+            # 1. Prefer FSL Download (Lightning-fast Cloudflare R2 direct stream)
+            fsl_btn = tree_gen.xpath("//a[contains(@class, 'btn-fsl')]")
+            if fsl_btn:
+                vault_token = fsl_btn[0].get("data-vault")
+                url_key = fsl_btn[0].get("data-key", "fsl")
+                ts = int(time())
+                hex1 = sha256(f"{vault_token}:{ts}:dl_gate".encode()).hexdigest()
+                sig = sha256(f"{hex1}:{vault_token[:16]}:{ts}".encode()).hexdigest()
+                csrf = session.cookies.get("csrftoken", "")
+                resolve_url = f"https://{urlparse(res.url).netloc}/download/resolve/"
+                payload = {
+                    "t": vault_token,
+                    "s": sig,
+                    "ts": ts,
+                    "cf_token": "",
+                    "key": url_key,
+                }
+                post_headers = {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": csrf,
+                    "Referer": res.url,
+                    "X-Requested-With": "XMLHttpRequest",
+                }
+                r_res = session.post(resolve_url, headers=post_headers, json=payload).json()
+                if r_res.get("ok") and r_res.get("urls"):
+                    urls = r_res["urls"]
+                    if fsl := urls.get("fsl"):
+                        return fsl
+                    if pd := urls.get("pdlink_share_id"):
+                        return f"https://pixeldrain.dev/api/file/{pd}"
+                    if xcloud := urls.get("xcloud"):
+                        return xcloud
+                    if fp := urls.get("filepress"):
+                        return fp
+
+            # 2. Check Instant Download button
+            instant = tree_gen.xpath("//a[contains(@class, 'btn-instant-download')]/@href")
+            if instant and not instant[0].startswith("#"):
+                return instant[0]
+
+            raise DirectDownloadLinkException("ERROR: No valid download link resolved from GDShare")
+    except Exception as e:
+        if isinstance(e, DirectDownloadLinkException):
+            raise e
+        raise DirectDownloadLinkException(f"ERROR: {e.__class__.__name__} - {e}") from e
 
 
 def get_captcha_token(session, params):
@@ -871,8 +941,7 @@ def pixeldrain(url):
     try:
         url = url.rstrip("/")
         code = url.split("/")[-1].split("?", 1)[0]
-        response = get("https://cdn.pixeldrain.eu.cc/", allow_redirects=True)
-        return response.url + code
+        return f"https://pixeldrain.dev/api/file/{code}"
     except Exception as e:
         raise DirectDownloadLinkException("ERROR: Direct link not found") from e
 

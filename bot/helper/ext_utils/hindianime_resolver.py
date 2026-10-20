@@ -196,7 +196,7 @@ class HindiAnimeResolver:
 
     @classmethod
     def parse_post_episodes(
-        cls, html_content: str, post_title: str, post_url: str
+        cls, html_content: str, post_title: str, post_url: str, quality_filter: Optional[str] = "1080p"
     ) -> list[dict]:
         """Parses episode blocks and quality download links from post HTML content."""
         # Check language line
@@ -226,7 +226,7 @@ class HindiAnimeResolver:
 
             # Find all quality download links inside this episode block
             buttons = findall(
-                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix)[^"]*)"[^>]*>([^<]+)</a>',
+                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare)[^"]*)"[^>]*>([^<]+)</a>',
                 ep_html,
             )
             for gateway_url, quality_label in buttons:
@@ -236,6 +236,12 @@ class HindiAnimeResolver:
                 q_lower = quality_clean.lower()
                 if any(bad in q_lower for bad in ["telegram", "join", "group", "how to download", "watch online", "stream"]):
                     continue
+
+                # Filter strictly by quality if requested (e.g. 1080p only)
+                if quality_filter:
+                    q_target = quality_filter.lower()
+                    if q_target not in q_lower and q_target not in ep_title.lower() and q_target not in post_title.lower():
+                        continue
 
                 is_pack = "batch" in quality_clean.lower() or "zip" in gateway_url.lower()
 
@@ -257,13 +263,23 @@ class HindiAnimeResolver:
         cls,
         max_pages: int = 1,
         solver_url: str = "http://flaresolverr:8192/solve",
+        days: Optional[int] = None,
+        quality_filter: Optional[str] = "1080p",
     ) -> list[HindiAnimeCandidate]:
-        """Scrapes Hindi Anime Zone Tamil category and resolves candidate GDFlix links."""
+        """Scrapes Hindi Anime Zone Tamil category and resolves candidate GDFlix/GDShare links."""
         resolved = []
         visited_posts = set()
 
+        after_param = ""
+        if days:
+            from datetime import datetime, timezone, timedelta
+            after_iso = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            after_param = f"&after={after_iso}"
+
+        per_page = 100 if days else 20
+
         for page in range(1, max_pages + 1):
-            rest_url = f"{HINDIANIME_BASE_URL}/wp-json/wp/v2/posts?categories=11&per_page=20&page={page}"
+            rest_url = f"{HINDIANIME_BASE_URL}/wp-json/wp/v2/posts?categories=11&per_page={per_page}&page={page}{after_param}"
             try:
                 posts_data = await cls.fetch_json(rest_url)
             except Exception as err:
@@ -297,13 +313,13 @@ class HindiAnimeResolver:
                     continue
                 visited_posts.add(p_url)
 
-                raw_items = cls.parse_post_episodes(p_content, p_title, p_url)
+                raw_items = cls.parse_post_episodes(p_content, p_title, p_url, quality_filter=quality_filter)
                 for item in raw_items:
                     gateway_url = item["gateway_url"]
                     gdflix_url = ""
 
-                    # Direct link if already a GDFlix URL
-                    if "gdflix" in gateway_url.lower():
+                    # Direct link if already a GDFlix or GDShare URL
+                    if any(x in gateway_url.lower() for x in ["gdflix", "gdshare", "pixeldrain"]):
                         gdflix_url = gateway_url
                     else:
                         # Resolve Turnstile and gateway via solver service
@@ -312,6 +328,11 @@ class HindiAnimeResolver:
                             gdflix_url = solved["gdflix_url"]
                             if solved.get("title") and not item.get("file_title"):
                                 item["file_title"] = solved["title"]
+                        elif solved and solved.get("mirrors"):
+                            for m_name, m_url in solved["mirrors"].items():
+                                if any(k in m_url.lower() for k in ["gdshare", "pixeldrain", "gcloud", "gdflix"]):
+                                    gdflix_url = m_url
+                                    break
 
                     if not gdflix_url:
                         LOGGER.warning(f"HindiAnimeZone: Could not resolve GDFlix link for {item['episode_title']} ({item['quality']})")

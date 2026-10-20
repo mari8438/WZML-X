@@ -177,21 +177,39 @@ async def hindianime_handler(_, message):
 
     if subcmd == "check":
         pages = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
-        notice = await send_message(message, f"🔎 <b>HindiAnimeZone:</b> Crawling Tamil audio anime releases (pages: {pages})...")
+        notice = await send_message(message, f"🔎 <b>HindiAnimeZone:</b> Crawling 1080p Tamil anime releases (pages: {pages})...")
         solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
         try:
-            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=pages, solver_url=solver_url)
+            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=pages, solver_url=solver_url, quality_filter="1080p")
             if not candidates:
-                await edit_message(notice, "No Tamil audio anime releases found on HindiAnimeZone.")
+                await edit_message(notice, "No 1080p Tamil audio anime releases found on HindiAnimeZone.")
                 return
             queued = await queue_hindianime_candidates(candidates, owner_id=message.from_user.id)
             await edit_message(
                 notice,
-                f"✅ <b>HindiAnimeZone:</b> Found {len(candidates)} candidate(s), queued <b>{queued}</b> new release(s) to Anime channel.",
+                f"✅ <b>HindiAnimeZone:</b> Found {len(candidates)} 1080p candidate(s), queued <b>{queued}</b> release(s) to Anime channel.",
             )
         except Exception as err:
             LOGGER.error(f"HindiAnimeZone check failed: {err}", exc_info=True)
             await edit_message(notice, f"❌ <b>HindiAnimeZone check error:</b> <code>{err}</code>")
+
+    elif subcmd in ["backlog", "sync", "start"]:
+        days = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 60
+        notice = await send_message(message, f"🔎 <b>HindiAnimeZone:</b> Crawling last {days} days 1080p Tamil releases...")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+        try:
+            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=5, solver_url=solver_url, days=days, quality_filter="1080p")
+            if not candidates:
+                await edit_message(notice, f"No 1080p Tamil anime releases found in the last {days} days.")
+                return
+            queued = await queue_hindianime_candidates(candidates, owner_id=message.from_user.id)
+            await edit_message(
+                notice,
+                f"✅ <b>HindiAnimeZone:</b> Backlog crawl complete! Found {len(candidates)} 1080p release(s), queued <b>{queued}</b> new release(s) to Anime channel.",
+            )
+        except Exception as err:
+            LOGGER.error(f"HindiAnimeZone backlog failed: {err}", exc_info=True)
+            await edit_message(notice, f"❌ <b>HindiAnimeZone backlog error:</b> <code>{err}</code>")
 
     elif subcmd == "status":
         ch = _get_target_channel()
