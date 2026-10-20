@@ -148,12 +148,15 @@ class TestHindiAnimeModule(unittest.TestCase):
         settings = haz_mod.user_data[user_id]
         
         self.assertTrue(settings["AUTO_POSTER_ENABLED"])
-        self.assertEqual(settings["POST_TEMPLATE_ID"], 8)
+        self.assertEqual(settings["POST_TEMPLATE_ID"], 11)
+        self.assertTrue(settings["AUTO_POSTER_USE_AS_THUMBNAIL"])
+        self.assertFalse(settings["AUTO_POSTER_SEND_MESSAGE"])
         self.assertTrue(settings["AUTO_REMOVE_STREAMS"])
         self.assertEqual(settings["AUTO_KEEP_AUDIO_LANGS"], "Tamil")
         self.assertTrue(settings["AUTO_UNZIP"])
         self.assertTrue(settings["AUTO_MERGE"])
         self.assertIn("[S{season}E{episode}]", settings["lremname_auto"])
+        self.assertIn("🄰🅂-", settings["lremname_auto"])
 
     def test_get_target_channel(self):
         haz_mod.Config.HINDIANIME_CHANNEL_ID = -1004330385098
@@ -162,6 +165,8 @@ class TestHindiAnimeModule(unittest.TestCase):
     @patch.object(haz_mod, "_save_seen", new_callable=AsyncMock)
     @patch.object(haz_mod, "_start_rss_download", new_callable=AsyncMock)
     def test_queue_hindianime_candidates(self, mock_download, mock_save):
+        haz_mod.Config.LEECH_DUMP_CHAT = "-1003887117402"
+        haz_mod.Config.HINDIANIME_CHANNEL_ID = -1004330385098
         cand1 = HindiAnimeCandidate(
             post_title="Solo Leveling S02",
             post_url="https://hindianimeszone.com/solo-leveling/",
@@ -182,7 +187,8 @@ class TestHindiAnimeModule(unittest.TestCase):
             mock_download.assert_called_once()
             call_kwargs = mock_download.call_args[1]
             self.assertEqual(call_kwargs["url"], "https://new5.gdflix.io/file/testfile123")
-            self.assertEqual(call_kwargs["rss_chat_id"], -1004330385098)
+            self.assertEqual(call_kwargs["rss_chat_id"], -1003887117402)
+            self.assertEqual(call_kwargs["rss_upload_chat"], "-1004330385098")
             self.assertEqual(call_kwargs["user_id"], 8814651149)
 
         asyncio.run(run_test())

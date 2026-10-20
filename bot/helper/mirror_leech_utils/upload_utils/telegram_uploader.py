@@ -158,7 +158,7 @@ class TelegramUploader:
             self._thumb = None
 
     async def _msg_to_reply(self):
-        if getattr(self._listener, "rss_auto_leech", False):
+        if getattr(self._listener, "rss_auto_leech", False) and not self._listener.up_dest:
             self._sent_msg = self._listener.message
             return True
         if self._listener.up_dest:
@@ -476,6 +476,12 @@ class TelegramUploader:
     async def _send_auto_post(self):
         post = getattr(self._listener, "auto_post", None)
         if not post:
+            return
+        send_post_msg = self._listener.user_dict.get(
+            "AUTO_POSTER_SEND_MESSAGE",
+            getattr(Config, "AUTO_POSTER_SEND_MESSAGE", True),
+        )
+        if not send_post_msg:
             return
         path = post.get("path")
         if not path or not await aiopath.exists(path):

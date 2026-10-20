@@ -447,11 +447,15 @@ class TaskConfig:
             if (
                 getattr(self, "rss_auto_leech", False) or is_rss_chat_task
             ) and rss_dump_chat:
-                self.leech_dest = self.up_dest or ""
-                self.up_dest = rss_dump_chat
-                self.bot_trans = True
-                self.user_trans = False
-                self._relax_upload_chat_permissions = True
+                if main_dump and str(rss_dump_chat).split("|", 1)[0] != str(main_dump).split("|", 1)[0]:
+                    self.leech_dest = rss_dump_chat
+                    self.up_dest = main_dump
+                else:
+                    self.leech_dest = self.up_dest or ""
+                    self.up_dest = rss_dump_chat
+                    self.bot_trans = True
+                    self.user_trans = False
+                    self._relax_upload_chat_permissions = True
             elif main_dump:
                 # Always upload to the main dump channel first so 4GB user transmissions
                 # stay unsplit, then copy/forward to the target destination (group/topic/user).

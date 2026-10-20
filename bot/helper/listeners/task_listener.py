@@ -568,7 +568,7 @@ class TaskListener(TaskConfig):
                         "AUTO_POSTER_USE_AS_THUMBNAIL",
                         Config.AUTO_POSTER_USE_AS_THUMBNAIL,
                     )
-                    if _poster_bool(use_poster_thumb, True) and not self.thumb:
+                    if _poster_bool(use_poster_thumb, True):
                         self.thumb = poster_payload.get("path") or self.thumb
             except Exception as e:
                 LOGGER.warning(f"Auto poster generation failed: {e}", exc_info=True)

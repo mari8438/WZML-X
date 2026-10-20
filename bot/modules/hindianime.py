@@ -68,12 +68,14 @@ def _prepare_user_settings(user_id: int):
 
     # Poster & branding settings
     settings["AUTO_POSTER_ENABLED"] = True
-    settings["POST_TEMPLATE_ID"] = 8
+    settings["POST_TEMPLATE_ID"] = 11
+    settings["AUTO_POSTER_USE_AS_THUMBNAIL"] = True
+    settings["AUTO_POSTER_SEND_MESSAGE"] = False
 
-    # Auto Thumbnail & AniList Landscape Thumbnail
+    # Auto Thumbnail & Template 11 Thumbnail
     settings["AUTO_THUMBNAIL"] = True
     settings["THUMBNAIL_MODE"] = "automatic"
-    settings["FORCE_ANIME_THUMBNAIL"] = True
+    settings["FORCE_ANIME_THUMBNAIL"] = False
 
     # Auto Processing & Intro Subtitles (5min gap, 10sec show across full video length)
     settings["AUTO_PROCESS"] = True
@@ -103,13 +105,9 @@ def _prepare_user_settings(user_id: int):
         "title": "[@Anime_Starfall🥰] - {sublang}",
     }
 
-    base_rename = (
-        settings.get("lremname_auto")
-        or getattr(Config, "LEECH_FILENAME_REMNAME_AUTO", "")
-        or "{name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~"
-    )
-    clean_base = base_rename.replace("[S{season}E{episode}] ", "").replace("[S{season}E{episode}]", "").strip()
-    settings["lremname_auto"] = f"[S{{season}}E{{episode}}] {clean_base}"
+    settings["lremname_auto"] = "🄰🅂- [S{season}E{episode}] {name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~ [@Anime_Starfall🥰]"
+    settings["LEECH_PREFIX"] = ""
+    settings["LEECH_SUFFIX"] = ""
 
 
 def _get_target_channel() -> str:
@@ -141,6 +139,9 @@ async def queue_hindianime_candidates(
         LOGGER.warning(f"HindiAnimeZone: invalid chat ID: {dest_chat}")
         return 0
 
+    staging_dest = Config.LEECH_DUMP_CHAT or -1003887117402
+    staging_chat_id, staging_topic_id = _parse_chat_value(str(staging_dest))
+
     queued = 0
     for item in candidates:
         if not item.gdflix_url:
@@ -155,7 +156,7 @@ async def queue_hindianime_candidates(
 
         LOGGER.info(
             f"HindiAnimeZone: queuing '{item.file_title}' ({item.quality}) -> "
-            f"Anime Channel ({dest_chat}) via GDFlix: {item.gdflix_url}"
+            f"Anime Channel ({dest_chat}) via GDFlix: {item.gdflix_url} (staging: {staging_chat_id})"
         )
 
         try:
@@ -163,8 +164,8 @@ async def queue_hindianime_candidates(
                 url=item.gdflix_url,
                 command="leech",
                 user_id=user_id,
-                rss_chat_id=chat_id,
-                rss_topic_id=topic_id,
+                rss_chat_id=staging_chat_id or chat_id,
+                rss_topic_id=staging_topic_id if staging_chat_id else topic_id,
                 item_title=item.file_title,
                 auto_leech=True,
                 rename_mode="title",
