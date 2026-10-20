@@ -32,7 +32,7 @@ def _start_rss_queued_locked(state="dl"):
     limit_attr = (
         "RSS_PARALLEL_DOWNLOADS" if state == "dl" else "RSS_PARALLEL_UPLOADS"
     )
-    default_limit = 8 if state == "dl" else 2
+    default_limit = 2 if state == "dl" else 1
     limit = max(
         1,
         safe_int(getattr(Config, limit_attr, default_limit), default_limit),
@@ -99,15 +99,20 @@ async def check_running_tasks(listener, state="dl"):
                 if state == "dl"
                 else "RSS_PARALLEL_UPLOADS"
             )
-            default_limit = 8 if state == "dl" else 2
+            default_limit = 2 if state == "dl" else 1
             limit = max(
                 1,
                 safe_int(getattr(Config, limit_attr, default_limit), default_limit),
             )
-            if len(active) >= limit:
+            resource_busy, resource_reason = resources_overloaded()
+            if len(active) >= limit or resource_busy:
                 is_over_limit = True
                 event = Event()
                 queued[listener.mid] = event
+                if resource_busy:
+                    LOGGER.warning(
+                        f"Queueing RSS task {listener.mid}; VPS safety guard active: {resource_reason}"
+                    )
             else:
                 active.add(listener.mid)
         return is_over_limit, event

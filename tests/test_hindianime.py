@@ -135,6 +135,49 @@ class TestHindiAnimeResolver(unittest.TestCase):
         self.assertEqual(episodes[0]["episode"], 1)
         self.assertEqual(episodes[3]["episode"], 2)
 
+    def test_parse_post_episodes_skips_zip_anime(self):
+        # 1. Zip pack in title -> skipped completely
+        res1 = HindiAnimeResolver.parse_post_episodes(
+            '<b>Language:</b> <b>Tamil</b><div class="episode"><span class="episode-title">Ep 1</span><a href="https://gdshare.top/1">1080p</a></div>',
+            "Solo Leveling [Zip Pack]",
+            "https://hindianimeszone.com/solo-leveling-zip/",
+        )
+        self.assertEqual(res1, [])
+
+        # 2. No episode blocks (only batch zip container) -> skipped completely
+        res2 = HindiAnimeResolver.parse_post_episodes(
+            '<b>Language:</b> <b>Tamil</b><div class="download-container"><a href="https://gdshare.top/1">1080p Batch Zip</a></div>',
+            "Naruto Shippuden Complete",
+            "https://hindianimeszone.com/naruto-zip/",
+        )
+        self.assertEqual(res2, [])
+
+        # 3. Episode blocks containing zip and pixeldrain links -> filters them out
+        html_sample = """
+        <b>Language:</b> <b>Tamil</b>
+        <div class="episode">
+            <span class="episode-title">Episode 01</span>
+            <a href="https://gdshare.top/ep1-1080p">1080p</a>
+            <a href="https://pixeldrain.com/u/abc">1080p PixelDrain</a>
+            <a href="https://gdshare.top/ep1-zip">1080p Batch Zip</a>
+        </div>
+        <div class="episode">
+            <span class="episode-title">Episode 02</span>
+            <a href="https://filebee.to/ep2-1080p">1080p FileBee</a>
+        </div>
+        """
+        res3 = HindiAnimeResolver.parse_post_episodes(
+            html_sample,
+            "Demon Slayer S01",
+            "https://hindianimeszone.com/demon-slayer/",
+            quality_filter="1080p",
+        )
+        self.assertEqual(len(res3), 2)
+        self.assertEqual(res3[0]["gateway_url"], "https://gdshare.top/ep1-1080p")
+        self.assertEqual(res3[1]["gateway_url"], "https://filebee.to/ep2-1080p")
+        self.assertFalse(res3[0]["is_season_pack"])
+        self.assertFalse(res3[1]["is_season_pack"])
+
 
 class TestHindiAnimeModule(unittest.TestCase):
     def setUp(self):

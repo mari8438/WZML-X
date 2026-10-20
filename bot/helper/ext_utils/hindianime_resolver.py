@@ -196,7 +196,7 @@ class HindiAnimeResolver:
                         if not h or h.startswith("#") or "download1.php" in h:
                             continue
                         if "pixeldrain" in h or "pixeldrain" in t:
-                            mirrors["pixeldrain"] = h
+                            continue
                         elif "gdshare" in h or "gdshare" in t:
                             mirrors["gdshare"] = h
                         elif any(k in h for k in ["filepress", "filebee", "press"]):
@@ -210,11 +210,9 @@ class HindiAnimeResolver:
                     for h in findall(r'href=["\']([^"\']+)["\']', html_resp):
                         h = unescape(h).strip()
                         hl = h.lower()
-                        if "download1.php" in hl:
+                        if "download1.php" in hl or "pixeldrain" in hl:
                             continue
-                        if "pixeldrain" in hl and "pixeldrain" not in mirrors:
-                            mirrors["pixeldrain"] = h
-                        elif "gdshare" in hl and "gdshare" not in mirrors:
+                        if "gdshare" in hl and "gdshare" not in mirrors:
                             mirrors["gdshare"] = h
                         elif ("filepress" in hl or "filebee" in hl) and "filepress" not in mirrors:
                             mirrors["filepress"] = h
@@ -222,8 +220,7 @@ class HindiAnimeResolver:
                             mirrors["gdflix"] = h
 
                 best_url = (
-                    mirrors.get("pixeldrain")
-                    or mirrors.get("gdshare")
+                    mirrors.get("gdshare")
                     or mirrors.get("filepress")
                     or mirrors.get("gdflix")
                 )
@@ -244,14 +241,21 @@ class HindiAnimeResolver:
 
             # Case B: Custom HAZ solver response
             elif data.get("status") == "success":
-                mirrors = data.get("mirrors") or {}
+                raw_mirrors = data.get("mirrors") or {}
+                mirrors = {
+                    k: v for k, v in raw_mirrors.items()
+                    if "pixeldrain" not in str(k).lower() and "pixeldrain" not in str(v).lower()
+                }
                 best_url = (
-                    mirrors.get("pixeldrain")
-                    or mirrors.get("gdshare")
+                    mirrors.get("gdshare")
                     or mirrors.get("filepress")
                     or mirrors.get("gdflix")
-                    or data.get("gdflix_url")
                 )
+                if not best_url:
+                    for u in mirrors.values():
+                        if any(h in u.lower() for h in ["gdshare", "gcloud", "filebee", "filepress", "gdflix"]):
+                            best_url = u
+                            break
                 return {
                     "status": "success",
                     "gdflix_url": best_url,
@@ -305,67 +309,22 @@ class HindiAnimeResolver:
         if not has_tamil:
             return []
 
-        post_season, _ = cls.extract_season_episode(post_title)
-
-        # 1. Prioritize Complete Season / Batch Zip Packs if available
-        zip_candidates = []
-        containers = findall(r'<div class="download-container">(.*?)</div>\s*</div>', html_content, flags=DOTALL)
-        for c in containers:
-            buttons = findall(r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare|pixeldrain|filebee|filepress)[^"]*)"[^>]*>([^<]+)</a>', c)
-            for gateway_url, quality_label in buttons:
-                gateway_url = unescape(gateway_url.strip())
-                quality_clean = quality_label.strip()
-                if quality_filter and quality_filter.lower() not in quality_clean.lower():
-                    continue
-                s_num = post_season
-                sm = search(r'Season\s*(\d+)', quality_clean, flags=IGNORECASE)
-                if sm:
-                    s_num = int(sm.group(1))
-                zip_candidates.append({
-                    "post_title": post_title,
-                    "post_url": post_url,
-                    "episode_title": f"Complete Batch Zip ({quality_clean})",
-                    "season": s_num or 1,
-                    "episode": None,
-                    "quality": quality_clean,
-                    "gateway_url": gateway_url,
-                    "is_season_pack": True,
-                })
-
-        if not zip_candidates:
-            # Also check any quality links with 'batch' or 'zip' or '(Season ' in label
-            general_buttons = findall(
-                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare|pixeldrain|filebee|filepress)[^"]*)"[^>]*>([^<]*(?:batch|zip|complete|\(season)[^<]*)</a>',
-                html_content,
-                flags=IGNORECASE,
-            )
-            for gateway_url, quality_label in general_buttons:
-                gateway_url = unescape(gateway_url.strip())
-                quality_clean = quality_label.strip()
-                if quality_filter and quality_filter.lower() not in quality_clean.lower():
-                    continue
-                s_num = post_season
-                sm = search(r'Season\s*(\d+)', quality_clean, flags=IGNORECASE)
-                if sm:
-                    s_num = int(sm.group(1))
-                zip_candidates.append({
-                    "post_title": post_title,
-                    "post_url": post_url,
-                    "episode_title": f"Complete Batch Zip ({quality_clean})",
-                    "season": s_num or 1,
-                    "episode": None,
-                    "quality": quality_clean,
-                    "gateway_url": gateway_url,
-                    "is_season_pack": True,
-                })
-
-        # If matching Zip pack(s) found for the requested quality, use them and SKIP individual episode solving!
-        if zip_candidates:
+        # Skip anime completely if post title indicates a zip-pack / batch-only release
+        post_title_lower = post_title.lower()
+        if any(w in post_title_lower for w in ["zip pack", "batch zip", "all episodes zip", "[zip]", "(zip)", "zip file"]):
             LOGGER.info(
-                f"HindiAnimeZone: Found {len(zip_candidates)} Zip pack(s) for '{post_title}'. "
-                f"Skipping {html_content.count('class=\"episode\"')} individual episode links."
+                f"HindiAnimeZone: Skipping '{post_title}' because it is a zip-pack source anime (user manually leeches zip packs)."
             )
-            return zip_candidates
+            return []
+
+        # If post does not have individual episode blocks, skip completely
+        if '<div class="episode">' not in html_content:
+            LOGGER.info(
+                f"HindiAnimeZone: Skipping '{post_title}' - no individual episode blocks found (zip/batch only source)."
+            )
+            return []
+
+        post_season, _ = cls.extract_season_episode(post_title)
 
         episodes_raw = []
 
@@ -383,9 +342,9 @@ class HindiAnimeResolver:
             ep_s, ep_e = cls.extract_season_episode(ep_title)
             final_season = ep_s or post_season or 1
 
-            # Find all quality download links inside this episode block
+            # Find all quality download links inside this episode block (excluding pixeldrain)
             buttons = findall(
-                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare|pixeldrain|filebee|filepress)[^"]*)"[^>]*>([^<]+)</a>',
+                r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare|filebee|filepress)[^"]*)"[^>]*>([^<]+)</a>',
                 ep_html,
             )
             for gateway_url, quality_label in buttons:
@@ -402,7 +361,9 @@ class HindiAnimeResolver:
                     if q_target not in q_lower:
                         continue
 
-                is_pack = "batch" in quality_clean.lower() or "zip" in gateway_url.lower()
+                # User requested to skip all zip/batch files completely
+                if "batch" in q_lower or "zip" in q_lower or "zip" in gateway_url.lower():
+                    continue
 
                 episodes_raw.append({
                     "post_title": post_title,
@@ -412,7 +373,7 @@ class HindiAnimeResolver:
                     "episode": ep_e,
                     "quality": quality_clean,
                     "gateway_url": gateway_url,
-                    "is_season_pack": is_pack,
+                    "is_season_pack": False,
                 })
 
         return episodes_raw
@@ -477,26 +438,36 @@ class HindiAnimeResolver:
                     gateway_url = item["gateway_url"]
                     gdflix_url = ""
 
-                    # Direct link if already a known mirror host URL
+                    # Direct link if already a known mirror host URL (skip pixeldrain)
                     mirrors_dict = {}
-                    if any(x in gateway_url.lower() for x in ["pixeldrain", "gdshare", "filepress", "filebee", "gdflix"]):
+                    if any(x in gateway_url.lower() for x in ["gdshare", "gcloud", "filepress", "filebee", "gdflix"]):
                         gdflix_url = gateway_url
                         mirrors_dict = {"direct": gateway_url}
+                    elif "pixeldrain" in gateway_url.lower():
+                        continue
                     else:
                         # Resolve Turnstile and gateway via solver service
                         solved = await cls.resolve_via_solver(gateway_url, solver_url)
                         if solved:
-                            mirrors_dict = solved.get("mirrors", {})
+                            raw_mirrors = solved.get("mirrors") or {}
+                            mirrors_dict = {
+                                k: v for k, v in raw_mirrors.items()
+                                if "pixeldrain" not in str(k).lower() and "pixeldrain" not in str(v).lower()
+                            }
                             gdflix_url = solved.get("gdflix_url", "")
                             if solved.get("title") and not item.get("file_title"):
                                 item["file_title"] = solved["title"]
                         if not gdflix_url and mirrors_dict:
                             gdflix_url = (
-                                mirrors_dict.get("pixeldrain")
-                                or mirrors_dict.get("gdshare")
+                                mirrors_dict.get("gdshare")
                                 or mirrors_dict.get("filepress")
                                 or mirrors_dict.get("gdflix")
                             )
+                        if not gdflix_url and mirrors_dict:
+                            for u in mirrors_dict.values():
+                                if any(h in u.lower() for h in ["gdshare", "gcloud", "filebee", "filepress", "gdflix"]):
+                                    gdflix_url = u
+                                    break
 
                     if not gdflix_url:
                         LOGGER.warning(f"HindiAnimeZone: Could not resolve download mirror for {item['episode_title']} ({item['quality']})")
@@ -509,7 +480,10 @@ class HindiAnimeResolver:
                     se_tag = f"[{s_str}{e_str}]" if e_str else f"[{s_str}]"
                     file_name = f"{se_tag} {clean_post} - {item['quality']} [Tamil]"
 
-                    fallback_urls = [u for u in mirrors_dict.values() if u != gdflix_url]
+                    fallback_urls = [
+                        u for u in mirrors_dict.values()
+                        if u != gdflix_url and "pixeldrain" not in u.lower()
+                    ]
 
                     candidate = HindiAnimeCandidate(
                         post_title=p_title,

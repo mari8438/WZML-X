@@ -40,15 +40,35 @@ def solve_endpoint():
         time.sleep(4)
 
         # Check if already on the downloads page
-        if "gdflix" in driver.page_source.lower():
-            html = driver.page_source
-            gd_match = re.search(r'href="([^"]*gdflix[^"]*)"', html, re.IGNORECASE)
-            return {
-                "status": "success",
-                "title": driver.title,
-                "gdflix_url": gd_match.group(1) if gd_match else None,
-                "page_url": driver.current_url,
-            }
+        html_initial = driver.page_source
+        if any(k in html_initial.lower() for k in ["gdflix", "gdshare", "gcloud", "filebee", "filepress"]):
+            html = html_initial
+            all_links = {}
+            gdshare_url = None
+            filepress_url = None
+            gdflix_url = None
+            for h, t in re.findall(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html, re.DOTALL):
+                ct = re.sub(r'<[^>]+>', ' ', t).strip()
+                hl = h.lower()
+                if "pixeldrain" in hl:
+                    continue
+                if any(k in hl for k in ["gdshare", "gcloud", "filebee", "filepress", "gdflix", "mega"]):
+                    all_links[ct] = h
+                    if not gdshare_url and any(k in hl for k in ["gdshare", "gcloud"]):
+                        gdshare_url = h
+                    elif not filepress_url and any(k in hl for k in ["filebee", "filepress"]):
+                        filepress_url = h
+                    elif not gdflix_url and "gdflix" in hl:
+                        gdflix_url = h
+            best = gdshare_url or filepress_url or gdflix_url
+            if best:
+                return {
+                    "status": "success",
+                    "title": driver.title,
+                    "gdflix_url": best,
+                    "mirrors": all_links,
+                    "page_url": driver.current_url,
+                }
 
         # Try to locate submitBtn, or wait up to 10s
         btn = None
@@ -79,23 +99,35 @@ def solve_endpoint():
         html = driver.page_source
         title = driver.title
 
-        # Look specifically for GDFlix links
-        gd_match = re.search(r'href="([^"]*gdflix[^"]*)"', html, re.IGNORECASE)
-        gdflix_url = gd_match.group(1) if gd_match else None
-
-        # Fallback to other mirror hosts if needed
+        # Extract download mirrors (excluding pixeldrain, prioritizing gdshare -> filepress -> gdflix)
         all_links = {}
+        gdshare_url = None
+        filepress_url = None
+        gdflix_match_url = None
+
         for h, t in re.findall(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', html, re.DOTALL):
             ct = re.sub(r'<[^>]+>', ' ', t).strip()
-            if any(k in h.lower() for k in ["gdflix", "filebee", "pixeldrain", "mega", "gdshare"]):
+            hl = h.lower()
+            if "pixeldrain" in hl:
+                continue
+            if any(k in hl for k in ["gdshare", "gcloud", "filebee", "filepress", "gdflix", "mega"]):
                 all_links[ct] = h
-                if not gdflix_url and "gdflix" in h.lower():
-                    gdflix_url = h
+                if not gdshare_url and any(k in hl for k in ["gdshare", "gcloud"]):
+                    gdshare_url = h
+                elif not filepress_url and any(k in hl for k in ["filebee", "filepress"]):
+                    filepress_url = h
+                elif not gdflix_match_url and "gdflix" in hl:
+                    gdflix_match_url = h
+
+        gd_match = re.search(r'href="([^"]*gdflix[^"]*)"', html, re.IGNORECASE)
+        gdflix_direct = gd_match.group(1) if gd_match else None
+
+        best_url = gdshare_url or filepress_url or gdflix_match_url or gdflix_direct
 
         return {
             "status": "success",
             "title": title,
-            "gdflix_url": gdflix_url,
+            "gdflix_url": best_url,
             "mirrors": all_links,
             "page_url": driver.current_url,
         }
