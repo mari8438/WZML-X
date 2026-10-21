@@ -157,6 +157,18 @@ class TelegramUploader:
                 self._listener.user_dict.get(key) or getattr(Config, key, default),
             )
 
+        if hasattr(self._listener, "is_season_pack"):
+            is_pack = bool(getattr(self._listener, "is_season_pack", False))
+            if is_pack:
+                self._listener.user_dict["AUTO_POSTER_SEND_MESSAGE"] = True
+                self._listener.user_dict["AUTO_POSTER_USE_AS_THUMBNAIL"] = False
+                self._listener.user_dict["FORCE_ANIME_THUMBNAIL"] = False
+            else:
+                self._listener.user_dict["AUTO_POSTER_SEND_MESSAGE"] = False
+                self._listener.user_dict["AUTO_POSTER_USE_AS_THUMBNAIL"] = True
+                self._listener.user_dict["FORCE_ANIME_THUMBNAIL"] = True
+                self._listener.user_dict["POST_TEMPLATE_ID"] = 11
+
         if self._thumb != "none" and not await aiopath.exists(self._thumb):
             self._thumb = None
 
@@ -488,6 +500,10 @@ class TelegramUploader:
     async def _send_auto_post(self):
         post = getattr(self._listener, "auto_post", None)
         if not post:
+            return
+        is_pack = bool(getattr(self._listener, "is_season_pack", False))
+        if not is_pack:
+            LOGGER.info("TelegramUploader: skipping poster details message for single episode.")
             return
         send_post_msg = self._listener.user_dict.get(
             "AUTO_POSTER_SEND_MESSAGE",
@@ -1039,14 +1055,20 @@ class TelegramUploader:
                 or force_document
                 or (not is_video and not is_audio and not is_image)
             ):
+                is_valid_archive = any(
+                    file.lower().endswith(ext)
+                    for ext in [".zip", ".rar", ".7z", ".tar", ".gz", ".iso"]
+                )
                 if (
                     not is_video
                     and not is_audio
                     and not is_image
-                    and any(file.lower().endswith(ext) for ext in [".mkv", ".mp4", ".avi", ".webm"])
+                    and not is_valid_archive
                     and f_size < 15 * 1024 * 1024
                 ):
-                    LOGGER.error(f"Rejecting corrupt non-media file upload as document: {file} ({f_size} bytes)")
+                    LOGGER.error(
+                        f"Rejecting corrupt non-media file upload as document: {file} ({f_size} bytes)"
+                    )
                     self._is_corrupted = True
                     self._corrupted += 1
                     await starfallx_upload.release_route(route)

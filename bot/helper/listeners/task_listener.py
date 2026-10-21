@@ -286,41 +286,48 @@ class TaskListener(TaskConfig):
                 self.name = ospath.basename(dl_path)
                 self.size = await get_path_size(dl_path)
 
-            # Corrupted / Incomplete Download Guard (catches HTML error stubs < 15MB)
-            if any(self.name.lower().endswith(ext) for ext in [".mkv", ".mp4", ".webm", ".avi"]):
-                if self.size < 15 * 1024 * 1024:
-                    is_corrupt_stub = False
-                    try:
-                        with open(dl_path, "rb") as f:
-                            header = f.read(512).lower()
-                            if any(
-                                k in header
-                                for k in [
-                                    b"<html",
-                                    b"<!doctype",
-                                    b"access denied",
-                                    b"cloudflare",
-                                    b"403 forbidden",
-                                    b"404 not found",
-                                    b"error",
-                                ]
-                            ):
-                                is_corrupt_stub = True
-                    except Exception:
-                        is_corrupt_stub = True
-                    if not is_corrupt_stub:
-                        from ..ext_utils.media_utils import get_document_type
-                        is_v, _, _ = await get_document_type(dl_path)
-                        if not is_v:
+            # Universal Corrupt / Incomplete Download Guard (catches any stub/HTML error file < 15MB)
+            if self.size < 15 * 1024 * 1024:
+                is_corrupt_stub = False
+                try:
+                    with open(dl_path, "rb") as f:
+                        header = f.read(1024).lower()
+                        if any(
+                            k in header
+                            for k in [
+                                b"<html",
+                                b"<!doctype",
+                                b"<head",
+                                b"<body",
+                                b"<script",
+                                b"access denied",
+                                b"cloudflare",
+                                b"403 forbidden",
+                                b"404 not found",
+                                b"file not found",
+                                b"error",
+                                b"just a moment...",
+                            ]
+                        ):
                             is_corrupt_stub = True
-                    if is_corrupt_stub:
-                        LOGGER.error(
-                            f"Rejecting corrupt/incomplete media file '{self.name}' (size: {self.size} bytes)."
-                        )
-                        await self.on_upload_error(
-                            f"Download rejected: '{self.name}' is only {self.size} bytes and contains HTML error text instead of video."
-                        )
-                        return
+                except Exception:
+                    is_corrupt_stub = True
+
+                is_archive = any(self.name.lower().endswith(ext) for ext in [".zip", ".rar", ".7z", ".tar", ".gz"])
+                if not is_archive and not is_corrupt_stub:
+                    from ..ext_utils.media_utils import get_document_type
+                    is_v, is_a, is_img = await get_document_type(dl_path)
+                    if not is_v and not is_a and not is_img:
+                        is_corrupt_stub = True
+
+                if is_corrupt_stub:
+                    LOGGER.error(
+                        f"Rejecting corrupt/incomplete stub file '{self.name}' (size: {self.size} bytes)."
+                    )
+                    await self.on_upload_error(
+                        f"Download rejected: '{self.name}' is only {self.size} bytes and does not contain valid media/archive content."
+                    )
+                    return
 
         if self.seed:
             up_dir = self.up_dir = f"{self.dir}10000"

@@ -492,7 +492,9 @@ def gdshare(url):
         if not url.endswith("/"):
             url = f"{url}/"
         with CurlSession(impersonate="chrome") as session:
-            res = session.get(url, allow_redirects=True)
+            res = session.get(url, allow_redirects=True, timeout=20)
+            if res.status_code == 404 or "File Not Found" in res.text:
+                raise DirectDownloadLinkException("ERROR: File Not Found (404) on GDShare/GCloud")
             tree = HTML(res.text)
             hx_get = tree.xpath("//*[@id='generate-btn']/@hx-get")
             if not hx_get:
@@ -505,17 +507,31 @@ def gdshare(url):
                     "HX-Current-URL": res.url,
                     "Referer": res.url,
                 }
-                r_gen = session.get(gen_url, headers=headers)
+                r_gen = session.get(gen_url, headers=headers, timeout=20)
                 tree_gen = HTML(r_gen.text)
 
-            # 1. Resolve Vault-secured download streams (FSL R2, GoFile, Mega, Buzzheavier, PixelDrain, etc.)
+            # 1. Resolve Vault-secured download streams (prioritize Mega CDN, unwrap GoFile worker HTML, skip PixelDrain)
             vault_btns = tree_gen.xpath(
                 "//a[contains(@class, 'dl-vault-btn') or contains(@class, 'btn-fsl') or @data-vault]"
             )
-            for btn in vault_btns:
+
+            def _btn_priority(btn):
+                key = (btn.get("data-key") or "").lower()
+                if "mega" in key:
+                    return 0
+                if "fsl" in key:
+                    return 1
+                if "gofile" in key:
+                    return 2
+                if "buzz" in key:
+                    return 3
+                return 10
+
+            sorted_btns = sorted(vault_btns, key=_btn_priority)
+            for btn in sorted_btns:
                 vault_token = btn.get("data-vault")
                 url_key = btn.get("data-key", "fsl")
-                if not vault_token:
+                if not vault_token or "pixeldrain" in str(url_key).lower():
                     continue
                 ts = int(time())
                 hex1 = sha256(f"{vault_token}:{ts}:dl_gate".encode()).hexdigest()
@@ -539,24 +555,37 @@ def gdshare(url):
                     r_res = session.post(resolve_url, headers=post_headers, json=payload, timeout=25).json()
                     if r_res.get("ok") and r_res.get("urls"):
                         urls = r_res["urls"]
-                        if target_url := urls.get(url_key):
-                            return target_url
-                        if fsl := urls.get("fsl"):
-                            return fsl
+                        # Priority 1: Mega CDN direct stream
                         if mega := urls.get("mega"):
-                            return mega
-                        if gofile := urls.get("gofile"):
-                            return gofile
-                        if xcloud := urls.get("xcloud"):
-                            return xcloud
-                        if fp := urls.get("filepress"):
-                            return fp
+                            if ("mega.co.nz" in mega or "userstorage.mega" in mega) and "pixeldrain" not in mega.lower():
+                                return mega
+
+                        target_url = (
+                            urls.get(url_key)
+                            or urls.get("fsl")
+                            or urls.get("gofile")
+                            or urls.get("buzzheavier")
+                            or urls.get("xcloud")
+                            or urls.get("filepress")
+                        )
+                        if target_url and "pixeldrain" not in target_url.lower():
+                            if "workers.dev" in target_url:
+                                w_res = session.get(target_url, timeout=10)
+                                match_sess = search(r"session\s*=\s*({.*?});", w_res.text)
+                                if match_sess:
+                                    sess_data = loads(match_sess.group(1))
+                                    if sess_data.get("provider") == "gofile" and sess_data.get("url"):
+                                        return gofile(sess_data["url"])
+                                    if sess_data.get("url") and "pixeldrain" not in sess_data["url"].lower():
+                                        return sess_data["url"]
+                            else:
+                                return target_url
                 except Exception:
                     continue
 
-            # 2. Check Instant Download button
+            # 2. Check Instant Download button (strictly skip pixeldrain)
             instant = tree_gen.xpath("//a[contains(@class, 'btn-instant-download')]/@href")
-            if instant and not instant[0].startswith("#"):
+            if instant and not instant[0].startswith("#") and "pixeldrain" not in instant[0].lower():
                 return instant[0]
 
             raise DirectDownloadLinkException("ERROR: No valid download link resolved from GDShare")

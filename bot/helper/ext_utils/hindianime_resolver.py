@@ -536,15 +536,20 @@ class HindiAnimeResolver:
                         LOGGER.warning(f"HindiAnimeZone: Could not resolve download mirror for {item['episode_title']} ({item['quality']})")
                         continue
 
-                    # Construct clean file title
+                    # Construct clean file title with proper media extension
                     clean_post = sub(r"\[.*?\]|\(.*?\)", "", p_title).strip()
                     s_str = f"S{item['season']:02d}" if item['season'] else "S01"
                     e_str = f"E{item['episode']:02d}" if item['episode'] else ""
                     se_tag = f"[{s_str}{e_str}]" if e_str else f"[{s_str}]"
+                    ext = ".zip" if item.get("is_season_pack") else ".mkv"
                     if item.get("is_season_pack"):
-                        file_name = f"[{s_str}] {clean_post} - {item['quality']} [Batch Zip] [Tamil]"
+                        file_name = f"[{s_str}] {clean_post} - {item['quality']} [Batch Zip] [Tamil]{ext}"
                     else:
-                        file_name = f"{se_tag} {clean_post} - {item['quality']} [Tamil]"
+                        file_name = f"{se_tag} {clean_post} - {item['quality']} [Tamil]{ext}"
+
+                    final_title = item.get("file_title") or file_name
+                    if not final_title.lower().endswith(ext):
+                        final_title = f"{final_title}{ext}"
 
                     fallback_urls = [
                         u for u in mirrors_dict.values()
@@ -561,7 +566,7 @@ class HindiAnimeResolver:
                         season=item["season"],
                         episode=item["episode"],
                         is_season_pack=item["is_season_pack"],
-                        file_title=item.get("file_title") or file_name,
+                        file_title=final_title,
                         mirrors=mirrors_dict,
                         fallback_urls=fallback_urls,
                     )

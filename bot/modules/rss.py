@@ -10,7 +10,7 @@ from io import BytesIO
 from pyrogram.filters import create
 from pyrogram.handlers import MessageHandler
 from time import time
-from re import compile, I, split as re_split
+from re import compile, I, split as re_split, sub as re_sub
 
 from .. import scheduler, rss_dict, LOGGER
 from ..core.config_manager import Config
@@ -211,6 +211,7 @@ async def _start_rss_download(
     rename_mode="title",
     leech_by="bot",
     rss_upload_chat=None,
+    is_season_pack=False,
 ):
     """Send a notification to RSS_CHAT and start the download directly."""
     handler = resolve_command(command)
@@ -218,12 +219,14 @@ async def _start_rss_download(
         LOGGER.error(f"RSS: Cannot start download, unknown command: {command}")
         return
 
+    clean_title = re_sub(r'[\r\n"'<>|?*:]', '', str(item_title or "")).strip()
+    name_flag = f' -n "{clean_title}"' if clean_title and "-n " not in command else ""
     cmd_text = f"/{command.strip().lstrip('/')}"
     parts = cmd_text.split(maxsplit=1)
     if len(parts) > 1:
-        cmd_text = f"{parts[0]} {url} {parts[1]}"
+        cmd_text = f"{parts[0]} {url}{name_flag} {parts[1]}"
     else:
-        cmd_text = f"{parts[0]} {url}"
+        cmd_text = f"{parts[0]} {url}{name_flag}"
 
     try:
         user = await TgClient.bot.get_users(user_id)
@@ -247,6 +250,7 @@ async def _start_rss_download(
     msg._rss_rename_mode = _rss_rename_mode(rename_mode)
     msg._rss_leech_by = _rss_leech_by(leech_by)
     msg._rss_dump_chat = rss_upload_chat or Config.RSS_CHAT
+    msg._rss_is_season_pack = bool(is_season_pack)
 
     await _run_rss_download(handler, msg, auto_leech)
 

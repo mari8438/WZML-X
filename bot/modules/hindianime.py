@@ -180,6 +180,7 @@ async def queue_hindianime_candidates(
                 rename_mode="none",
                 leech_by="bot",
                 rss_upload_chat=dest_chat,
+                is_season_pack=item.is_season_pack,
             )
             seen.add(key)
             queued += 1
