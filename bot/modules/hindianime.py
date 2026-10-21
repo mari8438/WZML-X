@@ -208,9 +208,10 @@ async def hindianime_monitor():
     LOGGER.info("HindiAnimeZone: running daily scheduled crawl...")
     solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
     try:
-        candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=2, solver_url=solver_url)
+        seen = _seen_items()
+        candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=2, solver_url=solver_url, seen=seen)
         if candidates:
-            queued = await queue_hindianime_candidates(candidates)
+            queued = await queue_hindianime_candidates(candidates, seen=seen)
             LOGGER.info(f"HindiAnimeZone daily monitor queued {queued} new anime release(s).")
     except Exception as err:
         LOGGER.error(f"HindiAnimeZone daily monitor failed: {err}", exc_info=True)
@@ -224,14 +225,16 @@ async def hindianime_handler(_, message):
 
     if subcmd == "check":
         pages = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
+        LOGGER.info(f"HindiAnimeZone: user {message.from_user.id} requested check (pages={pages})")
         notice = await send_message(message, f"🔎 <b>HindiAnimeZone:</b> Crawling 1080p Tamil anime releases (pages: {pages})...")
         solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
         try:
-            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=pages, solver_url=solver_url, quality_filter="1080p")
+            seen = _seen_items()
+            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=pages, solver_url=solver_url, quality_filter="1080p", seen=seen)
             if not candidates:
-                await edit_message(notice, "No 1080p Tamil audio anime releases found on HindiAnimeZone.")
+                await edit_message(notice, "No new 1080p Tamil audio anime releases found on HindiAnimeZone.")
                 return
-            queued = await queue_hindianime_candidates(candidates, owner_id=message.from_user.id)
+            queued = await queue_hindianime_candidates(candidates, owner_id=message.from_user.id, seen=seen)
             await edit_message(
                 notice,
                 f"✅ <b>HindiAnimeZone:</b> Found {len(candidates)} 1080p candidate(s), queued <b>{queued}</b> release(s) to Anime channel.",
@@ -242,14 +245,16 @@ async def hindianime_handler(_, message):
 
     elif subcmd in ["backlog", "sync", "start"]:
         days = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 60
+        LOGGER.info(f"HindiAnimeZone: user {message.from_user.id} requested backlog crawl (days={days})")
         notice = await send_message(message, f"🔎 <b>HindiAnimeZone:</b> Crawling last {days} days 1080p Tamil releases...")
         solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
         try:
-            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=5, solver_url=solver_url, days=days, quality_filter="1080p")
+            seen = _seen_items()
+            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=5, solver_url=solver_url, days=days, quality_filter="1080p", seen=seen)
             if not candidates:
-                await edit_message(notice, f"No 1080p Tamil anime releases found in the last {days} days.")
+                await edit_message(notice, f"No new 1080p Tamil anime releases found in the last {days} days.")
                 return
-            queued = await queue_hindianime_candidates(candidates, owner_id=message.from_user.id)
+            queued = await queue_hindianime_candidates(candidates, owner_id=message.from_user.id, seen=seen)
             await edit_message(
                 notice,
                 f"✅ <b>HindiAnimeZone:</b> Backlog crawl complete! Found {len(candidates)} 1080p release(s), queued <b>{queued}</b> new release(s) to Anime channel.",

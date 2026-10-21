@@ -55,63 +55,68 @@ class HindiAnimeResolver:
 
     @classmethod
     async def fetch_json(cls, url: str) -> Optional[list]:
-        """Fetches JSON from WordPress REST API."""
+        """Fetches JSON from WordPress REST API, using FlareSolverr fallback if Cloudflare blocks."""
         headers = {
             "User-Agent": DEFAULT_USER_AGENT,
             "Accept": "application/json",
         }
-        if AsyncClient is not None:
-            try:
-                async with AsyncClient(headers=headers, follow_redirects=True, timeout=25) as client:
-                    res = await client.get(url)
-                    if res.status_code == 200:
-                        return res.json()
-            except Exception as err:
-                LOGGER.debug(f"AsyncClient fetch_json error for {url}: {err}")
-
         if cffi_requests is not None:
             try:
-                with cffi_requests.Session(impersonate="chrome136", timeout=25) as session:
+                with cffi_requests.Session(impersonate="chrome", timeout=20) as session:
                     res = session.get(url, headers=headers, allow_redirects=True)
                     if res.status_code == 200:
                         return res.json()
             except Exception as err:
                 LOGGER.debug(f"cffi_requests fetch_json error for {url}: {err}")
 
-        import urllib.request
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=25) as response:
-            return json.loads(response.read().decode("utf-8", errors="ignore"))
+        # Fallback to FlareSolverr sidecar
+        for s_url in ["http://flaresolverr:8191/v1", "http://127.0.0.1:8191/v1"]:
+            try:
+                payload = {"cmd": "request.get", "url": url, "maxTimeout": 30000}
+                if AsyncClient is not None:
+                    async with AsyncClient(timeout=35) as client:
+                        resp = await client.post(s_url, json=payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            raw_html = data.get("solution", {}).get("response", "")
+                            match = search(r"<pre>(.*?)</pre>", raw_html, DOTALL)
+                            raw_json = match.group(1) if match else raw_html
+                            return json.loads(raw_json)
+            except Exception as err:
+                LOGGER.debug(f"FlareSolverr fetch_json error via {s_url}: {err}")
+
+        return None
 
     @classmethod
     async def fetch_html(cls, url: str) -> str:
-        """Fetches HTML page content."""
+        """Fetches HTML page content, using FlareSolverr fallback if Cloudflare blocks."""
         headers = {
             "User-Agent": DEFAULT_USER_AGENT,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
-        if AsyncClient is not None:
-            try:
-                async with AsyncClient(headers=headers, follow_redirects=True, timeout=25) as client:
-                    res = await client.get(url)
-                    if res.status_code == 200:
-                        return res.text
-            except Exception as err:
-                LOGGER.debug(f"AsyncClient fetch_html error for {url}: {err}")
-
         if cffi_requests is not None:
             try:
-                with cffi_requests.Session(impersonate="chrome136", timeout=25) as session:
+                with cffi_requests.Session(impersonate="chrome", timeout=20) as session:
                     res = session.get(url, headers=headers, allow_redirects=True)
                     if res.status_code == 200:
                         return res.text
             except Exception as err:
                 LOGGER.debug(f"cffi_requests fetch_html error for {url}: {err}")
 
-        import urllib.request
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=25) as response:
-            return response.read().decode("utf-8", errors="ignore")
+        # Fallback to FlareSolverr sidecar
+        for s_url in ["http://flaresolverr:8191/v1", "http://127.0.0.1:8191/v1"]:
+            try:
+                payload = {"cmd": "request.get", "url": url, "maxTimeout": 30000}
+                if AsyncClient is not None:
+                    async with AsyncClient(timeout=35) as client:
+                        resp = await client.post(s_url, json=payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            return data.get("solution", {}).get("response", "")
+            except Exception as err:
+                LOGGER.debug(f"FlareSolverr fetch_html error via {s_url}: {err}")
+
+        return ""
 
     @classmethod
     async def resolve_via_solver(cls, gateway_url: str, solver_url: str) -> Optional[dict]:
@@ -306,6 +311,11 @@ class HindiAnimeResolver:
         and skips all single episodes for that anime.
         Otherwise, yields individual episodes in strict chronological order.
         """
+        if not html_content:
+            return []
+        html_content = unescape(html_content)
+        post_title = unescape(post_title)
+
         # Check language line
         lang_match = search(r"Language:</span></b>\s*<b>(.*?)</b>", html_content, flags=DOTALL | IGNORECASE)
         lang_text = lang_match.group(1) if lang_match else ""
@@ -448,6 +458,7 @@ class HindiAnimeResolver:
         solver_url: str = "http://flaresolverr:8192/solve",
         days: Optional[int] = None,
         quality_filter: Optional[str] = "1080p",
+        seen: Optional[set[str]] = None,
     ) -> list[HindiAnimeCandidate]:
         """Scrapes Hindi Anime Zone Tamil category and resolves candidate GDFlix/GDShare links."""
         resolved = []
@@ -499,6 +510,21 @@ class HindiAnimeResolver:
                 raw_items = cls.parse_post_episodes(p_content, p_title, p_url, quality_filter=quality_filter)
                 for item in raw_items:
                     gateway_url = item["gateway_url"]
+                    if "pixeldrain" in gateway_url.lower():
+                        continue
+
+                    # Pre-check seen items cache to avoid wasting Turnstile solves on already downloaded items
+                    if seen:
+                        temp_gw_key = f"gateway:{gateway_url.strip()}"
+                        if temp_gw_key in seen:
+                            continue
+                        clean_post_key = sub(r"\[.*?\]|\(.*?\)", "", p_title).strip()
+                        s_k = f"S{item['season']:02d}" if item['season'] else "S01"
+                        e_k = f"E{item['episode']:02d}" if item['episode'] else ""
+                        haz_key = f"haz:{clean_post_key}_{s_k}{e_k}_{item['quality']}"
+                        if haz_key in seen:
+                            continue
+
                     gdflix_url = ""
 
                     # Direct link if already a known mirror host URL (skip pixeldrain)
