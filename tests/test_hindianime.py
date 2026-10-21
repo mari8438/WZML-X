@@ -135,24 +135,52 @@ class TestHindiAnimeResolver(unittest.TestCase):
         self.assertEqual(episodes[0]["episode"], 1)
         self.assertEqual(episodes[3]["episode"], 2)
 
-    def test_parse_post_episodes_skips_zip_anime(self):
-        # 1. Zip pack in title -> skipped completely
+    def test_parse_post_episodes_chronological_sort(self):
+        # Post with reverse episode blocks (Ep 03 then Ep 01)
+        reverse_html = """
+        <b>Language:</b> <b>Tamil</b>
+        <div class="episode">
+            <span class="episode-title">Episode 03</span>
+            <a href="https://002.hindianimeszone.com/download1.php?code=ep3&q=1080p">Download 1080p</a>
+        </div>
+        <div class="episode">
+            <span class="episode-title">Episode 01</span>
+            <a href="https://002.hindianimeszone.com/download1.php?code=ep1&q=1080p">Download 1080p</a>
+        </div>
+        """
+        episodes = HindiAnimeResolver.parse_post_episodes(
+            reverse_html,
+            "ReZero S03",
+            "https://hindianimeszone.com/rezero/",
+            quality_filter="1080p",
+        )
+        self.assertEqual(len(episodes), 2)
+        self.assertEqual(episodes[0]["episode"], 1)
+        self.assertEqual(episodes[1]["episode"], 3)
+
+    def test_parse_post_episodes_batch_zip_workflow(self):
+        # 1. Post with batch zip -> returns zip candidate with is_season_pack=True, skips single episodes
+        html_with_zip = """
+        <b>Language:</b> <b>Tamil</b>
+        <div class="download-container">
+            <a href="https://gdshare.top/batch-1080p">Download 1080p Batch Zip</a>
+        </div>
+        <div class="episode">
+            <span class="episode-title">Episode 01</span>
+            <a href="https://gdshare.top/ep1-1080p">1080p Single</a>
+        </div>
+        """
         res1 = HindiAnimeResolver.parse_post_episodes(
-            '<b>Language:</b> <b>Tamil</b><div class="episode"><span class="episode-title">Ep 1</span><a href="https://gdshare.top/1">1080p</a></div>',
-            "Solo Leveling [Zip Pack]",
-            "https://hindianimeszone.com/solo-leveling-zip/",
+            html_with_zip,
+            "Solo Leveling S01",
+            "https://hindianimeszone.com/solo-leveling/",
+            quality_filter="1080p",
         )
-        self.assertEqual(res1, [])
+        self.assertEqual(len(res1), 1)
+        self.assertTrue(res1[0]["is_season_pack"])
+        self.assertEqual(res1[0]["gateway_url"], "https://gdshare.top/batch-1080p")
 
-        # 2. No episode blocks (only batch zip container) -> skipped completely
-        res2 = HindiAnimeResolver.parse_post_episodes(
-            '<b>Language:</b> <b>Tamil</b><div class="download-container"><a href="https://gdshare.top/1">1080p Batch Zip</a></div>',
-            "Naruto Shippuden Complete",
-            "https://hindianimeszone.com/naruto-zip/",
-        )
-        self.assertEqual(res2, [])
-
-        # 3. Episode blocks containing zip and pixeldrain links -> filters them out
+        # 2. Episode blocks with zip and single episodes -> selects batch zip and skips single episodes
         html_sample = """
         <b>Language:</b> <b>Tamil</b>
         <div class="episode">
@@ -166,17 +194,15 @@ class TestHindiAnimeResolver(unittest.TestCase):
             <a href="https://filebee.to/ep2-1080p">1080p FileBee</a>
         </div>
         """
-        res3 = HindiAnimeResolver.parse_post_episodes(
+        res2 = HindiAnimeResolver.parse_post_episodes(
             html_sample,
             "Demon Slayer S01",
             "https://hindianimeszone.com/demon-slayer/",
             quality_filter="1080p",
         )
-        self.assertEqual(len(res3), 2)
-        self.assertEqual(res3[0]["gateway_url"], "https://gdshare.top/ep1-1080p")
-        self.assertEqual(res3[1]["gateway_url"], "https://filebee.to/ep2-1080p")
-        self.assertFalse(res3[0]["is_season_pack"])
-        self.assertFalse(res3[1]["is_season_pack"])
+        self.assertEqual(len(res2), 1)
+        self.assertTrue(res2[0]["is_season_pack"])
+        self.assertEqual(res2[0]["gateway_url"], "https://gdshare.top/ep1-zip")
 
 
 class TestHindiAnimeModule(unittest.TestCase):
@@ -187,7 +213,8 @@ class TestHindiAnimeModule(unittest.TestCase):
 
     def test_prepare_user_settings(self):
         user_id = 8814651149
-        haz_mod._prepare_user_settings(user_id)
+        # 1. Single episode settings
+        haz_mod._prepare_user_settings(user_id, is_season_pack=False)
         settings = haz_mod.user_data[user_id]
         
         self.assertTrue(settings["AUTO_POSTER_ENABLED"])
@@ -198,8 +225,17 @@ class TestHindiAnimeModule(unittest.TestCase):
         self.assertEqual(settings["AUTO_KEEP_AUDIO_LANGS"], "Tamil")
         self.assertTrue(settings["AUTO_UNZIP"])
         self.assertTrue(settings["AUTO_MERGE"])
+        self.assertTrue(settings["AUTORENAME"])
+        self.assertEqual(settings["RENAME_METHOD"], "auto")
         self.assertIn("[S{season}E{episode}]", settings["lremname_auto"])
         self.assertIn("🄰🅂-", settings["lremname_auto"])
+
+        # 2. Season batch zip settings
+        haz_mod._prepare_user_settings(user_id, is_season_pack=True)
+        zip_settings = haz_mod.user_data[user_id]
+        self.assertTrue(zip_settings["AUTO_POSTER_SEND_MESSAGE"])
+        self.assertFalse(zip_settings["AUTO_POSTER_USE_AS_THUMBNAIL"])
+        self.assertTrue(zip_settings["AUTO_THUMBNAIL"])
 
     def test_get_target_channel(self):
         haz_mod.Config.HINDIANIME_CHANNEL_ID = -1004330385098
@@ -233,6 +269,7 @@ class TestHindiAnimeModule(unittest.TestCase):
             self.assertEqual(call_kwargs["rss_chat_id"], -1003887117402)
             self.assertEqual(call_kwargs["rss_upload_chat"], "-1004330385098")
             self.assertEqual(call_kwargs["user_id"], 8814651149)
+            self.assertEqual(call_kwargs["rename_mode"], "none")
 
         asyncio.run(run_test())
 

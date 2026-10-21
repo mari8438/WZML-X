@@ -547,8 +547,6 @@ def gdshare(url):
                             return mega
                         if gofile := urls.get("gofile"):
                             return gofile
-                        if pd := urls.get("pdlink_share_id"):
-                            return f"https://pixeldrain.dev/api/file/{pd}"
                         if xcloud := urls.get("xcloud"):
                             return xcloud
                         if fp := urls.get("filepress"):

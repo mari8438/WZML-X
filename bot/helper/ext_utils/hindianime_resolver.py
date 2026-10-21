@@ -300,7 +300,12 @@ class HindiAnimeResolver:
     def parse_post_episodes(
         cls, html_content: str, post_title: str, post_url: str, quality_filter: Optional[str] = None
     ) -> list[dict]:
-        """Parses episode blocks and quality download links from post HTML content."""
+        """Parses episode blocks and quality download links from post HTML content.
+
+        If a batch / season zip pack is found for the anime, yields the zip pack candidate
+        and skips all single episodes for that anime.
+        Otherwise, yields individual episodes in strict chronological order.
+        """
         # Check language line
         lang_match = search(r"Language:</span></b>\s*<b>(.*?)</b>", html_content, flags=DOTALL | IGNORECASE)
         lang_text = lang_match.group(1) if lang_match else ""
@@ -309,22 +314,78 @@ class HindiAnimeResolver:
         if not has_tamil:
             return []
 
-        # Skip anime completely if post title indicates a zip-pack / batch-only release
-        post_title_lower = post_title.lower()
-        if any(w in post_title_lower for w in ["zip pack", "batch zip", "all episodes zip", "[zip]", "(zip)", "zip file"]):
-            LOGGER.info(
-                f"HindiAnimeZone: Skipping '{post_title}' because it is a zip-pack source anime (user manually leeches zip packs)."
-            )
-            return []
+        post_season, _ = cls.extract_season_episode(post_title)
+        final_post_season = post_season or 1
 
-        # If post does not have individual episode blocks, skip completely
+        # Check for batch zip links across the post
+        all_buttons = findall(
+            r'<a[^>]+href="([^"]*(?:download1\.php|gdflix|gdshare|filebee|filepress)[^"]*)"[^>]*>([^<]+)</a>',
+            html_content,
+        )
+
+        zip_candidates = []
+        for gateway_url, label in all_buttons:
+            gateway_url = unescape(gateway_url.strip())
+            label_clean = label.strip()
+            l_lower = label_clean.lower()
+            url_lower = gateway_url.lower()
+
+            if any(bad in l_lower for bad in ["telegram", "join", "group", "how to download", "watch online", "stream"]):
+                continue
+
+            is_zip_label = any(k in l_lower for k in ["batch", "zip", "complete"]) or "zip" in url_lower
+            if is_zip_label:
+                if quality_filter:
+                    if quality_filter.lower() not in l_lower and quality_filter.lower() not in url_lower:
+                        continue
+                zip_candidates.append({
+                    "post_title": post_title,
+                    "post_url": post_url,
+                    "episode_title": "Batch Zip",
+                    "season": final_post_season,
+                    "episode": None,
+                    "quality": label_clean,
+                    "gateway_url": gateway_url,
+                    "is_season_pack": True,
+                    "file_title": f"{post_title} [{label_clean}] [Batch Zip] [Tamil]",
+                })
+
+        # Also check if post title itself mentions [Zip Pack] / [Batch Zip] and has buttons
+        if not zip_candidates:
+            post_title_lower = post_title.lower()
+            if any(w in post_title_lower for w in ["zip pack", "batch zip", "all episodes zip", "[zip]", "(zip)", "zip file"]):
+                for gateway_url, label in all_buttons:
+                    gateway_url = unescape(gateway_url.strip())
+                    label_clean = label.strip()
+                    l_lower = label_clean.lower()
+                    if quality_filter and quality_filter.lower() not in l_lower:
+                        continue
+                    zip_candidates.append({
+                        "post_title": post_title,
+                        "post_url": post_url,
+                        "episode_title": "Batch Zip",
+                        "season": final_post_season,
+                        "episode": None,
+                        "quality": label_clean,
+                        "gateway_url": gateway_url,
+                        "is_season_pack": True,
+                        "file_title": f"{post_title} [{label_clean}] [Batch Zip] [Tamil]",
+                    })
+                    break
+
+        if zip_candidates:
+            LOGGER.info(
+                f"HindiAnimeZone: Found {len(zip_candidates)} batch zip link(s) for '{post_title}'. "
+                "Selecting batch zip and skipping single episodes."
+            )
+            return zip_candidates
+
+        # If post does not have individual episode blocks, return empty
         if '<div class="episode">' not in html_content:
             LOGGER.info(
-                f"HindiAnimeZone: Skipping '{post_title}' - no individual episode blocks found (zip/batch only source)."
+                f"HindiAnimeZone: Skipping '{post_title}' - no individual episode blocks found."
             )
             return []
-
-        post_season, _ = cls.extract_season_episode(post_title)
 
         episodes_raw = []
 
@@ -361,7 +422,7 @@ class HindiAnimeResolver:
                     if q_target not in q_lower:
                         continue
 
-                # User requested to skip all zip/batch files completely
+                # Skip any zip/batch link found inside an episode block (already handled)
                 if "batch" in q_lower or "zip" in q_lower or "zip" in gateway_url.lower():
                     continue
 
@@ -376,6 +437,8 @@ class HindiAnimeResolver:
                     "is_season_pack": False,
                 })
 
+        # Sort individual episodes chronologically (ascending season, then ascending episode)
+        episodes_raw.sort(key=lambda x: (x.get("season") or 1, x.get("episode") or 0))
         return episodes_raw
 
     @classmethod
@@ -478,7 +541,10 @@ class HindiAnimeResolver:
                     s_str = f"S{item['season']:02d}" if item['season'] else "S01"
                     e_str = f"E{item['episode']:02d}" if item['episode'] else ""
                     se_tag = f"[{s_str}{e_str}]" if e_str else f"[{s_str}]"
-                    file_name = f"{se_tag} {clean_post} - {item['quality']} [Tamil]"
+                    if item.get("is_season_pack"):
+                        file_name = f"[{s_str}] {clean_post} - {item['quality']} [Batch Zip] [Tamil]"
+                    else:
+                        file_name = f"{se_tag} {clean_post} - {item['quality']} [Tamil]"
 
                     fallback_urls = [
                         u for u in mirrors_dict.values()

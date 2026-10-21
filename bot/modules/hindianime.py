@@ -35,16 +35,8 @@ async def _save_seen(seen: set[str]):
         LOGGER.warning(f"HindiAnimeZone: failed to persist seen items to DB: {err}")
 
 
-def _prepare_user_settings(user_id: int):
-    """Configures user settings for Hindi Anime Zone auto leech workflow.
-
-    - AUTO_POSTER_ENABLED = True
-    - POST_TEMPLATE_ID = 8 (Anime poster template)
-    - AUTO_REMOVE_STREAMS = True (strips all non-Tamil audio tracks)
-    - AUTO_KEEP_AUDIO_LANGS = 'Tamil' (strictly preserves Tamil audio)
-    - AUTO_UNZIP = True, AUTO_MERGE = True (merges zip/batch packs)
-    - Prepend [S{season}E{episode}] to autorename template
-    """
+def _prepare_user_settings(user_id: int, is_season_pack: bool = False):
+    """Configures user settings for Hindi Anime Zone auto leech workflow."""
     if user_id not in user_data:
         seed_path = "configs/user_settings_8814651149.json"
         if ospath.isfile(seed_path):
@@ -67,16 +59,32 @@ def _prepare_user_settings(user_id: int):
     settings["AUTO_UNZIP"] = True
     settings["AUTO_MERGE"] = True
 
-    # Poster & branding settings
-    settings["AUTO_POSTER_ENABLED"] = True
-    settings["POST_TEMPLATE_ID"] = 11
-    settings["AUTO_POSTER_USE_AS_THUMBNAIL"] = True
-    settings["AUTO_POSTER_SEND_MESSAGE"] = False
+    # AutoRename settings: strictly enforce user template
+    settings["AUTORENAME"] = True
+    settings["RENAME_METHOD"] = "auto"
+    settings["lremname_auto"] = "🄰🅂- [S{season}E{episode}] {name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~ [@Anime_Starfall🥰]"
+    settings["LEECH_PREFIX"] = ""
+    settings["LEECH_SUFFIX"] = ""
 
-    # Auto Thumbnail & Template 11 Thumbnail
-    settings["AUTO_THUMBNAIL"] = True
-    settings["THUMBNAIL_MODE"] = "automatic"
-    settings["FORCE_ANIME_THUMBNAIL"] = False
+    # Differentiated poster & thumbnail rules
+    if is_season_pack:
+        # Batch Zip: Send poster message with details, use auto-thumbnail from video frame (NOT poster as thumbnail)
+        settings["AUTO_POSTER_ENABLED"] = True
+        settings["AUTO_POSTER_SEND_MESSAGE"] = True
+        settings["AUTO_POSTER_USE_AS_THUMBNAIL"] = False
+        settings["AUTO_THUMBNAIL"] = True
+        settings["THUMBNAIL_MODE"] = "automatic"
+        settings["FORCE_ANIME_THUMBNAIL"] = False
+        settings["POST_TEMPLATE_ID"] = 11
+    else:
+        # Single Episode: Do NOT send poster message, use Flagship Template 11 poster as thumbnail for all videos
+        settings["AUTO_POSTER_ENABLED"] = True
+        settings["AUTO_POSTER_SEND_MESSAGE"] = False
+        settings["AUTO_POSTER_USE_AS_THUMBNAIL"] = True
+        settings["POST_TEMPLATE_ID"] = 11
+        settings["AUTO_THUMBNAIL"] = True
+        settings["THUMBNAIL_MODE"] = "automatic"
+        settings["FORCE_ANIME_THUMBNAIL"] = True
 
     # Auto Processing & Intro Subtitles (5min gap, 10sec show across full video length)
     settings["AUTO_PROCESS"] = True
@@ -153,10 +161,10 @@ async def queue_hindianime_candidates(
         if key in seen:
             continue
 
-        _prepare_user_settings(user_id)
+        _prepare_user_settings(user_id, is_season_pack=item.is_season_pack)
 
         LOGGER.info(
-            f"HindiAnimeZone: queuing '{item.file_title}' ({item.quality}) -> "
+            f"HindiAnimeZone: queuing '{item.file_title}' ({item.quality}, zip={item.is_season_pack}) -> "
             f"Anime Channel ({dest_chat}) via: {item.gdflix_url} (staging: {staging_chat_id})"
         )
 
@@ -169,7 +177,7 @@ async def queue_hindianime_candidates(
                 rss_topic_id=staging_topic_id if staging_chat_id else topic_id,
                 item_title=item.file_title,
                 auto_leech=True,
-                rename_mode="title",
+                rename_mode="none",
                 leech_by="bot",
                 rss_upload_chat=dest_chat,
             )

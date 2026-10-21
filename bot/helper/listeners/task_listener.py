@@ -286,6 +286,42 @@ class TaskListener(TaskConfig):
                 self.name = ospath.basename(dl_path)
                 self.size = await get_path_size(dl_path)
 
+            # Corrupted / Incomplete Download Guard (catches HTML error stubs < 15MB)
+            if any(self.name.lower().endswith(ext) for ext in [".mkv", ".mp4", ".webm", ".avi"]):
+                if self.size < 15 * 1024 * 1024:
+                    is_corrupt_stub = False
+                    try:
+                        with open(dl_path, "rb") as f:
+                            header = f.read(512).lower()
+                            if any(
+                                k in header
+                                for k in [
+                                    b"<html",
+                                    b"<!doctype",
+                                    b"access denied",
+                                    b"cloudflare",
+                                    b"403 forbidden",
+                                    b"404 not found",
+                                    b"error",
+                                ]
+                            ):
+                                is_corrupt_stub = True
+                    except Exception:
+                        is_corrupt_stub = True
+                    if not is_corrupt_stub:
+                        from ..ext_utils.media_utils import get_document_type
+                        is_v, _, _ = await get_document_type(dl_path)
+                        if not is_v:
+                            is_corrupt_stub = True
+                    if is_corrupt_stub:
+                        LOGGER.error(
+                            f"Rejecting corrupt/incomplete media file '{self.name}' (size: {self.size} bytes)."
+                        )
+                        await self.on_upload_error(
+                            f"Download rejected: '{self.name}' is only {self.size} bytes and contains HTML error text instead of video."
+                        )
+                        return
+
         if self.seed:
             up_dir = self.up_dir = f"{self.dir}10000"
             up_path = f"{self.up_dir}/{self.name}"

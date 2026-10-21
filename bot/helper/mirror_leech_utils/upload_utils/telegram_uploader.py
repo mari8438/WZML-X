@@ -293,8 +293,13 @@ class TelegramUploader:
         )
         if auto_process_enabled:
             autorename_enabled = bool(autorename_enabled)
+        has_custom_auto = bool(
+            self._listener.user_dict.get("lremname_auto")
+            or Config.LEECH_FILENAME_REMNAME_AUTO
+        )
         if getattr(self._listener, "skip_auto_rename", False):
-            autorename_enabled = False
+            if not has_custom_auto:
+                autorename_enabled = False
 
         if autorename_enabled:
             try:
@@ -1034,6 +1039,19 @@ class TelegramUploader:
                 or force_document
                 or (not is_video and not is_audio and not is_image)
             ):
+                if (
+                    not is_video
+                    and not is_audio
+                    and not is_image
+                    and any(file.lower().endswith(ext) for ext in [".mkv", ".mp4", ".avi", ".webm"])
+                    and f_size < 15 * 1024 * 1024
+                ):
+                    LOGGER.error(f"Rejecting corrupt non-media file upload as document: {file} ({f_size} bytes)")
+                    self._is_corrupted = True
+                    self._corrupted += 1
+                    await starfallx_upload.release_route(route)
+                    self._active_route = None
+                    return
                 key = "documents"
                 if is_video and thumb is None:
                     thumb = await get_video_thumbnail(self._up_path, None)
