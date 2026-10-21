@@ -94,6 +94,24 @@ async def missav_resume(_, message):
 
 MISSAV_DEFAULT_TOPIC_GROUP = -1004326682090
 MISSAV_DEFAULT_BACKUP_CHANNEL = -1003969712219
+MISSAV_DEFAULT_TAGS_GROUP = -1004486729792
+MISSAV_DEFAULT_ACTRESS_GROUP = -1003967556547
+MISSAV_DEFAULT_CODES_GROUP = -1004345896581
+
+IGNORED_TAGS = {
+    "4k",
+    "english_subtitles",
+    "english_subtitle",
+    "englishsubtitles",
+    "englishsubtitle",
+    "engsub",
+    "hd",
+    "vr",
+    "create_playlist",
+    "createplaylist",
+    "exclusive",
+}
+
 _SPECIAL_TOPIC_CACHE: dict[int | str, int] = {}
 _TOPIC_NAME_CACHE: dict[tuple[int | str, str], int] = {}
 
@@ -106,6 +124,74 @@ def _get_backup_channel() -> int | str | None:
         return int(raw)
     except (ValueError, TypeError):
         return raw
+
+
+def _get_tags_group() -> int | str | None:
+    raw = getattr(Config, "MISSAV_TAGS_GROUP", "")
+    if not isinstance(raw, (str, int)) or not raw:
+        return MISSAV_DEFAULT_TAGS_GROUP
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return raw
+
+
+def _get_actress_group() -> int | str | None:
+    raw = getattr(Config, "MISSAV_ACTRESS_GROUP", "")
+    if not isinstance(raw, (str, int)) or not raw:
+        return MISSAV_DEFAULT_ACTRESS_GROUP
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return raw
+
+
+def _get_codes_group() -> int | str | None:
+    raw = getattr(Config, "MISSAV_CODES_GROUP", "")
+    if not isinstance(raw, (str, int)) or not raw:
+        return MISSAV_DEFAULT_CODES_GROUP
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return raw
+
+
+def _is_valid_tag(genre: str) -> bool:
+    clean = sub(r"[^a-zA-Z0-9]+", "", str(genre or "").strip().lower())
+    return bool(clean and clean not in IGNORED_TAGS)
+
+
+def format_tag_topic_name(genre: str) -> str:
+    clean = str(genre or "").strip()
+    clean = sub(r"\s+", " ", clean)
+    return clean[:128] or "General"
+
+
+def extract_code_prefix(item_or_title) -> str:
+    if hasattr(item_or_title, "url") and hasattr(item_or_title, "title"):
+        slug = item_or_title.url.rstrip("/").split("/")[-1].upper()
+        title = item_or_title.title.upper()
+    else:
+        slug = ""
+        title = str(item_or_title).upper()
+
+    if "FC2" in slug or "FC2" in title:
+        return "FC2-PPV"
+
+    for special in ("1PONDO", "CARIBBEANCOM", "HEYZO", "10MUSUME", "PACM"):
+        if special in slug or special in title:
+            return special
+
+    for text_val in (slug, title):
+        m = search(r"\b([A-Za-z][A-Za-z0-9]{1,9})-\d+\b", text_val)
+        if m:
+            return m.group(1).upper()
+
+    m = search(r"\b([A-Z]{2,8})\b", slug or title)
+    if m:
+        return m.group(1).upper()
+
+    return "OTHER"
 
 
 def format_forum_topic_name(query: str, preferred_quality: str | None) -> str:
@@ -195,6 +281,68 @@ async def _create_topic(chat_id: int | str, topic_name: str) -> int | None:
             LOGGER.warning(f"Failed creating forum topic '{topic_name}' with {client}: {err}")
 
     return None
+
+
+async def _resolve_all_target_topics(
+    item: MissAVTitle,
+    explicit_destination: int | str | None = None,
+    explicit_thread_id: int | None = None,
+) -> list[tuple[int | str, int | None]]:
+    targets: list[tuple[int | str, int | None]] = []
+    seen = set()
+
+    def _add_target(cid, tid):
+        if cid is not None:
+            key = (cid, tid)
+            if key not in seen:
+                seen.add(key)
+                targets.append((cid, tid))
+
+    # 1. Tags supergroup: topic per valid genre tag
+    tags_group = _get_tags_group()
+    if tags_group and hasattr(item, "genres") and item.genres:
+        valid_genres = [g for g in item.genres if _is_valid_tag(g)]
+        for genre in valid_genres:
+            t_name = format_tag_topic_name(genre)
+            try:
+                t_id = await _create_topic(tags_group, t_name)
+                _add_target(tags_group, t_id)
+            except Exception as e:
+                LOGGER.warning(f"Failed resolving topic for tag {t_name}: {e}")
+
+    # 2. Actress supergroup: topic per actress name
+    actress_group = _get_actress_group()
+    if actress_group:
+        actresses = [a.strip() for a in (getattr(item, "actors", []) or getattr(item, "actresses", []) or []) if a.strip()]
+        if actresses:
+            for act in actresses:
+                try:
+                    t_id = await _create_topic(actress_group, act[:128])
+                    _add_target(actress_group, t_id)
+                except Exception as e:
+                    LOGGER.warning(f"Failed resolving topic for actress {act}: {e}")
+        else:
+            try:
+                t_id = await _create_topic(actress_group, "Other")
+                _add_target(actress_group, t_id)
+            except Exception as e:
+                LOGGER.warning(f"Failed resolving topic 'Other' for actress group: {e}")
+
+    # 3. Codes supergroup: topic per code prefix
+    codes_group = _get_codes_group()
+    if codes_group:
+        code_prefix = extract_code_prefix(item)
+        try:
+            t_id = await _create_topic(codes_group, code_prefix)
+            _add_target(codes_group, t_id)
+        except Exception as e:
+            LOGGER.warning(f"Failed resolving topic for code {code_prefix}: {e}")
+
+    # 4. Explicit destination (if user provided -up or custom destination)
+    if explicit_destination:
+        _add_target(explicit_destination, explicit_thread_id)
+
+    return targets
 
 
 def _parse_destination(message, tokens):
@@ -731,13 +879,19 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
     dest_msg_ids = []
     backup_copied_success = False
 
+    item = prepared.get("item")
+    explicit_dest = destination if (destination != getattr(Config, "MISSAV_TOPIC_GROUP", "") or thread_id is not None) else None
+    targets = await _resolve_all_target_topics(item, explicit_destination=explicit_dest, explicit_thread_id=thread_id)
+    if not targets and destination:
+        targets = [(destination, thread_id)]
+
     async def _copy_to_destination(msg, reply_to_id=None):
         nonlocal backup_copied_success
         if not msg:
             return None
 
         # 1. Copy to backup channel (e.g. Jav - 1) if configured and distinct
-        if backup_channel and backup_channel != msg.chat.id and backup_channel != destination:
+        if backup_channel and backup_channel != msg.chat.id:
             try:
                 b_msg = await _telegram_call(
                     TgClient.bot.copy_message,
@@ -751,30 +905,29 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
             except Exception as b_err:
                 LOGGER.warning(f"copy_message to backup channel failed: {b_err}")
 
-        # 2. If staging dump was not used, message is already at destination
-        if not use_dump_stage:
-            if hasattr(msg, "id"):
-                dest_msg_ids.append(msg.id)
-            return msg
+        # 2. Copy to all target topics across supergroups
+        first_copied = None
+        for target_chat, target_thread in targets:
+            if target_chat == msg.chat.id and target_thread is None:
+                continue
+            copy_kwargs = {
+                "chat_id": target_chat,
+                "from_chat_id": msg.chat.id,
+                "message_id": msg.id,
+            }
+            if target_thread is not None:
+                copy_kwargs["message_thread_id"] = target_thread
+            try:
+                copied = await _telegram_call(TgClient.bot.copy_message, **copy_kwargs)
+                if copied and hasattr(copied, "id"):
+                    dest_msg_ids.append(copied.id)
+                    if first_copied is None:
+                        first_copied = copied
+                await sleep(0.15)
+            except Exception as error:
+                LOGGER.warning(f"copy_message to {target_chat} (topic {target_thread}) failed: {error}")
 
-        # 3. Copy to destination forum topic
-        copy_kwargs = {
-            "chat_id": destination,
-            "from_chat_id": msg.chat.id,
-            "message_id": msg.id,
-        }
-        if thread_id is not None:
-            copy_kwargs["message_thread_id"] = thread_id
-        if reply_to_id is not None:
-            copy_kwargs["reply_to_message_id"] = reply_to_id
-        try:
-            copied = await _telegram_call(TgClient.bot.copy_message, **copy_kwargs)
-            if copied and hasattr(copied, "id"):
-                dest_msg_ids.append(copied.id)
-            return copied
-        except Exception as error:
-            LOGGER.warning(f"copy_message to destination failed: {error}")
-            return msg
+        return first_copied or msg
 
     # 1. Preview Video / Poster + Caption
     poster_msg = None
@@ -1062,260 +1215,221 @@ async def missav_leech(_, message):
                 translator = None
 
             async with MissAVResolver() as resolver:
-                if target_query.startswith("http://") or target_query.startswith("https://"):
-                    items = await resolver.discover(target_query)
-                elif _is_letter_or_range(target_query):
-                    letters = _parse_letter_range(target_query)
-                    items = []
-                    seen_urls = set()
-                    for letter in letters:
-                        for item in await resolver.discover_letter(letter):
-                            if item.url not in seen_urls:
-                                seen_urls.add(item.url)
-                                items.append(item)
-                else:
-                    items = await resolver.discover_query(target_query)
+                item_index = 0
+                total_estimated = None
+                backup_channel = _get_backup_channel()
 
-            if not items:
-                raise RuntimeError("No eligible MissAV videos found.")
+                async for page_num, total_pages, page_items in resolver.discover_pages(target_query, max_pages=None):
+                    if cancel_event.is_set():
+                        break
+                    if not await _wait_until_resumed(pause_event, cancel_event):
+                        break
 
-            # Route to forum topic: single video -> 'Special' topic, multi-video -> dynamic topic
-            is_single_video = (len(items) == 1)
-            topic_display = "Default"
-            if thread_id is None:
-                if is_single_video:
-                    LOGGER.info(f"Single video leech detected: routing to 'Special' topic in {destination}...")
-                    thread_id = await _resolve_special_topic(destination)
-                    topic_display = "Special"
-                else:
-                    topic_name = format_forum_topic_name(target_query, preferred_quality)
-                    LOGGER.info(f"Multi-video leech detected: routing to forum topic '{topic_name}' in {destination}...")
-                    thread_id = await _create_topic(destination, topic_name)
-                    topic_display = topic_name or "New Topic"
-            else:
-                topic_display = f"Topic {thread_id}"
-
-            status = await edit_message(
-                status,
-                f"<b>MissAV Leech</b>\n"
-                f"Query/Target: <code>{escape(target_query)}</code>\n"
-                f"Topic: <code>{escape(topic_display)}</code>\n"
-                f"Preferred Quality: <code>{preferred_quality or 'All available'}</code>\n"
-                f"Titles to process: <code>{len(items)}</code>\n"
-                f"Subtitle Generation: <code>{'Enabled' if sub_gen_enabled else 'Disabled'}</code>\n"
-                f"Tamil Translation: <code>{'Ready' if translator else 'Disabled'}</code>\n"
-                f"{controls}",
-            )
-
-            # Process each video sequentially to protect RAM and CPU
-            backup_channel = _get_backup_channel()
-            for index, item in enumerate(items, start=1):
-                if cancel_event.is_set():
-                    break
-                if not await _wait_until_resumed(pause_event, cancel_event):
-                    break
-
-                # Deduplication check: if video was already leeched, fast-forward/copy it from dump!
-                cached_rec = await MissAVArchive.get(item)
-                if cached_rec and cached_rec.get("message_ids") and cached_rec.get("chat_id"):
-                    source_chat = cached_rec["chat_id"]
-                    LOGGER.info(f"Video '{item.title}' is already archived in chat {source_chat}! Fast-forwarding {len(cached_rec['message_ids'])} messages to topic {thread_id}...")
-                    fast_forward_ok = True
-                    backup_copied_now = False
-                    new_backup_mids = []
-                    main_dump = getattr(Config, "LEECH_DUMP_CHAT", "")
-                    try:
-                        main_dump = int(main_dump) if main_dump else None
-                    except (ValueError, TypeError):
-                        pass
-
-                    should_backup = bool(
-                        backup_channel
-                        and backup_channel != source_chat
-                        and backup_channel != destination
-                        and (not cached_rec.get("backup_copied") or source_chat == main_dump)
-                    )
-
-                    for mid in cached_rec["message_ids"]:
-                        if cancel_event.is_set():
-                            break
-                        try:
-                            if should_backup:
-                                try:
-                                    b_msg = await _telegram_call(
-                                        TgClient.bot.copy_message,
-                                        chat_id=backup_channel,
-                                        from_chat_id=source_chat,
-                                        message_id=mid,
-                                    )
-                                    if b_msg and hasattr(b_msg, "id"):
-                                        new_backup_mids.append(b_msg.id)
-                                    backup_copied_now = True
-                                except Exception as bkp_err:
-                                    LOGGER.warning(f"Fast-forward backup copy failed for msg {mid}: {bkp_err}")
-
-                            await _telegram_call(
-                                TgClient.bot.copy_message,
-                                chat_id=destination,
-                                from_chat_id=source_chat,
-                                message_id=mid,
-                                message_thread_id=thread_id,
-                            )
-                            await sleep(0.3)
-                        except Exception as copy_err:
-                            LOGGER.warning(f"Fast-forward copy failed for msg {mid}: {copy_err}")
-                            fast_forward_ok = False
-                            break
-
-                    if fast_forward_ok:
-                        if main_dump and source_chat == main_dump:
-                            if new_backup_mids:
-                                await MissAVArchive.save(
-                                    item=item,
-                                    chat_id=backup_channel,
-                                    message_ids=new_backup_mids,
-                                    quality=cached_rec.get("quality", ""),
-                                    backup_copied=True,
-                                )
-                            for i in range(0, len(cached_rec["message_ids"]), 100):
-                                chunk = cached_rec["message_ids"][i : i + 100]
-                                try:
-                                    await _telegram_call(
-                                        TgClient.bot.delete_messages,
-                                        chat_id=main_dump,
-                                        message_ids=chunk,
-                                    )
-                                except Exception as del_err:
-                                    LOGGER.warning(f"Failed deleting legacy dump messages: {del_err}")
-                        elif backup_copied_now:
-                            await MissAVArchive.update_backup_status(item, True)
-
-                        uploaded += 1
-                        LOGGER.info(f"Successfully fast-forwarded {item.title} to {destination} (topic {thread_id})")
-                        if status and not cancel_event.is_set():
-                            with suppress(Exception):
-                                status = await edit_message(
-                                    status,
-                                    f"<b>MissAV Leech Progress</b>\n"
-                                    f"Processed: <code>{index}/{len(items)}</code>\n"
-                                    f"Uploaded: <code>{uploaded}</code> (Archived FF) | Failed: <code>{failed}</code>\n"
-                                    f"Topic: <code>{escape(topic_display)}</code>\n"
-                                    f"State: <code>{'paused' if not pause_event.is_set() else 'running'}</code>\n"
-                                    f"{controls}",
-                                )
-                        continue
-                    else:
-                        LOGGER.warning(f"Fast-forward failed for {item.title}; will re-download fresh.")
-
-                if not item.qualities:
-                    LOGGER.warning(f"No stream qualities available for {item.title}")
-                    failed += 1
-                    continue
-
-                has_eng_sub = is_english_subtitled(item)
-                selected_qualities = _select_quality(item.qualities, preferred_quality)
-                if not selected_qualities:
-                    selected_qualities = item.qualities
-
-                title_dir = ospath.join(root, f"{index:04d}")
-                Path(title_dir).mkdir(parents=True, exist_ok=True)
-
-                try:
-                    # 1. Poster & Artwork (Preview Video / Cover fallback)
-                    cover = ""
-                    thumb = ""
-                    try:
-                        cover = await _download_image(item.thumbnail, ospath.join(title_dir, "cover.jpg"))
-                        if cover and ospath.isfile(cover):
-                            thumb = ospath.join(title_dir, "thumb.jpg")
-                            try:
-                                await sync_to_async(_save_image, Path(cover).read_bytes(), thumb, True)
-                            except Exception as thumb_err:
-                                LOGGER.warning(f"Failed generating thumbnail for {item.title}: {thumb_err}")
-                                thumb = cover
-                    except Exception as img_err:
-                        LOGGER.warning(f"Failed downloading artwork for {item.title}: {img_err}")
-
-                    preview_video = await _download_preview_video(item, ospath.join(title_dir, "preview.mp4"))
-                    poster = preview_video if preview_video and ospath.isfile(preview_video) else cover
-
-                    # 2. Subtitle generation or bypass
-                    headers = MissAVResolver.request_headers(item.url)
-                    helper = YoutubeDLHelper(_DirectListener(controller.user_id, cancel_event))
-                    raw_base_path = None
-                    base_quality = None
-
-                    if not sub_gen_enabled or has_eng_sub:
-                        if has_eng_sub:
-                            LOGGER.info(f"English subtitles detected for {item.title}; skipping subtitle generation and translation (hardcoded subtitles).")
-                        else:
-                            LOGGER.info(f"Subtitle generation disabled via config; skipping for {item.title}.")
-                        tamil_available = False
-                        subtitle_tracks = []
-                    else:
-                        base_quality = selected_qualities[-1] if len(selected_qualities) > 1 else selected_qualities[0]
-                        raw_base_path = ospath.join(title_dir, f"base_{base_quality.label}.mkv")
-
-                        LOGGER.info(f"Downloading base stream ({base_quality.label}) for subtitle generation...")
-                        await helper.download_direct_hls(base_quality.url, raw_base_path, headers)
-
-                        info = await _video_info(raw_base_path)
-                        duration = info["duration"] or item.duration
-
-                        async with cpu_eater_lock:
-                            subtitle_tracks, tamil_available = await generate_all_subtitles_for_video(
-                                raw_base_path,
-                                title_dir,
-                                duration,
-                                translator,
+                    if total_estimated is None and total_pages:
+                        total_estimated = total_pages * 12 if total_pages > 1 else len(page_items)
+                        with suppress(Exception):
+                            status = await edit_message(
+                                status,
+                                f"<b>MissAV Leech</b>\n"
+                                f"Query/Target: <code>{escape(target_query)}</code>\n"
+                                f"Pages: <code>{total_pages}</code> (~{total_estimated} titles)\n"
+                                f"Preferred Quality: <code>{preferred_quality or 'All available'}</code>\n"
+                                f"Subtitle Generation: <code>{'Enabled' if sub_gen_enabled else 'Disabled'}</code>\n"
+                                f"Tamil Translation: <code>{'Ready' if translator else 'Disabled'}</code>\n"
+                                f"{controls}",
                             )
 
-                    # 3. Process and mux each selected quality sequentially
-                    videos = []
-                    for q_idx, quality in enumerate(selected_qualities):
+                    for item in page_items:
+                        item_index += 1
                         if cancel_event.is_set():
                             break
                         if not await _wait_until_resumed(pause_event, cancel_event):
                             break
-                        if q_idx > 0:
-                            await sleep(2)  # Safety cooldown pause between quality muxing
 
-                        target_filename = _video_filename(item, quality, tamil_available, has_eng_sub)
-                        target_mkv = ospath.join(title_dir, target_filename)
+                        # Deduplication check: if video was already leeched, fast-forward/copy it from dump!
+                        cached_rec = await MissAVArchive.get(item)
+                        if cached_rec and cached_rec.get("message_ids") and cached_rec.get("chat_id"):
+                            source_chat = cached_rec["chat_id"]
+                            explicit_dest = destination if (destination != getattr(Config, "MISSAV_TOPIC_GROUP", "") or thread_id is not None) else None
+                            targets = await _resolve_all_target_topics(item, explicit_destination=explicit_dest, explicit_thread_id=thread_id)
+                            if not targets and destination:
+                                targets = [(destination, thread_id)]
 
-                        # If this quality is the already-downloaded base stream, reuse it directly
-                        if raw_base_path and base_quality and quality.url == base_quality.url and ospath.isfile(raw_base_path):
-                            source_path = raw_base_path
-                        else:
-                            source_path = ospath.join(title_dir, f"raw_{quality.label}.mkv")
-                            LOGGER.info(f"Downloading quality {quality.label} for {item.title}...")
-                            await helper.download_direct_hls(quality.url, source_path, headers)
-
-                        # Remux with subtitles
-                        muxed = await _remux_with_subtitles(
-                            source_path,
-                            target_mkv,
-                            item,
-                            subtitle_tracks,
-                            cancel_event,
-                            processes,
-                        )
-                        if muxed and ospath.isfile(muxed):
-                            videos.append((quality, muxed))
-
-                    # Fallback: if preferred quality failed to download or mux, try remaining available qualities
-                    if not videos and len(selected_qualities) < len(item.qualities):
-                        LOGGER.warning(f"Preferred quality failed for {item.title}; trying other available qualities...")
-                        remaining = [q for q in item.qualities if all(q.url != sq.url for sq in selected_qualities)]
-                        for quality in remaining:
-                            if cancel_event.is_set():
-                                break
-                            target_filename = _video_filename(item, quality, tamil_available, has_eng_sub)
-                            target_mkv = ospath.join(title_dir, target_filename)
-                            source_path = ospath.join(title_dir, f"raw_{quality.label}.mkv")
+                            LOGGER.info(f"Video '{item.title}' is already archived in chat {source_chat}! Fast-forwarding {len(cached_rec['message_ids'])} messages to {len(targets)} targets...")
+                            fast_forward_ok = True
+                            backup_copied_now = False
+                            new_backup_mids = []
+                            main_dump = getattr(Config, "LEECH_DUMP_CHAT", "")
                             try:
-                                LOGGER.info(f"Fallback downloading quality {quality.label} for {item.title}...")
-                                await helper.download_direct_hls(quality.url, source_path, headers)
+                                main_dump = int(main_dump) if main_dump else None
+                            except (ValueError, TypeError):
+                                pass
+
+                            should_backup = bool(
+                                backup_channel
+                                and backup_channel != source_chat
+                                and (not cached_rec.get("backup_copied") or source_chat == main_dump)
+                            )
+
+                            for mid in cached_rec["message_ids"]:
+                                if cancel_event.is_set():
+                                    break
+                                try:
+                                    if should_backup:
+                                        try:
+                                            b_msg = await _telegram_call(
+                                                TgClient.bot.copy_message,
+                                                chat_id=backup_channel,
+                                                from_chat_id=source_chat,
+                                                message_id=mid,
+                                            )
+                                            if b_msg and hasattr(b_msg, "id"):
+                                                new_backup_mids.append(b_msg.id)
+                                            backup_copied_now = True
+                                        except Exception as bkp_err:
+                                            LOGGER.warning(f"Fast-forward backup copy failed for msg {mid}: {bkp_err}")
+
+                                    for target_chat, target_thread in targets:
+                                        if target_chat == source_chat and target_thread is None:
+                                            continue
+                                        copy_kw = {
+                                            "chat_id": target_chat,
+                                            "from_chat_id": source_chat,
+                                            "message_id": mid,
+                                        }
+                                        if target_thread is not None:
+                                            copy_kw["message_thread_id"] = target_thread
+                                        await _telegram_call(TgClient.bot.copy_message, **copy_kw)
+                                        await sleep(0.15)
+                                except Exception as copy_err:
+                                    LOGGER.warning(f"Fast-forward copy failed for msg {mid}: {copy_err}")
+                                    fast_forward_ok = False
+                                    break
+
+                            if fast_forward_ok:
+                                if main_dump and source_chat == main_dump:
+                                    if new_backup_mids:
+                                        await MissAVArchive.save(
+                                            item=item,
+                                            chat_id=backup_channel,
+                                            message_ids=new_backup_mids,
+                                            quality=cached_rec.get("quality", ""),
+                                            backup_copied=True,
+                                        )
+                                    for i in range(0, len(cached_rec["message_ids"]), 100):
+                                        chunk = cached_rec["message_ids"][i : i + 100]
+                                        try:
+                                            await _telegram_call(
+                                                TgClient.bot.delete_messages,
+                                                chat_id=main_dump,
+                                                message_ids=chunk,
+                                            )
+                                        except Exception as del_err:
+                                            LOGGER.warning(f"Failed deleting legacy dump messages: {del_err}")
+                                elif backup_copied_now:
+                                    await MissAVArchive.update_backup_status(item, True)
+
+                                uploaded += 1
+                                LOGGER.info(f"Successfully fast-forwarded {item.title} to {len(targets)} targets")
+                                if status and not cancel_event.is_set():
+                                    with suppress(Exception):
+                                        status = await edit_message(
+                                            status,
+                                            f"<b>MissAV Leech Progress</b>\n"
+                                            f"Processed: <code>{item_index}</code> (Page {page_num}/{total_pages})\n"
+                                            f"Uploaded: <code>{uploaded}</code> (Archived FF) | Failed: <code>{failed}</code>\n"
+                                            f"State: <code>{'paused' if not pause_event.is_set() else 'running'}</code>\n"
+                                            f"{controls}",
+                                        )
+                                continue
+                            else:
+                                LOGGER.warning(f"Fast-forward failed for {item.title}; will re-download fresh.")
+
+                        if not item.qualities:
+                            LOGGER.warning(f"No stream qualities available for {item.title}")
+                            failed += 1
+                            continue
+
+                        has_eng_sub = is_english_subtitled(item)
+                        selected_qualities = _select_quality(item.qualities, preferred_quality)
+                        if not selected_qualities:
+                            selected_qualities = item.qualities
+
+                        title_dir = ospath.join(root, f"{item_index:04d}")
+                        Path(title_dir).mkdir(parents=True, exist_ok=True)
+
+                        try:
+                            # 1. Poster & Artwork (Preview Video / Cover fallback)
+                            cover = ""
+                            thumb = ""
+                            try:
+                                cover = await _download_image(item.thumbnail, ospath.join(title_dir, "cover.jpg"))
+                                if cover and ospath.isfile(cover):
+                                    thumb = ospath.join(title_dir, "thumb.jpg")
+                                    try:
+                                        await sync_to_async(_save_image, Path(cover).read_bytes(), thumb, True)
+                                    except Exception as thumb_err:
+                                        LOGGER.warning(f"Failed generating thumbnail for {item.title}: {thumb_err}")
+                                        thumb = cover
+                            except Exception as img_err:
+                                LOGGER.warning(f"Failed downloading artwork for {item.title}: {img_err}")
+
+                            preview_video = await _download_preview_video(item, ospath.join(title_dir, "preview.mp4"))
+                            poster = preview_video if preview_video and ospath.isfile(preview_video) else cover
+
+                            # 2. Subtitle generation or bypass
+                            headers = MissAVResolver.request_headers(item.url)
+                            helper = YoutubeDLHelper(_DirectListener(controller.user_id, cancel_event))
+                            raw_base_path = None
+                            base_quality = None
+
+                            if not sub_gen_enabled or has_eng_sub:
+                                if has_eng_sub:
+                                    LOGGER.info(f"English subtitles detected for {item.title}; skipping subtitle generation and translation (hardcoded subtitles).")
+                                else:
+                                    LOGGER.info(f"Subtitle generation disabled via config; skipping for {item.title}.")
+                                tamil_available = False
+                                subtitle_tracks = []
+                            else:
+                                base_quality = selected_qualities[-1] if len(selected_qualities) > 1 else selected_qualities[0]
+                                raw_base_path = ospath.join(title_dir, f"base_{base_quality.label}.mkv")
+
+                                LOGGER.info(f"Downloading base stream ({base_quality.label}) for subtitle generation...")
+                                await helper.download_direct_hls(base_quality.url, raw_base_path, headers)
+
+                                info = await _video_info(raw_base_path)
+                                duration = info["duration"] or item.duration
+
+                                async with cpu_eater_lock:
+                                    subtitle_tracks, tamil_available = await generate_all_subtitles_for_video(
+                                        raw_base_path,
+                                        title_dir,
+                                        duration,
+                                        translator,
+                                    )
+
+                            # 3. Process and mux each selected quality sequentially
+                            videos = []
+                            for q_idx, quality in enumerate(selected_qualities):
+                                if cancel_event.is_set():
+                                    break
+                                if not await _wait_until_resumed(pause_event, cancel_event):
+                                    break
+                                if q_idx > 0:
+                                    await sleep(2)  # Safety cooldown pause between quality muxing
+
+                                target_filename = _video_filename(item, quality, tamil_available, has_eng_sub)
+                                target_mkv = ospath.join(title_dir, target_filename)
+
+                                # If this quality is the already-downloaded base stream, reuse it directly
+                                if raw_base_path and base_quality and quality.url == base_quality.url and ospath.isfile(raw_base_path):
+                                    source_path = raw_base_path
+                                else:
+                                    source_path = ospath.join(title_dir, f"raw_{quality.label}.mkv")
+                                    LOGGER.info(f"Downloading quality {quality.label} for {item.title}...")
+                                    await helper.download_direct_hls(quality.url, source_path, headers)
+
+                                # Remux with subtitles
                                 muxed = await _remux_with_subtitles(
                                     source_path,
                                     target_mkv,
@@ -1326,63 +1440,90 @@ async def missav_leech(_, message):
                                 )
                                 if muxed and ospath.isfile(muxed):
                                     videos.append((quality, muxed))
-                                    break
-                            except Exception as fb_err:
-                                LOGGER.warning(f"Fallback quality {quality.label} failed: {fb_err}")
 
-                    if not videos:
-                        raise RuntimeError(f"No qualities successfully downloaded or muxed for {item.title}")
+                            # Fallback: if preferred quality failed to download or mux, try remaining available qualities
+                            if not videos and len(selected_qualities) < len(item.qualities):
+                                LOGGER.warning(f"Preferred quality failed for {item.title}; trying other available qualities...")
+                                remaining = [q for q in item.qualities if all(q.url != sq.url for sq in selected_qualities)]
+                                for quality in remaining:
+                                    if cancel_event.is_set():
+                                        break
+                                    target_filename = _video_filename(item, quality, tamil_available, has_eng_sub)
+                                    target_mkv = ospath.join(title_dir, target_filename)
+                                    source_path = ospath.join(title_dir, f"raw_{quality.label}.mkv")
+                                    try:
+                                        LOGGER.info(f"Fallback downloading quality {quality.label} for {item.title}...")
+                                        await helper.download_direct_hls(quality.url, source_path, headers)
+                                        muxed = await _remux_with_subtitles(
+                                            source_path,
+                                            target_mkv,
+                                            item,
+                                            subtitle_tracks,
+                                            cancel_event,
+                                            processes,
+                                        )
+                                        if muxed and ospath.isfile(muxed):
+                                            videos.append((quality, muxed))
+                                            break
+                                    except Exception as fb_err:
+                                        LOGGER.warning(f"Fallback quality {quality.label} failed: {fb_err}")
 
-                    # 4. Sample collage
-                    sample_collage = ""
-                    if item.sample_urls:
-                        sample_paths = await _download_sample_images(item.sample_urls, title_dir)
-                        if sample_paths:
-                            collage_file = ospath.join(title_dir, "sample_collage.jpg")
-                            sample_collage = await sync_to_async(_create_sample_collage, sample_paths, collage_file)
+                            if not videos:
+                                raise RuntimeError(f"No qualities successfully downloaded or muxed for {item.title}")
 
-                    # 5. Translate description if non-English
-                    translated_desc = await _translate_description_to_english(item.description)
-                    if translated_desc:
-                        item.description = translated_desc
+                            # 4. Sample collage
+                            sample_collage = ""
+                            if item.sample_urls:
+                                sample_paths = await _download_sample_images(item.sample_urls, title_dir)
+                                if sample_paths:
+                                    collage_file = ospath.join(title_dir, "sample_collage.jpg")
+                                    sample_collage = await sync_to_async(_create_sample_collage, sample_paths, collage_file)
 
-                    caption, caption_replies = _poster_caption(item, tamil_available, has_eng_sub)
-                    quality_label = selected_qualities[0].label if selected_qualities else (preferred_quality or "")
-                    prepared = {
-                        "item": item,
-                        "preview_video": preview_video,
-                        "poster": poster,
-                        "caption": caption,
-                        "caption_replies": caption_replies,
-                        "thumb": thumb,
-                        "cover": cover,
-                        "videos": videos,
-                        "sample_collage": sample_collage,
-                        "user_id": controller.user_id,
-                        "quality_label": quality_label,
-                    }
+                            # 5. Translate description if non-English
+                            translated_desc = await _translate_description_to_english(item.description)
+                            if translated_desc:
+                                item.description = translated_desc
 
-                    # 6. Upload
-                    uploaded += await _upload_title(prepared, destination, thread_id, cancel_event)
+                            caption, caption_replies = _poster_caption(item, tamil_available, has_eng_sub)
+                            quality_label = selected_qualities[0].label if selected_qualities else (preferred_quality or "")
+                            prepared = {
+                                "item": item,
+                                "preview_video": preview_video,
+                                "poster": poster,
+                                "caption": caption,
+                                "caption_replies": caption_replies,
+                                "thumb": thumb,
+                                "cover": cover,
+                                "videos": videos,
+                                "sample_collage": sample_collage,
+                                "user_id": controller.user_id,
+                                "quality_label": quality_label,
+                            }
 
-                except Exception as error:
-                    failed += 1
-                    LOGGER.error(f"Failed processing MissAV title {item.title}: {error}", exc_info=True)
-                finally:
-                    await sync_to_async(rmtree, title_dir, ignore_errors=True)
-                    gc.collect()
-                    await sleep(3)  # Safety cooldown pause between sequential titles
+                            # 6. Upload
+                            uploaded += await _upload_title(prepared, destination, thread_id, cancel_event)
 
-                if status and not cancel_event.is_set():
-                    with suppress(Exception):
-                        status = await edit_message(
-                            status,
-                            f"<b>MissAV Leech Progress</b>\n"
-                            f"Processed: <code>{index}/{len(items)}</code>\n"
-                            f"Uploaded: <code>{uploaded}</code> | Failed: <code>{failed}</code>\n"
-                            f"State: <code>{'paused' if not pause_event.is_set() else 'running'}</code>\n"
-                            f"{controls}",
-                        )
+                        except Exception as error:
+                            failed += 1
+                            LOGGER.error(f"Failed processing MissAV title {item.title}: {error}", exc_info=True)
+                        finally:
+                            await sync_to_async(rmtree, title_dir, ignore_errors=True)
+                            gc.collect()
+                            await sleep(3)  # Safety cooldown pause between sequential titles
+
+                        if status and not cancel_event.is_set():
+                            with suppress(Exception):
+                                status = await edit_message(
+                                    status,
+                                    f"<b>MissAV Leech Progress</b>\n"
+                                    f"Processed: <code>{item_index}</code> (Page {page_num}/{total_pages})\n"
+                                    f"Uploaded: <code>{uploaded}</code> | Failed: <code>{failed}</code>\n"
+                                    f"State: <code>{'paused' if not pause_event.is_set() else 'running'}</code>\n"
+                                    f"{controls}",
+                                )
+
+                if item_index == 0:
+                    raise RuntimeError("No eligible MissAV videos found.")
 
             final_state = "cancelled" if cancel_event.is_set() else "completed"
             if status:

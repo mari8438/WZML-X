@@ -381,6 +381,91 @@ class TestMissAV(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_is_valid_tag(self):
+        # Ignored tags should return False
+        for tag in ["#4k", "4k", "#english_subtitles", "English Subtitles", "english_subtitle", "#hd", "VR", "create_playlist", "exclusive"]:
+            self.assertFalse(leech_mod._is_valid_tag(tag), f"Expected {tag} to be invalid")
+        
+        # Regular tags should return True
+        for tag in ["Creampie", "Milf", "Schoolgirl", "Cosplay", "Drama", "Office Lady"]:
+            self.assertTrue(leech_mod._is_valid_tag(tag), f"Expected {tag} to be valid")
+
+    def test_extract_code_prefix(self):
+        self.assertEqual(leech_mod.extract_code_prefix("SSIS-123"), "SSIS")
+        self.assertEqual(leech_mod.extract_code_prefix("stars-999"), "STARS")
+        self.assertEqual(leech_mod.extract_code_prefix("ADN-456"), "ADN")
+        self.assertEqual(leech_mod.extract_code_prefix("FC2-PPV-1234567"), "FC2-PPV")
+        self.assertEqual(leech_mod.extract_code_prefix("1pondo-123456_001"), "1PONDO")
+        self.assertEqual(leech_mod.extract_code_prefix("caribbeancom-010123-001"), "CARIBBEANCOM")
+
+    def test_resolve_all_target_topics(self):
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        item = resolver_mod.MissAVTitle(
+            url="https://missav.live/en/ssis-555",
+            title="SSIS-555 Beautiful Morning",
+            genres=["4k", "English Subtitles", "Creampie", "Exclusive", "Milf"],
+            actors=["Yui Hatano", "Meguri"],
+        )
+
+        async def run_test():
+            # Mock _create_topic to return predictable IDs
+            topic_counter = 100
+            async def fake_create_topic(chat_id, name):
+                nonlocal topic_counter
+                topic_counter += 1
+                return topic_counter
+
+            orig_create_topic = leech_mod._create_topic
+            leech_mod._create_topic = AsyncMock(side_effect=fake_create_topic)
+            try:
+                targets = await leech_mod._resolve_all_target_topics(item)
+                # Targets should contain:
+                # 2 for valid genres (Creampie, Milf) in tags_group (-1004486729792)
+                # 2 for actresses (Yui Hatano, Meguri) in actress_group (-1003967556547)
+                # 1 for code prefix (SSIS) in codes_group (-1004345896581)
+                tags_targets = [t for t in targets if t[0] == leech_mod.MISSAV_DEFAULT_TAGS_GROUP]
+                act_targets = [t for t in targets if t[0] == leech_mod.MISSAV_DEFAULT_ACTRESS_GROUP]
+                code_targets = [t for t in targets if t[0] == leech_mod.MISSAV_DEFAULT_CODES_GROUP]
+
+                self.assertEqual(len(tags_targets), 2)
+                self.assertEqual(len(act_targets), 2)
+                self.assertEqual(len(code_targets), 1)
+                self.assertEqual(len(targets), 5)
+            finally:
+                leech_mod._create_topic = orig_create_topic
+
+        asyncio.run(run_test())
+
+    def test_discover_pages_streaming(self):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        def mock_links(source, page_url):
+            if "page=2" in page_url:
+                return ["https://missav.live/en/card-13"]
+            else:
+                return [f"https://missav.live/en/card-{i}" for i in range(1, 13)]
+
+        async def run_test():
+            r = resolver_mod.MissAVResolver()
+            r._get = AsyncMock(return_value="<html>dummy</html>")
+            r.resolve_title = AsyncMock(side_effect=lambda u, s=None: resolver_mod.MissAVTitle(url=u, title=u.split('/')[-1]))
+
+            with patch.object(resolver_mod, "_catalog_links", side_effect=mock_links):
+                pages_collected = []
+                async for p, total, items in r.discover_pages("https://missav.live/en/english-subtitle", max_pages=2):
+                    pages_collected.append((p, total, [it.title for it in items]))
+
+            self.assertEqual(len(pages_collected), 2)
+            self.assertEqual(pages_collected[0][0], 1)
+            self.assertEqual(len(pages_collected[0][2]), 12)
+            self.assertEqual(pages_collected[1][0], 2)
+            self.assertEqual(pages_collected[1][2], ["card-13"])
+
+        asyncio.run(run_test())
+
 
 if __name__ == "__main__":
     unittest.main()

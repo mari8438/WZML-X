@@ -467,6 +467,204 @@ class MissAVResolver:
         items.sort(key=lambda x: x.views, reverse=True)
         return items
 
+    async def discover_pages(self, target_query: str, max_pages: int | None = None):
+        """
+        Asynchronously yields (page_num, total_pages, list[MissAVTitle]) page by page.
+        Supports:
+          1. Single video URLs (yields (1, 1, [single_item]))
+          2. Category/catalog URLs (e.g. https://missav.live/en/english-subtitle)
+          3. Letter ranges (e.g. A-C or A)
+          4. Search queries (e.g. 'English Subtitles', 'Mother English Subtitles')
+        """
+        clean_target = str(target_query or "").strip()
+        sem = Semaphore(5)
+
+        # 1. Direct MissAV URL
+        if _valid_missav_url(clean_target):
+            is_sub_category = bool(search(r"english[\s_-]*subtitle", clean_target, IGNORECASE))
+            source = await self._get(clean_target)
+            if _player_urls(source):
+                title_item = await self.resolve_title(clean_target, source)
+                if is_sub_category and "English Subtitles" not in title_item.genres:
+                    title_item.genres.append("English Subtitles")
+                yield (1, 1, [title_item])
+                return
+
+            tree = html.fromstring(source)
+            page_nums = [
+                int(p)
+                for p in tree.xpath("//nav//a[contains(@href, 'page=')]/text() | //nav//span/text()")
+                if p.strip().isdigit()
+            ]
+            total_pages = max(page_nums) if page_nums else (max_pages or 1)
+            if max_pages:
+                total_pages = min(total_pages, max_pages)
+
+            seen_links = set()
+            for page in range(1, total_pages + 1):
+                if page == 1:
+                    cur_source = source
+                    cur_url = clean_target
+                else:
+                    sep = "&" if "?" in clean_target else "?"
+                    cur_url = f"{clean_target}{sep}page={page}"
+                    try:
+                        cur_source = await self._get(cur_url)
+                    except Exception as p_err:
+                        LOGGER.warning(f"Error fetching page {page}: {p_err}")
+                        break
+
+                page_links = _catalog_links(cur_source, cur_url)
+                if not page_links:
+                    break
+                new_links = [l for l in page_links if l not in seen_links]
+                if not new_links:
+                    break
+                for l in new_links:
+                    seen_links.add(l)
+
+                async def _resolve_one_item(link):
+                    async with sem:
+                        try:
+                            item = await self.resolve_title(link)
+                            if is_sub_category and "English Subtitles" not in item.genres:
+                                item.genres.append("English Subtitles")
+                            return item
+                        except Exception as err:
+                            LOGGER.warning(f"Failed resolving card {link}: {err}")
+                            return None
+
+                resolved = await gather(*(_resolve_one_item(l) for l in new_links))
+                items = [it for it in resolved if it is not None]
+                if items:
+                    yield (page, total_pages, items)
+                if len(page_links) < 12 and page >= total_pages:
+                    break
+            return
+
+        # 2. Check if clean_target is purely asking for English Subtitles
+        has_sub_filter = bool(search(r"(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)", clean_target, IGNORECASE))
+        keyword = sub(r"(?i)\b(?:english[\s_-]*sub(?:title)?s?|eng[\s_-]*sub)\b", "", clean_target).strip()
+        if has_sub_filter and not keyword:
+            cat_url = f"{MISSAV_BASE}/en/english-subtitle"
+            async for p, tp, items in self.discover_pages(cat_url, max_pages=max_pages):
+                yield (p, tp, items)
+            return
+
+        # 3. Check if clean_target is letter or letter range (e.g. A or A-C)
+        is_letter = (len(clean_target) == 1 and "A" <= clean_target.upper() <= "Z")
+        is_range = (
+            len(clean_target) == 3
+            and clean_target[1] == "-"
+            and "A" <= clean_target[0].upper() <= "Z"
+            and "A" <= clean_target[2].upper() <= "Z"
+        )
+        if is_letter or is_range:
+            if is_letter:
+                letters = [clean_target.upper()]
+            else:
+                c1, c2 = clean_target[0].upper(), clean_target[2].upper()
+                if c1 > c2:
+                    c1, c2 = c2, c1
+                letters = [chr(code) for code in range(ord(c1), ord(c2) + 1)]
+
+            letter_max_pages = max_pages or 20
+            for idx, letter in enumerate(letters, 1):
+                seen_letter_links = set()
+                for page in range(1, letter_max_pages + 1):
+                    page_param = f"&page={page}" if page > 1 else ""
+                    page_url = f"{MISSAV_BASE}/en/search/{quote(letter)}?sort=views{page_param}"
+                    try:
+                        source = await self._get(page_url)
+                    except Exception:
+                        break
+                    page_links = _catalog_links(source, page_url)
+                    if not page_links:
+                        break
+                    new_links = [l for l in page_links if l not in seen_letter_links]
+                    if not new_links:
+                        break
+                    for l in new_links:
+                        seen_letter_links.add(l)
+
+                    async def _resolve_let(link):
+                        async with sem:
+                            try:
+                                return await self.resolve_title(link)
+                            except Exception:
+                                return None
+
+                    resolved = await gather(*(_resolve_let(l) for l in new_links))
+                    items = [it for it in resolved if it is not None]
+                    if items:
+                        yield (page, letter_max_pages, items)
+                    if len(page_links) < 12:
+                        break
+            return
+
+        # 4. Search query
+        encoded = quote(keyword or clean_target)
+        params = ["sort=views"]
+        if has_sub_filter:
+            params.append("filters=english-subtitle")
+
+        base_search_url = f"{MISSAV_BASE}/en/search/{encoded}?{'&'.join(params)}"
+        try:
+            source = await self._get(base_search_url)
+        except Exception as e:
+            LOGGER.warning(f"Error fetching search page for {clean_target}: {e}")
+            return
+
+        tree = html.fromstring(source)
+        page_nums = [
+            int(p)
+            for p in tree.xpath("//nav//a[contains(@href, 'page=')]/text() | //nav//span/text()")
+            if p.strip().isdigit()
+        ]
+        total_pages = max(page_nums) if page_nums else (max_pages or 1)
+        if max_pages:
+            total_pages = min(total_pages, max_pages)
+
+        seen_search_links = set()
+        for page in range(1, total_pages + 1):
+            page_param = f"&page={page}" if page > 1 else ""
+            page_url = f"{MISSAV_BASE}/en/search/{encoded}?{'&'.join(params)}{page_param}"
+            if page == 1:
+                cur_source = source
+            else:
+                try:
+                    cur_source = await self._get(page_url)
+                except Exception as p_err:
+                    LOGGER.warning(f"Search page error {page}: {p_err}")
+                    break
+
+            page_links = _catalog_links(cur_source, page_url)
+            if not page_links:
+                break
+            new_links = [l for l in page_links if l not in seen_search_links]
+            if not new_links:
+                break
+            for l in new_links:
+                seen_search_links.add(l)
+
+            async def _resolve_q(link):
+                async with sem:
+                    try:
+                        item = await self.resolve_title(link)
+                        if has_sub_filter and "English Subtitles" not in item.genres:
+                            item.genres.append("English Subtitles")
+                        return item
+                    except Exception as err:
+                        LOGGER.warning(f"Failed resolving {link}: {err}")
+                        return None
+
+            resolved = await gather(*(_resolve_q(l) for l in new_links))
+            items = [it for it in resolved if it is not None]
+            if items:
+                yield (page, total_pages, items)
+            if len(page_links) < 12 and page >= total_pages:
+                break
+
     async def resolve_title(self, url, source=None):
         source = source or await self._get(url)
         tree = html.fromstring(source)
