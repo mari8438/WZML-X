@@ -219,7 +219,7 @@ async def _start_rss_download(
         LOGGER.error(f"RSS: Cannot start download, unknown command: {command}")
         return
 
-    clean_title = re_sub(r'[\r\n"'<>|?*:]', '', str(item_title or "")).strip()
+    clean_title = re_sub(r"[\r\n\"'<>|?*:]", "", str(item_title or "")).strip()
     name_flag = f' -n "{clean_title}"' if clean_title and "-n " not in command else ""
     cmd_text = f"/{command.strip().lstrip('/')}"
     parts = cmd_text.split(maxsplit=1)
