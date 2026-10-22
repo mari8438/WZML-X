@@ -557,7 +557,8 @@ def _split_description(description, limit=3000):
 def _poster_caption(item: MissAVTitle, tamil_available: bool, has_eng_sub: bool = False) -> tuple[str, list[str]]:
     title = escape(item.title, quote=False)
     date = escape(item.date or "N/A", quote=False)
-    views = f"{item.views:,}" if item.views else "N/A"
+    views = f"{item.views:,}" if getattr(item, "views", 0) else ""
+    views_part = f"👁 {views} Views | " if views else ""
     genres = _genre_hashtags(item.genres)
     description = escape(item.description or "N/A", quote=False)
 
@@ -575,7 +576,7 @@ def _poster_caption(item: MissAVTitle, tamil_available: bool, has_eng_sub: bool 
         f"<b>「 {title} 」\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
         "╔════◇═══════════◇════\n"
-        f"║ 👁 {views} Views | 📅 {date}\n"
+        f"║ {views_part}📅 {date}\n"
         f"║ 🇯🇵 Japanese ~ {subtitle_label}\n"
         f"{cast_part}"
         f"{maker_part}"
