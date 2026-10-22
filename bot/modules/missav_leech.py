@@ -19,6 +19,7 @@ from os import listdir as oslistdir, path as ospath
 from pathlib import Path
 from re import IGNORECASE, search, sub
 from shutil import rmtree
+from time import time, localtime, strftime
 from urllib.parse import urlsplit
 
 from ..helper.ext_utils.files_utils import split_file
@@ -847,12 +848,41 @@ class _DirectListener:
         return self._cancel_event.is_set()
 
 
+_UPLOAD_CLIENT_INDEX = 0
+
+def _get_upload_client():
+    global _UPLOAD_CLIENT_INDEX
+    clients = []
+    if TgClient.bot:
+        clients.append(TgClient.bot)
+    if hasattr(TgClient, "helper_bots") and TgClient.helper_bots:
+        clients.extend(TgClient.helper_bots.values())
+    if not clients:
+        return TgClient.bot
+    client = clients[_UPLOAD_CLIENT_INDEX % len(clients)]
+    _UPLOAD_CLIENT_INDEX += 1
+    return client
+
 async def _telegram_call(method, **kwargs):
-    while True:
+    retries = 5
+    while retries > 0:
         try:
             return await method(**kwargs)
         except FloodWait as error:
-            await sleep(max(int(error.value), 1))
+            wait_time = max(int(error.value), 1) + 1
+            LOGGER.warning(f"Telegram FloodWait encountered: sleeping {wait_time}s...")
+            await sleep(wait_time)
+            retries -= 1
+        except Exception as e:
+            err_str = str(e).upper()
+            if "FLOOD_WAIT" in err_str:
+                m = search(r"(\d+)", err_str)
+                wait_time = int(m.group(1)) + 1 if m else 5
+                LOGGER.warning(f"FloodWait in RPC error: sleeping {wait_time}s...")
+                await sleep(wait_time)
+                retries -= 1
+                continue
+            raise e
 
 
 async def _upload_title(prepared, destination, thread_id, cancel_event):
@@ -890,11 +920,13 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         if not msg:
             return None
 
+        copy_bot = _get_upload_client()
+
         # 1. Copy to backup channel (e.g. Jav - 1) if configured and distinct
         if backup_channel and backup_channel != msg.chat.id:
             try:
                 b_msg = await _telegram_call(
-                    TgClient.bot.copy_message,
+                    copy_bot.copy_message,
                     chat_id=backup_channel,
                     from_chat_id=msg.chat.id,
                     message_id=msg.id,
@@ -903,7 +935,18 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
                     backup_msg_ids.append(b_msg.id)
                 backup_copied_success = True
             except Exception as b_err:
-                LOGGER.warning(f"copy_message to backup channel failed: {b_err}")
+                try:
+                    b_msg = await _telegram_call(
+                        TgClient.bot.copy_message,
+                        chat_id=backup_channel,
+                        from_chat_id=msg.chat.id,
+                        message_id=msg.id,
+                    )
+                    if b_msg and hasattr(b_msg, "id"):
+                        backup_msg_ids.append(b_msg.id)
+                    backup_copied_success = True
+                except Exception as b_err2:
+                    LOGGER.warning(f"copy_message to backup channel failed: {b_err2}")
 
         # 2. Copy to all target topics across supergroups
         first_copied = None
@@ -918,14 +961,22 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
             if target_thread is not None:
                 copy_kwargs["message_thread_id"] = target_thread
             try:
-                copied = await _telegram_call(TgClient.bot.copy_message, **copy_kwargs)
+                copied = await _telegram_call(copy_bot.copy_message, **copy_kwargs)
                 if copied and hasattr(copied, "id"):
                     dest_msg_ids.append(copied.id)
                     if first_copied is None:
                         first_copied = copied
-                await sleep(0.15)
+                await sleep(0.2)
             except Exception as error:
-                LOGGER.warning(f"copy_message to {target_chat} (topic {target_thread}) failed: {error}")
+                try:
+                    copied = await _telegram_call(TgClient.bot.copy_message, **copy_kwargs)
+                    if copied and hasattr(copied, "id"):
+                        dest_msg_ids.append(copied.id)
+                        if first_copied is None:
+                            first_copied = copied
+                    await sleep(0.2)
+                except Exception as error2:
+                    LOGGER.warning(f"copy_message to {target_chat} (topic {target_thread}) failed: {error2}")
 
         return first_copied or msg
 
@@ -934,11 +985,12 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
     preview_vid = prepared.get("preview_video")
     poster_img = prepared.get("poster")
     thumb_img = prepared.get("thumb") or poster_img
+    upload_bot = _get_upload_client()
 
     if preview_vid and ospath.isfile(preview_vid):
         try:
             poster_msg = await _telegram_call(
-                TgClient.bot.send_video,
+                upload_bot.send_video,
                 video=preview_vid,
                 thumb=thumb_img if thumb_img and ospath.isfile(thumb_img) else None,
                 caption=prepared["caption"],
@@ -951,7 +1003,7 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
     if not poster_msg and poster_img and ospath.isfile(poster_img):
         try:
             poster_msg = await _telegram_call(
-                TgClient.bot.send_photo,
+                upload_bot.send_photo,
                 photo=poster_img,
                 caption=prepared["caption"],
                 **kwargs,
@@ -959,13 +1011,13 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         except Exception as error:
             LOGGER.warning(f"MissAV poster upload failed, sending text: {error}")
             poster_msg = await _telegram_call(
-                TgClient.bot.send_message,
+                upload_bot.send_message,
                 text=prepared["caption"],
                 **kwargs,
             )
     elif not poster_msg:
         poster_msg = await _telegram_call(
-            TgClient.bot.send_message,
+            upload_bot.send_message,
             text=prepared["caption"],
             **kwargs,
         )
@@ -980,7 +1032,7 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         reply_kwargs = dict(kwargs)
         if poster_msg:
             reply_kwargs["reply_to_message_id"] = poster_msg.id
-        reply_msg = await _telegram_call(TgClient.bot.send_message, text=reply, **reply_kwargs)
+        reply_msg = await _telegram_call(upload_bot.send_message, text=reply, **reply_kwargs)
         if reply_msg:
             stage_msg_ids.append(reply_msg.id)
         await _copy_to_destination(
@@ -1002,7 +1054,7 @@ async def _upload_title(prepared, destination, thread_id, cancel_event):
         client = (
             TgClient.user
             if (TgClient.user and (file_size > TgClient.NON_PREMIUM_SPLIT_SIZE or not TgClient.bot))
-            else TgClient.bot
+            else _get_upload_client()
         )
 
         media = {
@@ -1197,27 +1249,20 @@ async def missav_leech(_, message):
         )
 
         uploaded = failed = 0
-        sub_gen_enabled = getattr(Config, "MISSAV_SUBTITLE_GENERATION", False)
-        translation_enabled = getattr(Config, "MISSAV_TRANSLATION", False) and sub_gen_enabled
+        sub_gen_enabled = False
+        translation_enabled = False
+        translator = None
+        LOGGER.info("MissAV: subtitle generation and translation are permanently disabled.")
 
         try:
-            if translation_enabled:
-                # Initialize NLLB Tamil translator only when enabled
-                translator = HstreamTranslator()
-                try:
-                    await translator.start(cancel_event)
-                    LOGGER.info("MissAV NLLB Tamil translator started successfully.")
-                except Exception as error:
-                    LOGGER.warning(f"MissAV Tamil translation unavailable; falling back to ESub: {error}")
-                    translator = None
-            else:
-                LOGGER.info("MissAV NLLB Tamil translation disabled via config.")
-                translator = None
 
             async with MissAVResolver() as resolver:
                 item_index = 0
                 total_estimated = None
                 backup_channel = _get_backup_channel()
+                last_break_time = time()
+                WORK_INTERVAL_SECONDS = 30 * 60
+                COOLING_BREAK_SECONDS = 5 * 60
 
                 async for page_num, total_pages, page_items in resolver.discover_pages(target_query, max_pages=None):
                     if cancel_event.is_set():
@@ -1521,6 +1566,29 @@ async def missav_leech(_, message):
                                     f"State: <code>{'paused' if not pause_event.is_set() else 'running'}</code>\n"
                                     f"{controls}",
                                 )
+
+                        now = time()
+                        if now - last_break_time >= WORK_INTERVAL_SECONDS and not cancel_event.is_set():
+                            LOGGER.info("MissAV 30-minute work cycle reached. Starting 5-minute cooling break...")
+                            resume_time_str = strftime("%I:%M:%S %p", localtime(time() + COOLING_BREAK_SECONDS))
+                            if status and not cancel_event.is_set():
+                                with suppress(Exception):
+                                    status = await edit_message(
+                                        status,
+                                        f"⏸ <b>MissAV Cooling Break (5 Min)</b>\n"
+                                        f"Processed: <code>{item_index}</code> (Page {page_num}/{total_pages})\n"
+                                        f"Uploaded: <code>{uploaded}</code> | Failed: <code>{failed}</code>\n"
+                                        f"Clearing RAM and resting CPU...\n"
+                                        f"▶️ Resuming automatically at <b>{resume_time_str}</b>\n"
+                                        f"{controls}",
+                                    )
+                            gc.collect()
+                            break_target = time() + COOLING_BREAK_SECONDS
+                            while time() < break_target and not cancel_event.is_set():
+                                await sleep(2)
+
+                            last_break_time = time()
+                            LOGGER.info("MissAV cooling break finished. Resuming work...")
 
                 if item_index == 0:
                     raise RuntimeError("No eligible MissAV videos found.")
