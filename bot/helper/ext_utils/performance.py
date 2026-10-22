@@ -117,7 +117,7 @@ def get_tg_flood_wait_multiplier():
 def get_max_parallel_tasks():
     configured = _safe_int(getattr(Config, "MAX_PARALLEL_TASKS", 0))
     if configured > 0:
-        profile_cap = {"safe": 2, "balanced": 3}.get(get_performance_profile())
+        profile_cap = {"safe": 2, "balanced": 6}.get(get_performance_profile())
         return min(configured, profile_cap) if profile_cap else configured
 
     profile = get_performance_profile()
