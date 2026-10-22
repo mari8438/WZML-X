@@ -53,6 +53,7 @@ sys.modules["bot.helper.ext_utils.missav_subtitles"] = subtitles_mod
 spec_sub.loader.exec_module(subtitles_mod)
 
 _ARCHIVE_PATH = _REPO_ROOT / "bot" / "helper" / "ext_utils" / "missav_archive.py"
+_TOPIC_ARCH_PATH = _REPO_ROOT / "bot" / "helper" / "ext_utils" / "missav_topic_archive.py"
 
 # Load archive module
 spec_arc = importlib.util.spec_from_file_location("bot.helper.ext_utils.missav_archive", _ARCHIVE_PATH)
@@ -60,6 +61,13 @@ archive_mod = importlib.util.module_from_spec(spec_arc)
 archive_mod.__package__ = "bot.helper.ext_utils"
 sys.modules["bot.helper.ext_utils.missav_archive"] = archive_mod
 spec_arc.loader.exec_module(archive_mod)
+
+# Load topic archive module
+spec_topic_arc = importlib.util.spec_from_file_location("bot.helper.ext_utils.missav_topic_archive", _TOPIC_ARCH_PATH)
+topic_arc_mod = importlib.util.module_from_spec(spec_topic_arc)
+topic_arc_mod.__package__ = "bot.helper.ext_utils"
+sys.modules["bot.helper.ext_utils.missav_topic_archive"] = topic_arc_mod
+spec_topic_arc.loader.exec_module(topic_arc_mod)
 
 # Load leech module
 spec_mod = importlib.util.spec_from_file_location("bot.modules.missav_leech", _MODULE_PATH)

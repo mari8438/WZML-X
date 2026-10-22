@@ -134,6 +134,7 @@ class MissAVArchive:
                         "message_ids": doc.get("message_ids", []),
                         "quality": doc.get("quality", ""),
                         "backup_copied": doc.get("backup_copied", False),
+                        "supergroups_copied": doc.get("supergroups_copied", True),
                         "time": doc.get("time", 0),
                     }
                     _ARCHIVE_CACHE[code] = rec
@@ -144,7 +145,7 @@ class MissAVArchive:
         return None
 
     @classmethod
-    async def save(cls, item, chat_id: int | str, message_ids: list[int], quality: str = "", backup_copied: bool = False):
+    async def save(cls, item, chat_id: int | str, message_ids: list[int], quality: str = "", backup_copied: bool = False, supergroups_copied: bool = True):
         if not _INITIALIZED:
             await cls.init()
         code = _extract_video_code(item)
@@ -164,6 +165,7 @@ class MissAVArchive:
             "message_ids": [int(mid) for mid in message_ids if mid],
             "quality": quality,
             "backup_copied": bool(backup_copied),
+            "supergroups_copied": bool(supergroups_copied),
             "time": time(),
         }
 
