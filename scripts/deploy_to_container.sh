@@ -1,8 +1,7 @@
 #!/bin/bash
 set -e
-echo "Copying updated files into wzml-x-app-1..."
+echo "Copying updated bot files into wzml-x-app-1..."
 docker cp /root/WZML-X/bot wzml-x-app-1:/usr/src/app/
-docker cp /root/WZML-X/config.py wzml-x-app-1:/usr/src/app/
 echo "Restarting wzml-x-app-1 container..."
 docker restart wzml-x-app-1
 echo "Checking container status..."
