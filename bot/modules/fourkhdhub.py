@@ -34,34 +34,25 @@ async def _save_seen(seen: set[str]):
         LOGGER.warning(f"4KHDHub: failed to persist seen items to DB: {err}")
 
 
-def _prepare_user_settings(user_id: int, is_series: bool):
-    """Configures user settings for 4khdhub leech workflow.
+def _get_fourkhd_task_settings(user_id: int, is_series: bool) -> dict:
+    """Returns task-specific settings for 4KHDHub without mutating global user_data."""
+    seed_settings = {}
+    seed_path = "configs/user_settings_8814651149.json"
+    if ospath.isfile(seed_path):
+        try:
+            with open(seed_path, "r", encoding="utf-8") as f:
+                data = loads(f.read())
+                seed_settings = data.get("settings", {})
+        except Exception:
+            pass
 
-    - For webseries/season: AUTO_POSTER_ENABLED is set to True, and
-      the autorename template prepends [S{season}E{episode}].
-    - For movies: standard template is preserved.
-    """
-    if user_id not in user_data:
-        # Load from seed file if available
-        seed_path = "configs/user_settings_8814651149.json"
-        if ospath.isfile(seed_path):
-            try:
-                with open(seed_path, "r", encoding="utf-8") as f:
-                    data = loads(f.read())
-                    user_data[user_id] = data.get("settings", {})
-            except Exception as e:
-                LOGGER.warning(f"4KHDHub: failed loading seed user settings: {e}")
-        if user_id not in user_data:
-            user_data[user_id] = {}
-
-    settings = user_data[user_id]
+    settings = dict(user_data.get(user_id) or seed_settings)
     base_rename = (
         settings.get("lremname_auto")
         or getattr(Config, "LEECH_FILENAME_REMNAME_AUTO", "")
         or "{name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~"
     )
 
-    # Clean any preexisting prefix from base_rename to avoid compounding
     clean_base = base_rename.replace("[S{season}E{episode}] ", "").replace("[S{season}E{episode}]", "").strip()
 
     if is_series:
@@ -69,6 +60,15 @@ def _prepare_user_settings(user_id: int, is_series: bool):
         settings["lremname_auto"] = f"[S{{season}}E{{episode}}] {clean_base}"
     else:
         settings["lremname_auto"] = clean_base
+
+    return settings
+
+
+def _prepare_user_settings(user_id: int, is_series: bool):
+    """Configures user settings for 4khdhub leech workflow (test compatibility)."""
+    settings = _get_fourkhd_task_settings(user_id, is_series)
+    user_data[user_id] = settings
+    return settings
 
 
 def _get_target_channel(is_series: bool) -> str:
@@ -84,6 +84,7 @@ async def queue_fourkhd_candidates(
     candidates: list[FourKHDHubCandidate],
     owner_id: Optional[int] = None,
     seen: Optional[set[str]] = None,
+    target_chat: Optional[str] = None,
 ) -> int:
     """Queues eligible candidates into WZML-X leech engine with proper channel routing and user settings."""
     seen = seen if seen is not None else _seen_items()
@@ -97,7 +98,7 @@ async def queue_fourkhd_candidates(
         if key in seen:
             continue
 
-        dest_chat = _get_target_channel(item.is_series)
+        dest_chat = target_chat or _get_target_channel(item.is_series)
         if not dest_chat or dest_chat == "0":
             LOGGER.warning(
                 f"4KHDHub: skipping '{item.file_title}' because destination channel for "
@@ -110,7 +111,7 @@ async def queue_fourkhd_candidates(
             LOGGER.warning(f"4KHDHub: invalid chat ID: {dest_chat}")
             continue
 
-        _prepare_user_settings(user_id, item.is_series)
+        task_settings = _get_fourkhd_task_settings(user_id, item.is_series)
 
         LOGGER.info(
             f"4KHDHub: queuing '{item.file_title}' ({item.quality}) -> "
@@ -129,6 +130,7 @@ async def queue_fourkhd_candidates(
                 rename_mode="title",
                 leech_by="bot",
                 rss_upload_chat=dest_chat,
+                task_user_dict=task_settings,
             )
             seen.add(key)
             queued += 1
@@ -166,17 +168,61 @@ async def fourkhdhub_monitor():
 async def fourkhdhub_handler(_, message):
     """Telegram command handler for /4khd or /fourkhd."""
     parts = (message.text or "").split()
-    subcmd = parts[1].lower() if len(parts) > 1 else "status"
+    if len(parts) < 2:
+        text = (
+            "🎬 <b>4KHDHub Commands:</b>\n"
+            "• <code>/4khd URL [-up CHAT_ID|TOPIC_ID]</code> - Leech specific 4KHDHub movie/series URL\n"
+            "• <code>/4khd query [-up CHAT_ID|TOPIC_ID]</code> - Search movie title & leech 1080p Tamil\n"
+            "• <code>/4khd check [pages] [-up CHAT_ID]</code> - Check latest releases & leech\n"
+            "• <code>/4khd status</code> - View configuration status\n"
+            "• <code>/4khd clear</code> - Reset deduplication seen items cache"
+        )
+        await send_message(message, text)
+        return
 
-    if subcmd == "check":
-        pages = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 1
+    dest_chat = None
+    clean_parts = []
+    i = 1
+    while i < len(parts):
+        if parts[i] == "-up":
+            if i + 1 < len(parts):
+                dest_chat = parts[i + 1].strip()
+            i += 2
+            continue
+        clean_parts.append(parts[i])
+        i += 1
+
+    if not clean_parts:
+        subcmd = "status"
+    else:
+        subcmd = clean_parts[0].lower()
+
+    if clean_parts and (clean_parts[0].startswith("http://") or clean_parts[0].startswith("https://")):
+        target_url = clean_parts[0]
+        notice = await send_message(message, f"🔎 <b>4KHDHub:</b> Resolving release URL: <code>{target_url}</code>...")
+        try:
+            candidates = await FourKHDHubResolver.get_candidates_for_url(target_url)
+            if not candidates:
+                await edit_message(notice, f"❌ No downloadable candidates found for: <code>{target_url}</code>")
+                return
+            queued = await queue_fourkhd_candidates(candidates, owner_id=message.from_user.id, target_chat=dest_chat)
+            await edit_message(
+                notice,
+                f"✅ <b>4KHDHub:</b> Resolved {len(candidates)} candidate(s), queued <b>{queued}</b> release(s).",
+            )
+        except Exception as err:
+            LOGGER.error(f"4KHDHub URL resolve failed: {err}", exc_info=True)
+            await edit_message(notice, f"❌ <b>4KHDHub error:</b> <code>{err}</code>")
+
+    elif subcmd == "check":
+        pages = int(clean_parts[1]) if len(clean_parts) > 1 and clean_parts[1].isdigit() else 1
         notice = await send_message(message, f"🔎 <b>4KHDHub:</b> Crawling Tamil audio releases (pages: {pages})...")
         try:
             candidates = await FourKHDHubResolver.get_tamil_candidates(max_pages=pages)
             if not candidates:
                 await edit_message(notice, "No 1080p HEVC/AV1 Tamil audio releases found on 4KHDHub.")
                 return
-            queued = await queue_fourkhd_candidates(candidates, owner_id=message.from_user.id)
+            queued = await queue_fourkhd_candidates(candidates, owner_id=message.from_user.id, target_chat=dest_chat)
             await edit_message(
                 notice,
                 f"✅ <b>4KHDHub:</b> Found {len(candidates)} matching candidate(s), queued <b>{queued}</b> new release(s).",
@@ -191,17 +237,16 @@ async def fourkhdhub_handler(_, message):
         auto = getattr(Config, "FOURKHDHUB_AUTO_LEECH", False)
         seen = _seen_items()
         text = (
-            "🎬 <b>4KHDHub Auto Leech Status:</b>\n\n"
-            f"<b>Auto Leech:</b> <code>{'Enabled' if auto else 'Disabled'}</code>\n"
-            f"<b>Check Interval:</b> <code>{getattr(Config, 'FOURKHDHUB_CHECK_INTERVAL_HOURS', 24)}h (Once a day)</code>\n"
+            "🎬 <b>4KHDHub Leech Status:</b>\n\n"
+            f"<b>Auto Leech (Background):</b> <code>{'Enabled' if auto else 'Disabled'}</code>\n"
             f"<b>Hollywood Channel:</b> <code>{hw}</code>\n"
             f"<b>Webseries Channel:</b> <code>{ws}</code>\n"
-            f"<b>Workflow User ID:</b> <code>{getattr(Config, 'FOURKHDHUB_USER_ID', 8814651149)}</code>\n"
             f"<b>Filter:</b> <code>Tamil audio only (1080p HEVC, 1080p AV1)</code>\n"
             f"<b>Seen Releases:</b> <code>{len(seen)} cached</code>\n\n"
-            "<b>Usage:</b>\n"
-            "• <code>/4khd check [pages]</code> - Check & leech now\n"
-            "• <code>/4khd status</code> - View current status\n"
+            "<b>Interactive Usage:</b>\n"
+            "• <code>/4khd URL [-up CHAT_ID]</code> - Leech specific post\n"
+            "• <code>/4khd query [-up CHAT_ID]</code> - Search & leech\n"
+            "• <code>/4khd check [pages]</code> - Check latest releases\n"
             "• <code>/4khd clear</code> - Clear seen cache"
         )
         await send_message(message, text)
@@ -211,24 +256,29 @@ async def fourkhdhub_handler(_, message):
         await send_message(message, "🗑️ <b>4KHDHub seen items cache cleared.</b>")
 
     else:
-        await send_message(
-            message,
-            "<b>4KHDHub Commands:</b>\n"
-            "• <code>/4khd check [pages]</code> - Check and leech immediately\n"
-            "• <code>/4khd status</code> - View configuration status\n"
-            "• <code>/4khd clear</code> - Reset deduplication seen items",
-        )
+        # Search query on demand
+        query = " ".join(clean_parts)
+        LOGGER.info(f"4KHDHub: user {message.from_user.id} requested search for: '{query}'")
+        notice = await send_message(message, f"🔎 <b>4KHDHub:</b> Searching for <code>{query}</code>...")
+        try:
+            candidates = await FourKHDHubResolver.search_candidates(query)
+            if not candidates:
+                await edit_message(notice, f"❌ No matching releases found on 4KHDHub for: <code>{query}</code>")
+                return
+            queued = await queue_fourkhd_candidates(candidates, owner_id=message.from_user.id, target_chat=dest_chat)
+            await edit_message(
+                notice,
+                f"✅ <b>4KHDHub:</b> Found {len(candidates)} match(es), queued <b>{queued}</b> release(s).",
+            )
+        except Exception as err:
+            LOGGER.error(f"4KHDHub search failed: {err}", exc_info=True)
+            await edit_message(notice, f"❌ <b>4KHDHub search error:</b> <code>{err}</code>")
 
 
 def start_fourkhdhub_scheduler():
-    """Initializes and schedules the daily 4KHDHub monitor if enabled or configured."""
-    has_channels = bool(
-        Config.FOURKHDHUB_HOLLYWOOD_CHANNEL_ID
-        or getattr(Config, "HDHUB_HOLLYWOOD_CHANNEL_ID", 0)
-        or Config.FOURKHDHUB_WEBSERIES_CHANNEL_ID
-        or getattr(Config, "HDHUB_WEBSERIES_CHANNEL_ID", 0)
-    )
-    if not (getattr(Config, "FOURKHDHUB_AUTO_LEECH", False) or has_channels):
+    """Initializes and schedules the daily 4KHDHub monitor ONLY if explicitly enabled."""
+    if not getattr(Config, "FOURKHDHUB_AUTO_LEECH", False):
+        LOGGER.info("4KHDHub background scheduler disabled (on-demand mode active).")
         return
 
     try:

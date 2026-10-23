@@ -92,6 +92,6 @@
     "AUTO_KEEP_AUDIO_LANGS": "Tamil",
     "USER_COOKIE_FILE": "cookies/8814651149/cookies.txt",
     "TOKEN_PICKLE": "tokens/8814651149.pickle",
-    "AUTO_POSTER_SEND_MESSAGE": false
+    "AUTO_POSTER_SEND_MESSAGE": true
   }
 }

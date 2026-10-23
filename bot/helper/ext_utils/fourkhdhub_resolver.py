@@ -6,7 +6,7 @@ from html import unescape
 from logging import getLogger
 from re import IGNORECASE, DOTALL, findall, search, sub
 from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 
 try:
     from curl_cffi import requests as cffi_requests
@@ -305,6 +305,63 @@ class FourKHDHubResolver:
         return candidates
 
     @classmethod
+    async def resolve_post_candidates(cls, post_url: str, post_title: str = "") -> list[FourKHDHubCandidate]:
+        """Fetches post page and resolves intermediate mediator links into FourKHDHubCandidate instances."""
+        resolved = []
+        try:
+            post_html = await cls.fetch_html(post_url)
+            if not post_title:
+                title_match = search(r"<h1[^>]*class=['\"][^'\"]*entry-title[^'\"]*['\"][^>]*>(.*?)</h1>", post_html, DOTALL | IGNORECASE)
+                if not title_match:
+                    title_match = search(r"<title>(.*?)</title>", post_html, DOTALL | IGNORECASE)
+                post_title = unescape(sub(r"<[^>]+>", "", title_match.group(1)).strip()) if title_match else "4KHDHub Post"
+            raw_items = cls.parse_post_candidates(post_html, post_url, post_title)
+            for item in raw_items:
+                hub_url = await cls.resolve_intermediate_hublink(item["mediator_url"])
+                candidate = FourKHDHubCandidate(
+                    post_title=item["post_title"],
+                    post_url=item["post_url"],
+                    is_series=item["is_series"],
+                    file_title=item["file_title"],
+                    quality=item["quality"],
+                    has_tamil=item["has_tamil"],
+                    hub_url=hub_url,
+                    mediator_url=item["mediator_url"],
+                    season=item["season"],
+                    episode=item["episode"],
+                    is_season_pack=item["is_season_pack"],
+                    category=item["category"],
+                )
+                resolved.append(candidate)
+        except Exception as err:
+            LOGGER.warning(f"Failed parsing 4khdhub post {post_url}: {err}")
+        return resolved
+
+    @classmethod
+    async def get_candidates_for_url(cls, post_url: str) -> list[FourKHDHubCandidate]:
+        """Resolves candidates for a single direct 4KHDHub URL."""
+        return await cls.resolve_post_candidates(post_url)
+
+    @classmethod
+    async def search_candidates(cls, query: str) -> list[FourKHDHubCandidate]:
+        """Searches 4KHDHub for a movie/series query and resolves candidates."""
+        search_url = f"{FOURKHDHUB_BASE_URL}/?s={quote_plus(query.strip())}"
+        resolved = []
+        visited = set()
+        try:
+            search_html = await cls.fetch_html(search_url)
+            cards = cls.scrape_catalog_cards(search_html)
+            for post_url, post_title, _ in cards[:6]:
+                if post_url in visited:
+                    continue
+                visited.add(post_url)
+                items = await cls.resolve_post_candidates(post_url, post_title)
+                resolved.extend(items)
+        except Exception as err:
+            LOGGER.error(f"Failed 4khdhub search for '{query}': {err}")
+        return resolved
+
+    @classmethod
     async def get_tamil_candidates(cls, max_pages: int = 1) -> list[FourKHDHubCandidate]:
         """Scrapes Tamil catalog and resolves mediator links into FourKHDHubCandidate instances."""
         resolved_candidates = []
@@ -331,27 +388,7 @@ class FourKHDHubResolver:
                     continue
                 visited_posts.add(post_url)
 
-                try:
-                    post_html = await cls.fetch_html(post_url)
-                    raw_items = cls.parse_post_candidates(post_html, post_url, post_title)
-                    for item in raw_items:
-                        hub_url = await cls.resolve_intermediate_hublink(item["mediator_url"])
-                        candidate = FourKHDHubCandidate(
-                            post_title=item["post_title"],
-                            post_url=item["post_url"],
-                            is_series=item["is_series"],
-                            file_title=item["file_title"],
-                            quality=item["quality"],
-                            has_tamil=item["has_tamil"],
-                            hub_url=hub_url,
-                            mediator_url=item["mediator_url"],
-                            season=item["season"],
-                            episode=item["episode"],
-                            is_season_pack=item["is_season_pack"],
-                            category=item["category"],
-                        )
-                        resolved_candidates.append(candidate)
-                except Exception as err:
-                    LOGGER.warning(f"Failed parsing 4khdhub post {post_url}: {err}")
+                items = await cls.resolve_post_candidates(post_url, post_title)
+                resolved_candidates.extend(items)
 
         return resolved_candidates

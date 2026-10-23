@@ -212,6 +212,7 @@ async def _start_rss_download(
     leech_by="bot",
     rss_upload_chat=None,
     is_season_pack=False,
+    task_user_dict=None,
 ):
     """Send a notification to RSS_CHAT and start the download directly."""
     handler = resolve_command(command)
@@ -251,6 +252,8 @@ async def _start_rss_download(
     msg._rss_leech_by = _rss_leech_by(leech_by)
     msg._rss_dump_chat = rss_upload_chat or Config.RSS_CHAT
     msg._rss_is_season_pack = bool(is_season_pack)
+    if task_user_dict:
+        msg._task_user_dict = dict(task_user_dict)
 
     await _run_rss_download(handler, msg, auto_leech)
 

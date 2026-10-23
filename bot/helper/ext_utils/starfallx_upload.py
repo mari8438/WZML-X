@@ -429,9 +429,15 @@ class StarFallXUploadManager:
         return client
 
     def _final_destination(self, listener):
-        dest = getattr(listener, "leech_dest", None) or getattr(listener, "up_dest", None)
-        thread_id = getattr(listener, "chat_thread_id", None)
-        if not dest or dest == Config.LEECH_DUMP_CHAT:
+        dest = getattr(listener, "leech_dest", None)
+        thread_id = None
+        if not dest:
+            user_dump = getattr(listener, "user_dict", {}).get("LEECH_DUMP_CHAT")
+            up_dest = getattr(listener, "up_dest", None)
+            if up_dest and (up_dest != Config.LEECH_DUMP_CHAT or user_dump):
+                dest = up_dest
+                thread_id = getattr(listener, "chat_thread_id", None)
+        if not dest:
             dest = getattr(getattr(listener, "message", None), "chat", None)
             dest = getattr(dest, "id", None) or getattr(listener, "user_id", None)
             thread_id = getattr(getattr(listener, "message", None), "message_thread_id", None)

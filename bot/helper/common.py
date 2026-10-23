@@ -68,7 +68,7 @@ class TaskConfig:
         self.mid = self.message.id
         self.user = self.message.from_user or self.message.sender_chat
         self.user_id = self.user.id
-        self.user_dict = user_data.get(self.user_id, {})
+        self.user_dict = dict(getattr(self.message, "_task_user_dict", None) or user_data.get(self.user_id, {}))
         self.metadata_processor = MetadataProcessor()
         for k in ("METADATA", "AUDIO_METADATA", "VIDEO_METADATA", "SUBTITLE_METADATA"):
             v = self.user_dict.get(k, {})
@@ -458,11 +458,11 @@ class TaskConfig:
                     self._relax_upload_chat_permissions = True
             elif main_dump:
                 # Always upload to the main dump channel first so 4GB user transmissions
-                # stay unsplit, then copy/forward to the target destination (group/topic/user).
+                # stay unsplit, then copy/forward to the target destination (channel/group/topic/user).
                 target_dest = (
                     self.up_dest
-                    or group_dest
                     or self.user_dict.get("LEECH_DUMP_CHAT")
+                    or group_dest
                     or ""
                 )
                 if str(target_dest).split("|", 1)[0] == str(main_dump).split("|", 1)[0]:
@@ -473,10 +473,15 @@ class TaskConfig:
                 self.leech_dest = (
                     self.up_dest
                     or self.user_dict.get("LEECH_DUMP_CHAT")
+                    or group_dest
                     or ""
                 )
-                if not self.up_dest and group_dest:
-                    self.up_dest = group_dest
+                if not self.up_dest:
+                    self.up_dest = (
+                        self.user_dict.get("LEECH_DUMP_CHAT")
+                        or group_dest
+                        or ""
+                    )
             self.hybrid_leech = TgClient.IS_PREMIUM_USER and (
                 self.user_dict.get("HYBRID_LEECH")
                 or Config.HYBRID_LEECH
@@ -669,7 +674,7 @@ class TaskConfig:
                 self.tag, id_ = text[1].split("Tag: ")[1].split()
             self.user = self.message.from_user = await self.client.get_users(int(id_))
             self.user_id = self.user.id
-            self.user_dict = user_data.get(self.user_id, {})
+            self.user_dict = dict(getattr(self.message, "_task_user_dict", None) or user_data.get(self.user_id, {}))
             with suppress(Exception):
                 await self.message.unpin()
         if self.user:

@@ -4,7 +4,7 @@ from html import unescape
 from logging import getLogger
 from re import DOTALL, IGNORECASE, findall, search, sub
 from typing import Optional
-from urllib.parse import unquote, urljoin
+from urllib.parse import quote_plus, unquote, urljoin
 
 try:
     from httpx import AsyncClient
@@ -507,95 +507,189 @@ class HindiAnimeResolver:
                     continue
                 visited_posts.add(p_url)
 
-                raw_items = cls.parse_post_episodes(p_content, p_title, p_url, quality_filter=quality_filter)
-                for item in raw_items:
-                    gateway_url = item["gateway_url"]
-                    if "pixeldrain" in gateway_url.lower():
-                        continue
+                items = await cls.resolve_post_candidates(
+                    p_title,
+                    p_url,
+                    p_content,
+                    solver_url=solver_url,
+                    quality_filter=quality_filter,
+                    seen=seen,
+                )
+                resolved.extend(items)
 
-                    # Pre-check seen items cache to avoid wasting Turnstile solves on already downloaded items
-                    if seen:
-                        temp_gw_key = f"gateway:{gateway_url.strip()}"
-                        if temp_gw_key in seen:
-                            continue
-                        clean_post_key = sub(r"\[.*?\]|\(.*?\)", "", p_title).strip()
-                        s_k = f"S{item['season']:02d}" if item['season'] else "S01"
-                        e_k = f"E{item['episode']:02d}" if item['episode'] else ""
-                        haz_key = f"haz:{clean_post_key}_{s_k}{e_k}_{item['quality']}"
-                        if haz_key in seen:
-                            continue
+        return resolved
 
-                    gdflix_url = ""
+    @classmethod
+    async def resolve_post_candidates(
+        cls,
+        p_title: str,
+        p_url: str,
+        p_content: str,
+        solver_url: str = "http://flaresolverr:8192/solve",
+        quality_filter: Optional[str] = "1080p",
+        seen: Optional[set[str]] = None,
+    ) -> list[HindiAnimeCandidate]:
+        """Resolves all candidate episodes / batch zips within a post content."""
+        resolved = []
+        raw_items = cls.parse_post_episodes(p_content, p_title, p_url, quality_filter=quality_filter)
+        for item in raw_items:
+            gateway_url = item["gateway_url"]
+            if "pixeldrain" in gateway_url.lower():
+                continue
 
-                    # Direct link if already a known mirror host URL (skip pixeldrain)
-                    mirrors_dict = {}
-                    if any(x in gateway_url.lower() for x in ["gdshare", "gcloud", "filepress", "filebee", "gdflix"]):
-                        gdflix_url = gateway_url
-                        mirrors_dict = {"direct": gateway_url}
-                    elif "pixeldrain" in gateway_url.lower():
-                        continue
-                    else:
-                        # Resolve Turnstile and gateway via solver service
-                        solved = await cls.resolve_via_solver(gateway_url, solver_url)
-                        if solved:
-                            raw_mirrors = solved.get("mirrors") or {}
-                            mirrors_dict = {
-                                k: v for k, v in raw_mirrors.items()
-                                if "pixeldrain" not in str(k).lower() and "pixeldrain" not in str(v).lower()
-                            }
-                            gdflix_url = solved.get("gdflix_url", "")
-                            if solved.get("title") and not item.get("file_title"):
-                                item["file_title"] = solved["title"]
-                        if not gdflix_url and mirrors_dict:
-                            gdflix_url = (
-                                mirrors_dict.get("gdshare")
-                                or mirrors_dict.get("filepress")
-                                or mirrors_dict.get("gdflix")
-                            )
-                        if not gdflix_url and mirrors_dict:
-                            for u in mirrors_dict.values():
-                                if any(h in u.lower() for h in ["gdshare", "gcloud", "filebee", "filepress", "gdflix"]):
-                                    gdflix_url = u
-                                    break
+            # Pre-check seen items cache to avoid wasting Turnstile solves on already downloaded items
+            if seen:
+                temp_gw_key = f"gateway:{gateway_url.strip()}"
+                if temp_gw_key in seen:
+                    continue
+                clean_post_key = sub(r"\[.*?\]|\(.*?\)", "", p_title).strip()
+                s_k = f"S{item['season']:02d}" if item['season'] else "S01"
+                e_k = f"E{item['episode']:02d}" if item['episode'] else ""
+                haz_key = f"haz:{clean_post_key}_{s_k}{e_k}_{item['quality']}"
+                if haz_key in seen:
+                    continue
 
-                    if not gdflix_url:
-                        LOGGER.warning(f"HindiAnimeZone: Could not resolve download mirror for {item['episode_title']} ({item['quality']})")
-                        continue
-
-                    # Construct clean file title with proper media extension
-                    clean_post = sub(r"\[.*?\]|\(.*?\)", "", p_title).strip()
-                    s_str = f"S{item['season']:02d}" if item['season'] else "S01"
-                    e_str = f"E{item['episode']:02d}" if item['episode'] else ""
-                    se_tag = f"[{s_str}{e_str}]" if e_str else f"[{s_str}]"
-                    ext = ".zip" if item.get("is_season_pack") else ".mkv"
-                    if item.get("is_season_pack"):
-                        file_name = f"[{s_str}] {clean_post} - {item['quality']} [Batch Zip] [Tamil]{ext}"
-                    else:
-                        file_name = f"{se_tag} {clean_post} - {item['quality']} [Tamil]{ext}"
-
-                    final_title = item.get("file_title") or file_name
-                    if not final_title.lower().endswith(ext):
-                        final_title = f"{final_title}{ext}"
-
-                    fallback_urls = [
-                        u for u in mirrors_dict.values()
-                        if u != gdflix_url and "pixeldrain" not in u.lower()
-                    ]
-
-                    candidate = HindiAnimeCandidate(
-                        post_title=p_title,
-                        post_url=p_url,
-                        episode_title=item["episode_title"],
-                        quality=item["quality"],
-                        gateway_url=gateway_url,
-                        gdflix_url=gdflix_url,
-                        season=item["season"],
-                        episode=item["episode"],
-                        is_season_pack=item["is_season_pack"],
-                        file_title=final_title,
-                        mirrors=mirrors_dict,
-                        fallback_urls=fallback_urls,
+            gdflix_url = ""
+            mirrors_dict = {}
+            if any(x in gateway_url.lower() for x in ["gdshare", "gcloud", "filepress", "filebee", "gdflix"]):
+                gdflix_url = gateway_url
+                mirrors_dict = {"direct": gateway_url}
+            elif "pixeldrain" in gateway_url.lower():
+                continue
+            else:
+                solved = await cls.resolve_via_solver(gateway_url, solver_url)
+                if solved:
+                    raw_mirrors = solved.get("mirrors") or {}
+                    mirrors_dict = {
+                        k: v for k, v in raw_mirrors.items()
+                        if "pixeldrain" not in str(k).lower() and "pixeldrain" not in str(v).lower()
+                    }
+                    gdflix_url = solved.get("gdflix_url", "")
+                    if solved.get("title") and not item.get("file_title"):
+                        item["file_title"] = solved["title"]
+                if not gdflix_url and mirrors_dict:
+                    gdflix_url = (
+                        mirrors_dict.get("gdshare")
+                        or mirrors_dict.get("filepress")
+                        or mirrors_dict.get("gdflix")
                     )
-                    resolved.append(candidate)
+                if not gdflix_url and mirrors_dict:
+                    for u in mirrors_dict.values():
+                        if any(h in u.lower() for h in ["gdshare", "gcloud", "filebee", "filepress", "gdflix"]):
+                            gdflix_url = u
+                            break
 
+            if not gdflix_url:
+                LOGGER.warning(f"HindiAnimeZone: Could not resolve download mirror for {item['episode_title']} ({item['quality']})")
+                continue
+
+            clean_post = sub(r"\[.*?\]|\(.*?\)", "", p_title).strip()
+            s_str = f"S{item['season']:02d}" if item['season'] else "S01"
+            e_str = f"E{item['episode']:02d}" if item['episode'] else ""
+            se_tag = f"[{s_str}{e_str}]" if e_str else f"[{s_str}]"
+            ext = ".zip" if item.get("is_season_pack") else ".mkv"
+            if item.get("is_season_pack"):
+                file_name = f"[{s_str}] {clean_post} - {item['quality']} [Batch Zip] [Tamil]{ext}"
+            else:
+                file_name = f"{se_tag} {clean_post} - {item['quality']} [Tamil]{ext}"
+
+            final_title = item.get("file_title") or file_name
+            if not final_title.lower().endswith(ext):
+                final_title = f"{final_title}{ext}"
+
+            fallback_urls = [
+                u for u in mirrors_dict.values()
+                if u != gdflix_url and "pixeldrain" not in u.lower()
+            ]
+
+            candidate = HindiAnimeCandidate(
+                post_title=p_title,
+                post_url=p_url,
+                episode_title=item["episode_title"],
+                quality=item["quality"],
+                gateway_url=gateway_url,
+                gdflix_url=gdflix_url,
+                season=item["season"],
+                episode=item["episode"],
+                is_season_pack=item["is_season_pack"],
+                file_title=final_title,
+                mirrors=mirrors_dict,
+                fallback_urls=fallback_urls,
+            )
+            resolved.append(candidate)
+        return resolved
+
+    @classmethod
+    async def get_candidates_for_url(
+        cls,
+        post_url: str,
+        solver_url: str = "http://flaresolverr:8192/solve",
+        quality_filter: Optional[str] = "1080p",
+    ) -> list[HindiAnimeCandidate]:
+        """Resolves candidates for a direct HindiAnimeZone post URL."""
+        p_html = await cls.fetch_html(post_url)
+        if not p_html:
+            return []
+        # Extract title from HTML
+        title_match = search(r"<h1[^>]*class=['\"][^'\"]*entry-title[^'\"]*['\"][^>]*>(.*?)</h1>", p_html, DOTALL | IGNORECASE)
+        if not title_match:
+            title_match = search(r"<title>(.*?)</title>", p_html, DOTALL | IGNORECASE)
+        p_title = unescape(sub(r"<[^>]+>", "", title_match.group(1)).strip()) if title_match else "HindiAnime Post"
+        return await cls.resolve_post_candidates(
+            p_title,
+            post_url,
+            p_html,
+            solver_url=solver_url,
+            quality_filter=quality_filter,
+        )
+
+    @classmethod
+    async def search_tamil_candidates(
+        cls,
+        query: str,
+        solver_url: str = "http://flaresolverr:8192/solve",
+        quality_filter: Optional[str] = "1080p",
+        seen: Optional[set[str]] = None,
+    ) -> list[HindiAnimeCandidate]:
+        """Searches HindiAnimeZone for an anime query and resolves candidate releases."""
+        search_query = quote_plus(query.strip())
+        rest_url = f"{HINDIANIME_BASE_URL}/wp-json/wp/v2/posts?search={search_query}&per_page=10"
+        posts = []
+        try:
+            posts_data = await cls.fetch_json(rest_url)
+            if posts_data and isinstance(posts_data, list):
+                for p in posts_data:
+                    p_title = unescape(p.get("title", {}).get("rendered", "").strip())
+                    p_url = p.get("link", "").strip()
+                    p_content = p.get("content", {}).get("rendered", "")
+                    posts.append((p_title, p_url, p_content))
+        except Exception as err:
+            LOGGER.warning(f"HindiAnimeZone: REST search failed for '{query}': {err}")
+
+        if not posts:
+            search_html_url = f"{HINDIANIME_BASE_URL}/?s={search_query}"
+            try:
+                cat_html = await cls.fetch_html(search_html_url)
+                cards = findall(r'<a class="haz-card-art" href="([^"]+)"[^>]*alt="([^"]+)"', cat_html)
+                for c_url, c_title in cards[:5]:
+                    p_html = await cls.fetch_html(c_url)
+                    posts.append((unescape(c_title.strip()), c_url, p_html))
+            except Exception as err:
+                LOGGER.error(f"HindiAnimeZone: HTML search failed for '{query}': {err}")
+
+        resolved = []
+        visited = set()
+        for p_title, p_url, p_content in posts:
+            if p_url in visited:
+                continue
+            visited.add(p_url)
+            items = await cls.resolve_post_candidates(
+                p_title,
+                p_url,
+                p_content,
+                solver_url=solver_url,
+                quality_filter=quality_filter,
+                seen=seen,
+            )
+            resolved.extend(items)
         return resolved

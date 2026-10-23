@@ -20,8 +20,9 @@ async def main():
     print("=== Syncing Existing Forum Topics into Database ===")
     await MissAVTopicArchive.init()
 
-    # Use main bot token or first helper token
-    tok = getattr(config, "BOT_TOKEN", "") or config.GLOBAL_UPLOAD_BOT_TOKENS.split()[0]
+    # Use first active helper bot token
+    tokens = config.GLOBAL_UPLOAD_BOT_TOKENS.split()
+    tok = tokens[0] if tokens else getattr(config, "BOT_TOKEN", "")
     api_id = config.TELEGRAM_API
     api_hash = config.TELEGRAM_HASH
 

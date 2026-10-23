@@ -112,11 +112,12 @@ async def main():
     bot_loop.create_task(telegraph.create_account())
     bot_loop.create_task(rclone_serve_booter())
     bot_loop.create_task(search_images())
-    from .modules.fourkhdhub import start_fourkhdhub_scheduler
-    from .modules.hindianime import start_hindianime_scheduler
-
-    start_fourkhdhub_scheduler()
-    start_hindianime_scheduler()
+    if getattr(Config, "FOURKHDHUB_AUTO_LEECH", False):
+        from .modules.fourkhdhub import start_fourkhdhub_scheduler
+        start_fourkhdhub_scheduler()
+    if getattr(Config, "HINDIANIME_AUTO_LEECH", False):
+        from .modules.hindianime import start_hindianime_scheduler
+        start_hindianime_scheduler()
 
 
 bot_loop.run_until_complete(main())

@@ -514,6 +514,7 @@ async def get_user_settings(from_user, stype="main"):
                 "DEFAULT_UPLOAD",
                 "AUTO_POSTER_ENABLED",
                 "AUTO_POSTER_USE_AS_THUMBNAIL",
+                "AUTO_POSTER_SEND_MESSAGE",
                 "POST_TEMPLATE_ID",
             ]
         ):
@@ -1101,6 +1102,11 @@ Intro Subtitle: <code>{escape(intro_subtitle)}</code>
             f"userset {user_id} tog AUTO_POSTER_USE_AS_THUMBNAIL {'f' if enabled('AUTO_POSTER_USE_AS_THUMBNAIL', True) else 't'}",
             style=state_style(enabled("AUTO_POSTER_USE_AS_THUMBNAIL", True)),
         )
+        buttons.data_button(
+            state_label("Send Poster Msg", enabled("AUTO_POSTER_SEND_MESSAGE", True)),
+            f"userset {user_id} tog AUTO_POSTER_SEND_MESSAGE {'f' if enabled('AUTO_POSTER_SEND_MESSAGE', True) else 't'}",
+            style=state_style(enabled("AUTO_POSTER_SEND_MESSAGE", True)),
+        )
         buttons.data_button("Template", f"userset {user_id} posttemplate")
         buttons.data_button("Movie Caption", f"userset {user_id} menu POST_MOVIE_CAPTION")
         buttons.data_button("Anime Caption", f"userset {user_id} menu POST_ANIME_CAPTION")
@@ -1116,6 +1122,7 @@ Name: {user_name}
 
 Auto Poster: <b>{'Enabled' if enabled('AUTO_POSTER_ENABLED') else 'Disabled'}</b>
 Use Poster As Thumbnail: <b>{'Enabled' if enabled('AUTO_POSTER_USE_AS_THUMBNAIL', True) else 'Disabled'}</b>
+Send Poster Message: <b>{'Enabled' if enabled('AUTO_POSTER_SEND_MESSAGE', True) else 'Disabled'}</b>
 Template: <b>{template_id}/{POSTER_TEMPLATE_COUNT}</b>
 Brand: <code>{escape(str(brand))}</code>
 Logo: <b>{logo_msg}</b>
@@ -2666,7 +2673,7 @@ async def edit_user_settings(client, query):
             back_to = "gdrive"
         elif data[3] in ["USER_TOKENS", "USE_DEFAULT_COOKIE"]:
             back_to = "general"
-        elif data[3] in ["AUTO_POSTER_ENABLED", "AUTO_POSTER_USE_AS_THUMBNAIL"]:
+        elif data[3] in ["AUTO_POSTER_ENABLED", "AUTO_POSTER_USE_AS_THUMBNAIL", "AUTO_POSTER_SEND_MESSAGE"]:
             back_to = "post"
         elif data[3] in {"AS_DOCUMENT", "USER_TRANSMISSION", "HYBRID_LEECH"}:
             back_to = "leech_upload"

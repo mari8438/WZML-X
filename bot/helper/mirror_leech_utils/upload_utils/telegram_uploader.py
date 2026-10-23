@@ -84,6 +84,15 @@ def _retry_direct_upload(error):
     return not any(code in error_text for code in PERMANENT_DESTINATION_ERRORS)
 
 
+def _to_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    return text in {"1", "true", "yes", "y", "on"} if text else default
+
+
 _CHANNEL_COPY_LOCKS: dict[str, Lock] = {}
 
 
@@ -160,14 +169,9 @@ class TelegramUploader:
         if hasattr(self._listener, "is_season_pack"):
             is_pack = bool(getattr(self._listener, "is_season_pack", False))
             if is_pack:
-                self._listener.user_dict["AUTO_POSTER_SEND_MESSAGE"] = True
-                self._listener.user_dict["AUTO_POSTER_USE_AS_THUMBNAIL"] = False
-                self._listener.user_dict["FORCE_ANIME_THUMBNAIL"] = False
-            else:
-                self._listener.user_dict["AUTO_POSTER_SEND_MESSAGE"] = False
-                self._listener.user_dict["AUTO_POSTER_USE_AS_THUMBNAIL"] = True
-                self._listener.user_dict["FORCE_ANIME_THUMBNAIL"] = True
-                self._listener.user_dict["POST_TEMPLATE_ID"] = 11
+                self._listener.force_anime_thumbnail = False
+            elif getattr(self._listener, "rss_auto_leech", False):
+                self._listener.force_anime_thumbnail = True
 
         if self._thumb != "none" and not await aiopath.exists(self._thumb):
             self._thumb = None
@@ -501,15 +505,19 @@ class TelegramUploader:
         post = getattr(self._listener, "auto_post", None)
         if not post:
             return
-        is_pack = bool(getattr(self._listener, "is_season_pack", False))
-        if not is_pack:
-            LOGGER.info("TelegramUploader: skipping poster details message for single episode.")
+        # Only suppress poster messages for automated RSS anime single-episode tasks when not explicitly enabled
+        if (
+            getattr(self._listener, "rss_auto_leech", False)
+            and not getattr(self._listener, "is_season_pack", False)
+            and not _to_bool(self._listener.user_dict.get("AUTO_POSTER_SEND_MESSAGE"), False)
+        ):
+            LOGGER.info("TelegramUploader: skipping poster details message for RSS single episode.")
             return
         send_post_msg = self._listener.user_dict.get(
             "AUTO_POSTER_SEND_MESSAGE",
             getattr(Config, "AUTO_POSTER_SEND_MESSAGE", True),
         )
-        if not send_post_msg:
+        if not _to_bool(send_post_msg, True):
             return
         path = post.get("path")
         if not path or not await aiopath.exists(path):
@@ -916,10 +924,11 @@ class TelegramUploader:
 
             # Auto thumbnail order: custom thumb, TMDb poster/backdrop, then local media.
             if not is_image and thumb is None:
-                auto_thumb_enabled = (
+                auto_thumb_enabled = _to_bool(
                     self._listener.user_dict.get("AUTO_THUMBNAIL")
                     if "AUTO_THUMBNAIL" in self._listener.user_dict
-                    else Config.AUTO_THUMBNAIL
+                    else Config.AUTO_THUMBNAIL,
+                    False,
                 )
                 thumbnail_mode = str(
                     self._listener.user_dict.get(
@@ -964,8 +973,7 @@ class TelegramUploader:
                         )
                         force_anime_thumb = (
                             getattr(self._listener, "force_anime_thumbnail", False)
-                            or bool(self._listener.user_dict.get("FORCE_ANIME_THUMBNAIL"))
-                            or int(self._listener.user_dict.get("POST_TEMPLATE_ID") or 0) in (8, 11)
+                            or _to_bool(self._listener.user_dict.get("FORCE_ANIME_THUMBNAIL"), False)
                         )
                         rename_regex = (
                             self._listener.user_dict.get("lremname_regex")
