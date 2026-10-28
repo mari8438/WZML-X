@@ -98,7 +98,12 @@ async def render_muxing_configuration(vt_msg, state):
     size_str = get_readable_file_size(file_size_bytes) if file_size_bytes else "N/A"
     task_mode = state.get("task_mode", "#Leech")
 
-    auto_sync = "ON" if state.get("auto_sync", True) else "OFF"
+    delay_summary = ""
+    if external_audio and state.get("auto_sync", True):
+        first_delay = external_audio[0].get("delay_ms", 0)
+        delay_summary = f" ({first_delay:+d}ms)"
+
+    auto_sync = f"ON{delay_summary}" if state.get("auto_sync", True) else "OFF"
     final_sample = "ON (Telegram)" if state.get("final_sample", True) else "OFF"
     preview_sync = "ON" if state.get("preview_sync", True) else "OFF"
     save_settings = "ON" if state.get("save_settings", True) else "OFF"
@@ -136,13 +141,15 @@ async def render_muxing_configuration(vt_msg, state):
     ]
 
     total_ext = len(external_audio) + len(external_sub)
-    if total_ext == 0:
+    downloading_status = state.get("downloading_status")
+
+    if total_ext == 0 and not downloading_status:
         lines.append("└ <i>No external tracks added yet. Send files to chat.</i>")
     else:
         curr = 0
         for i, item in enumerate(external_audio, start=1):
             curr += 1
-            is_last = (curr == total_ext)
+            is_last = (curr == total_ext and not downloading_status)
             prefix = "└" if is_last else "├"
             lang = (item.get("language") or "und").capitalize()
             codec = item.get("codec") or "AUDIO"
@@ -152,17 +159,20 @@ async def render_muxing_configuration(vt_msg, state):
             size_mb = item.get("size_mb", 0.0)
             size_display = f"{size_mb:.2f}MB" if size_mb else "N/A"
             delay = item.get("delay_ms", 0)
-            sync_info = f" (Sync: {delay:+d}ms)" if delay else ""
+            sync_info = f" | Sync: {delay:+d}ms"
             lines.append(
                 f"{prefix} Audio {i} → {lang} ({codec} {channels}) [{tag}] [Trk {trk_idx}] - {size_display}{sync_info}"
             )
 
         for j, s_item in enumerate(external_sub, start=1):
             curr += 1
-            is_last = (curr == total_ext)
+            is_last = (curr == total_ext and not downloading_status)
             prefix = "└" if is_last else "├"
             s_name = s_item.get("name", f"Sub {j}")
             lines.append(f"{prefix} Subtitle {j} → {s_name}")
+
+        if downloading_status:
+            lines.append(f"└ ⏳ <i>{downloading_status}</i>")
 
     rows = [
         [
@@ -769,7 +779,7 @@ async def video_tools_callback(_, query):
                 state["merge_sub"] = [item["index"] for item in state.get("external_sub", [])]
 
                 if state.get("save_settings", True):
-                    from ... import user_data
+                    from .. import user_data
                     from ..helper.ext_utils.db_handler import database
                     session = get_vt_session(task_id)
                     listener = session.get("listener") if session else None

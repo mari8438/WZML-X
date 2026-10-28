@@ -589,34 +589,33 @@ def _message_merge_media(message):
 
 def _find_merge_intake_session(message):
     user = message.from_user or message.sender_chat
-    if not user:
-        return None
     for item in _active_vt_sessions.values():
         listener = item.get("listener")
         state = item.get("state")
-        if (
-            listener
-            and state
-            and state.get("merge_intake")
-            and getattr(listener, "user_id", None) == user.id
-        ):
+        if not (listener and state and not state.get("completed") and not state.get("cancelled")):
+            continue
+        l_uid = getattr(listener, "user_id", None)
+        l_msg = getattr(listener, "message", None)
+        is_user_match = bool(user and l_uid and user.id == l_uid)
+        is_chat_match = bool(l_msg and l_msg.chat and message.chat and l_msg.chat.id == message.chat.id)
+        if is_user_match or is_chat_match:
+            state["merge_intake"] = True
             return item
     return None
 
 
 def _find_merge_text_session(message):
     user = message.from_user or message.sender_chat
-    if not user:
-        return None
     for item in _active_vt_sessions.values():
         listener = item.get("listener")
         state = item.get("state")
-        if (
-            listener
-            and state
-            and state.get("awaiting_input")
-            and getattr(listener, "user_id", None) == user.id
-        ):
+        if not (listener and state and state.get("awaiting_input") and not state.get("completed")):
+            continue
+        l_uid = getattr(listener, "user_id", None)
+        l_msg = getattr(listener, "message", None)
+        is_user_match = bool(user and l_uid and user.id == l_uid)
+        is_chat_match = bool(l_msg and l_msg.chat and message.chat and l_msg.chat.id == message.chat.id)
+        if is_user_match or is_chat_match:
             return item
     return None
 
@@ -843,16 +842,58 @@ async def video_tools_media_collector(client, message):
     media = _message_merge_media(message)
     if not media:
         return
-    filename = getattr(media, "file_name", "") or f"merge_track_{int(time())}"
+    filename = (
+        getattr(media, "file_name", "")
+        or getattr(media, "title", "")
+        or f"merge_track_{int(time())}"
+    )
     ext = ospath.splitext(filename)[1].lower()
+    if not ext:
+        if getattr(message, "audio", None) or (getattr(media, "mime_type", "") or "").startswith("audio/"):
+            mime = (getattr(media, "mime_type", "") or "").lower()
+            if "aac" in mime:
+                ext = ".aac"
+            elif "flac" in mime:
+                ext = ".flac"
+            elif "opus" in mime or "ogg" in mime:
+                ext = ".opus"
+            elif "mp3" in mime or "mpeg" in mime:
+                ext = ".mp3"
+            elif "wav" in mime:
+                ext = ".wav"
+            else:
+                ext = ".m4a"
+            filename += ext
+        elif getattr(message, "video", None) or (getattr(media, "mime_type", "") or "").startswith("video/"):
+            ext = ".mkv" if "matroska" in (getattr(media, "mime_type", "") or "") else ".mp4"
+            filename += ext
+        elif (getattr(media, "mime_type", "") or "").startswith("text/"):
+            ext = ".srt"
+            filename += ext
+
     if ext not in AUDIO_EXTENSIONS and ext not in SUBTITLE_EXTENSIONS and ext not in VIDEO_EXTENSIONS:
         await send_message(message, "Video Tools: unsupported merge-track file type.")
         return
+
+    from ..ext_utils.status_utils import get_readable_file_size
+    vt_msg = getattr(session.get("listener"), "_vt_msg", None)
+    file_size_display = get_readable_file_size(getattr(media, "file_size", 0)) if getattr(media, "file_size", 0) else ""
+    state["downloading_status"] = f"Downloading added track: {filename} {f'({file_size_display})' if file_size_display else ''}..."
+    if vt_msg:
+        with suppress(Exception):
+            from ...modules.video_tool_ui import render_muxing_configuration
+            await render_muxing_configuration(vt_msg, state)
+
     external_dir = await _ensure_external_dir(state)
     target = ospath.join(external_dir, filename)
     downloaded = await message.download(file_name=target)
+    state.pop("downloading_status", None)
     if not downloaded:
         await send_message(message, "Video Tools: failed to download merge-track file.")
+        if vt_msg:
+            with suppress(Exception):
+                from ...modules.video_tool_ui import render_muxing_configuration
+                await render_muxing_configuration(vt_msg, state)
         return
     from ..ext_utils.media_utils import get_exact_duration
 
