@@ -57,6 +57,145 @@ def normalize_mkv_track_meta(raw_lang: str, raw_title: str, codec: str = "", cha
     iso_fallback = raw_lang.lower() if (raw_lang and len(raw_lang) == 3 and raw_lang.isalpha()) else "und"
     return iso_fallback, (raw_title or "Track")
 
+
+def format_audio_codec(codec: str) -> str:
+    codec = (codec or "").lower().strip()
+    mapping = {
+        "eac3": "E-AC-3",
+        "ac3": "AC-3",
+        "dts": "DTS",
+        "dca": "DTS",
+        "truehd": "TrueHD",
+        "aac": "AAC",
+        "flac": "FLAC",
+        "opus": "Opus",
+        "mp3": "MP3",
+        "vorbis": "Vorbis",
+        "pcm_s16le": "PCM",
+        "pcm_s24le": "PCM",
+    }
+    return mapping.get(codec, codec.upper() if codec else "AUDIO")
+
+
+def format_channels(channels, layout: str = "") -> str:
+    try:
+        channels = int(channels)
+    except (ValueError, TypeError):
+        channels = 2
+    if channels == 1:
+        return "1.0"
+    if channels == 2:
+        return "2.0"
+    if channels == 6:
+        return "5.1"
+    if channels == 8:
+        return "7.1"
+    if layout and "." in layout:
+        return layout
+    return f"{channels}.0" if channels else "2.0"
+
+
+def format_lang_tag(lang: str) -> str:
+    lang = (lang or "").lower().strip()
+    tag_map = {
+        "hindi": "HIN", "hin": "HIN",
+        "tamil": "TAM", "tam": "TAM", "ta": "TAM",
+        "telugu": "TEL", "tel": "TEL", "te": "TEL",
+        "english": "ENG", "eng": "ENG", "en": "ENG",
+        "malayalam": "MAL", "mal": "MAL", "ml": "MAL",
+        "kannada": "KAN", "kan": "KAN", "kn": "KAN",
+        "bengali": "BEN", "ben": "BEN", "bn": "BEN",
+        "marathi": "MAR", "mar": "MAR", "mr": "MAR",
+        "japanese": "JPN", "jpn": "JPN", "ja": "JPN",
+        "korean": "KOR", "kor": "KOR", "ko": "KOR",
+    }
+    return tag_map.get(lang, lang.upper()[:3] if lang else "UND")
+
+
+def generate_auto_mux_name(base_filename: str, external_audio: list, remove_original_audio: bool = False, audio_tracks: list = None) -> str:
+    """Constructs an informative release title, e.g. Shelter (2026) 1080p BluRay [(Hindi + Tamil + Telugu) - DDP 2.0] ~ StarFall.mkv"""
+    stem, ext = ospath.splitext(base_filename)
+    year_match = re.search(r"\b(19\d\d|20\d\d)\b", stem)
+    year = f" ({year_match.group(1)})" if year_match else ""
+
+    res_match = re.search(r"\b(2160p|1080p|720p|480p)\b", stem, re.IGNORECASE)
+    res = f" {res_match.group(1)}" if res_match else ""
+
+    source_match = re.search(r"\b(BluRay|WEB-DL|WEBRip|HDTV|HDRip|DVDRip)\b", stem, re.IGNORECASE)
+    source = f" {source_match.group(1)}" if source_match else ""
+
+    codec_match = re.search(r"\b(x265|x264|HEVC|AVC|10bit)\b", stem, re.IGNORECASE)
+    codec = f" {codec_match.group(1)}" if codec_match else ""
+
+    clean_title = re.sub(r"[\._]", " ", stem)
+    if year_match:
+        clean_title = clean_title.split(year_match.group(1))[0].strip()
+    elif res_match:
+        clean_title = clean_title.split(res_match.group(1))[0].strip()
+    else:
+        clean_title = clean_title.split("-")[0].strip()
+
+    langs = []
+    codecs = []
+    for item in (external_audio or []):
+        lang = str(item.get("language") or "und").capitalize()
+        if lang not in langs and lang.lower() != "und":
+            langs.append(lang)
+        c = item.get("codec") or "AUDIO"
+        ch = item.get("channels") or "2.0"
+        tag = f"{c} {ch}"
+        if tag not in codecs and c != "AUDIO":
+            codecs.append(tag)
+
+    if not remove_original_audio and audio_tracks:
+        for t in audio_tracks:
+            lang = str(t.get("lang") or "und").capitalize()
+            if lang not in langs and lang.lower() != "und":
+                langs.append(lang)
+
+    lang_part = " + ".join(langs) if langs else "Multi"
+    codec_part = " & ".join(codecs) if codecs else ""
+    audio_tag = f" [({lang_part}) - {codec_part}]" if codec_part else f" [{lang_part}]"
+
+    return f"{clean_title}{year}{res}{source}{audio_tag}{codec} ~ StarFall.mkv"
+
+
+async def _probe_external_audio_details(path, stream_index=0):
+    codec = "AUDIO"
+    channels = "2.0"
+    lang = "und"
+    size_mb = 0.0
+    with suppress(Exception):
+        if await aiopath.isfile(path):
+            size_mb = (await aiopath.getsize(path)) / (1024 * 1024)
+    result = await cmd_exec(
+        [
+            "ffprobe", "-v", "error", "-select_streams", f"a:{stream_index}",
+            "-show_entries", "stream=codec_name,channels,channel_layout:stream_tags=language,title",
+            "-of", "json", path,
+        ]
+    )
+    if result[2] == 0:
+        with suppress(Exception):
+            data = json.loads(result[0] or "{}")
+            streams = data.get("streams", [])
+            if streams:
+                st = streams[0]
+                codec = format_audio_codec(st.get("codec_name", ""))
+                ch_cnt = st.get("channels", 2)
+                ch_layout = st.get("channel_layout", "")
+                channels = format_channels(ch_cnt, ch_layout)
+                tags = st.get("tags") or {}
+                if tags.get("language"):
+                    lang = tags["language"]
+    return {
+        "codec": codec,
+        "channels": channels,
+        "language": lang,
+        "tag": format_lang_tag(lang),
+        "size_mb": round(size_mb, 2),
+    }
+
 async def execute_mkvmerge_with_fallback(
     mkv_cmd: list[str],
     primary_input: str,
@@ -186,6 +325,10 @@ def get_vt_state(task_id):
     return session["state"] if session else None
 
 
+def get_vt_session(task_id):
+    return _active_vt_sessions.get(task_id)
+
+
 async def probe_streams(file_path):
     """Use ffprobe to get audio and subtitle stream info."""
     result = await cmd_exec(
@@ -277,6 +420,13 @@ def _base_state(task_id, filename, audio_tracks, sub_tracks, input_path=""):
         "video_merge": False,
         "video_duration": 0.0,
         "completed": False,
+        "auto_sync": True,
+        "preview_sync": True,
+        "final_sample": True,
+        "save_settings": True,
+        "output_name": "",
+        "task_mode": "#Leech",
+        "file_size": 0,
     }
 
 
@@ -286,6 +436,10 @@ async def _refresh_external_tracks(state, input_path):
             "language": item.get("language", "und"),
             "title": item.get("title", ""),
             "delay_ms": item.get("delay_ms", 0),
+            "codec": item.get("codec"),
+            "channels": item.get("channels"),
+            "tag": item.get("tag"),
+            "size_mb": item.get("size_mb"),
         }
         for item in state.get("external_audio", [])
     }
@@ -325,14 +479,35 @@ async def _refresh_external_tracks(state, input_path):
             item.update(saved)
         if "duration" not in item or not item.get("duration"):
             item["duration"] = await get_exact_duration(item["path"])
+        if "codec" not in item or not item.get("codec") or item.get("codec") == "AUDIO":
+            details = await _probe_external_audio_details(item["path"], item.get("stream_index", 0))
+            if not item.get("language") or item.get("language") == "und":
+                item["language"] = details["language"]
+            item["codec"] = details["codec"]
+            item["channels"] = details["channels"]
+            item["tag"] = format_lang_tag(item.get("language") or details["language"])
+            item["size_mb"] = details["size_mb"]
+
+    if state.get("auto_sync", True):
+        video_dur = float(state.get("video_duration", 0) or 0)
+        for item in external_audio:
+            track_dur = float(item.get("duration", 0) or 0)
+            if video_dur and track_dur:
+                item["delay_ms"] = int(round((video_dur - track_dur) * 1000))
+
     state["external_audio"] = external_audio
     state["external_sub"] = external_sub
     state["merge_audio"] = [
         idx for idx in state.get("merge_audio", []) if idx < len(external_audio)
     ]
+    if not state["merge_audio"] and external_audio:
+        state["merge_audio"] = [item["index"] for item in external_audio]
+
     state["merge_sub"] = [
         idx for idx in state.get("merge_sub", []) if idx < len(external_sub)
     ]
+    if not state["merge_sub"] and external_sub:
+        state["merge_sub"] = [item["index"] for item in external_sub]
 
 
 async def _ensure_external_dir(state):
@@ -350,11 +525,6 @@ def _select_all_external_tracks(state):
 async def start_merge_track_intake(vt_msg, state):
     await _ensure_external_dir(state)
     state["merge_intake"] = True
-    await vt_msg.edit(
-        "<b>Merge Tracks Intake</b>\n\n"
-        "Send audio, subtitle, or video files now. Configure the new audio, "
-        "generate a 120-second preview, then press Done to mux."
-    )
 
 
 def _external_audio_item(index, name, path, stream_index=0, language="und", title="", duration=0.0):
@@ -465,6 +635,20 @@ async def video_tools_text_collector(_, message):
         return
     state = session["state"]
     field, index = state.pop("awaiting_input")
+    value = (message.text or "").strip()
+    vt_msg = getattr(session.get("listener"), "_vt_msg", None)
+
+    if field == "output_name":
+        if value:
+            if not value.lower().endswith(".mkv"):
+                value += ".mkv"
+            state["output_name"] = value
+            state["custom_output_name"] = True
+        if vt_msg:
+            from ...modules.video_tool_ui import render_muxing_configuration
+            await render_muxing_configuration(vt_msg, state)
+        return
+
     item = next(
         (entry for entry in state.get("external_audio", []) if entry["index"] == index),
         None,
@@ -472,7 +656,7 @@ async def video_tools_text_collector(_, message):
     if not item:
         await send_message(message, "Merge track no longer exists.")
         return
-    value = (message.text or "").strip()
+
     if field == "delay_ms":
         if not re.fullmatch(r"[+-]?\d+", value):
             state["awaiting_input"] = (field, index)
@@ -481,15 +665,15 @@ async def video_tools_text_collector(_, message):
         value = max(-3_600_000, min(3_600_000, int(value)))
     elif field == "language":
         value = _normalize_language(value)
+        item["tag"] = format_lang_tag(value)
     else:
         value = value[:80] or item.get("title") or "External Audio"
     item[field] = value
     state["preview_stale"] = True
-    vt_msg = getattr(session.get("listener"), "_vt_msg", None)
-    if vt_msg:
-        from ...modules.video_tool_ui import render_merge_audio_config_message
 
-        await render_merge_audio_config_message(vt_msg, state, index)
+    if vt_msg:
+        from ...modules.video_tool_ui import render_muxing_configuration
+        await render_muxing_configuration(vt_msg, state)
 
 
 def finish_merge_track_intake(state, event):
@@ -513,17 +697,17 @@ async def generate_merge_preview(state):
 
     state["busy"] = True
     preview_path = ospath.join(
-        ospath.dirname(input_path), f"vt_preview_{state['task_id']}.mp4"
+        ospath.dirname(input_path), f"vt_preview_{state['task_id']}.mkv"
     )
     try:
-        from ..ext_utils.media_utils import get_media_info, get_streams
+        from ..ext_utils.media_utils import get_media_info
 
         duration = float((await get_media_info(input_path))[0] or 0)
-        preview_duration = min(120, max(1, int(duration or 120)))
+        preview_duration = min(60, max(5, int(duration or 60)))
         start = max(0.0, (duration - preview_duration) / 2) if duration else 0.0
         if await aiopath.exists(preview_path):
             await remove(preview_path)
-        legacy_preview = ospath.splitext(preview_path)[0] + ".mkv"
+        legacy_preview = ospath.splitext(preview_path)[0] + ".mp4"
         if await aiopath.exists(legacy_preview):
             await remove(legacy_preview)
 
@@ -532,6 +716,9 @@ async def generate_merge_preview(state):
             for item in state.get("external_audio", [])
             if item["index"] in state.get("merge_audio", [])
         ]
+        if not selected and state.get("external_audio"):
+            selected = state.get("external_audio", [])
+
         if not selected:
             raise ValueError("Send and select a new audio track before creating a preview.")
 
@@ -545,7 +732,6 @@ async def generate_merge_preview(state):
             audio_seek = max(0.0, start - delay_sec)
             base_cmd.extend(["-ss", f"{audio_seek:.3f}", "-i", item["path"]])
 
-        # Input seeking resets presentation timestamps to 0 cleanly without -copyts
         mapping = ["-map", "0:v:0"]
         for input_index, item in enumerate(selected, start=1):
             mapping.extend(["-map", f"{input_index}:a:{int(item.get('stream_index', 0))}?"])
@@ -565,66 +751,88 @@ async def generate_merge_preview(state):
         if selected:
             metadata.extend(["-disposition:a", "0", "-disposition:a:0", "default"])
 
-        streams = await get_streams(input_path)
-        video_codec = next(
-            (
-                str(stream.get("codec_name") or "").lower()
-                for stream in (streams or [])
-                if stream.get("codec_type") == "video"
-            ),
-            "",
-        )
-        copy_compatible = video_codec in {"h264", "mpeg4"}
+        # Strictly stream copy only (zero video re-encoding, zero audio re-encoding)
+        trim_cmd = base_cmd + mapping + metadata + [
+            "-t", str(preview_duration),
+            "-c", "copy",
+            "-avoid_negative_ts", "make_zero",
+            preview_path,
+        ]
 
-        result = (1, "Skip copy", 1)
-        if copy_compatible:
-            common_tail = [
-                "-t", str(preview_duration), "-c:v", "copy", "-c:a", "aac",
-                "-b:a", "192k", "-avoid_negative_ts", "make_zero",
-                "-movflags", "+faststart", preview_path,
-            ]
-            result = await cmd_exec(base_cmd + mapping + metadata + common_tail)
-
-        preview_mode = "stream copy"
-        valid = result[2] == 0 and await aiopath.isfile(preview_path) and (await aiopath.getsize(preview_path) > 0)
-        if not valid:
+        result = await cmd_exec(trim_cmd)
+        if result[2] != 0 or not await aiopath.isfile(preview_path) or (await aiopath.getsize(preview_path) == 0):
             if await aiopath.exists(preview_path):
                 await remove(preview_path)
-            threads = max(1, min(4, get_ffmpeg_threads()))
-            fallback_tail = [
-                "-t", str(preview_duration), "-c:v", "libx264", "-preset", "ultrafast",
-                "-crf", "26", "-pix_fmt", "yuv420p", "-threads", str(threads),
-                "-c:a", "aac", "-b:a", "160k", "-avoid_negative_ts", "make_zero",
-                "-movflags", "+faststart", preview_path,
+            fallback_cmd = base_cmd + mapping + metadata + [
+                "-t", str(preview_duration),
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-avoid_negative_ts", "make_zero",
+                preview_path,
             ]
-            result = await cmd_exec(base_cmd + mapping + metadata + fallback_tail)
-            preview_mode = "compatible transcode"
+            result = await cmd_exec(fallback_cmd)
 
         if result[2] != 0 or not await aiopath.isfile(preview_path) or (await aiopath.getsize(preview_path) == 0):
-            raise RuntimeError((result[1] or "FFmpeg could not create a compatible preview")[-700:])
+            raise RuntimeError(f"FFmpeg lossless preview trim failed: {(result[1] or 'Unknown error')[-500:]}")
 
         previous = state.get("preview_message")
         if previous:
             with suppress(Exception):
                 await previous.delete()
 
-        try:
-            state["preview_message"] = await listener.message.reply_video(
-                preview_path,
-                caption=f"<b>{preview_duration}-second middle preview ({preview_mode})</b>",
-                supports_streaming=True,
-            )
-        except Exception as te:
-            LOGGER.warning(f"reply_video failed ({te}); falling back to reply_document")
-            state["preview_message"] = await listener.message.reply_document(
-                preview_path,
-                caption=f"<b>{preview_duration}-second middle preview ({preview_mode})</b>",
-            )
+        caption = (
+            f"🎬 <b>Sync Preview ({preview_duration}s • Stream-Copy)</b>\n"
+            f"<code>{ospath.basename(input_path)}</code>\n"
+            "<i>Zero-reencode lossless stream cut. Check audio sync.</i>"
+        )
+        preview_msg = await send_message(listener.message, caption, file=preview_path)
+        state["preview_message"] = preview_msg
         state["preview_path"] = preview_path
         state["preview_stale"] = False
         return preview_path
     finally:
         state["busy"] = False
+
+
+async def generate_final_sample(listener, output_path):
+    """Generates a 45s stream-copy sample from the middle of the final output MKV and sends it to Telegram."""
+    if not await aiopath.isfile(output_path):
+        return
+    sample_path = ospath.join(
+        ospath.dirname(output_path), f"sample_{ospath.basename(output_path)}"
+    )
+    try:
+        from ..ext_utils.media_utils import get_media_info
+        duration = float((await get_media_info(output_path))[0] or 0)
+        sample_dur = min(45, max(10, int(duration or 45)))
+        start = max(0.0, (duration - sample_dur) / 2) if duration else 0.0
+
+        if await aiopath.exists(sample_path):
+            await remove(sample_path)
+
+        cmd = [
+            BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", f"{start:.3f}", "-i", output_path,
+            "-t", str(sample_dur),
+            "-map", "0",
+            "-c", "copy",
+            "-avoid_negative_ts", "make_zero",
+            sample_path,
+        ]
+        result = await cmd_exec(cmd)
+        if result[2] == 0 and await aiopath.isfile(sample_path) and (await aiopath.getsize(sample_path) > 0):
+            caption = (
+                f"🎬 <b>Final Sample ({sample_dur}s • Lossless Cut)</b>\n"
+                f"<code>{ospath.basename(output_path)}</code>"
+            )
+            await send_message(listener.message, caption, file=sample_path)
+    except Exception as e:
+        LOGGER.warning(f"Video Tool: Failed generating final sample: {e}")
+    finally:
+        if await aiopath.exists(sample_path):
+            with suppress(Exception):
+                await remove(sample_path)
 
 
 async def video_tools_media_collector(client, message):
@@ -672,17 +880,11 @@ async def video_tools_media_collector(client, message):
         state["merge_sub"].append(len(state["external_sub"]) - 1)
         first_audio_index = None
     state["preview_stale"] = True
+    await _refresh_external_tracks(state, state.get("input_path") or downloaded)
     vt_msg = getattr(session.get("listener"), "_vt_msg", None)
     if vt_msg:
-        from ...modules.video_tool_ui import (
-            render_merge_audio_config_message,
-            render_merge_intake,
-        )
-
-        if first_audio_index is not None:
-            await render_merge_audio_config_message(vt_msg, state, first_audio_index)
-        else:
-            await render_merge_intake(vt_msg, state)
+        from ...modules.video_tool_ui import render_muxing_configuration
+        await render_muxing_configuration(vt_msg, state)
 
 
 def _target_lang(listener):
@@ -973,6 +1175,29 @@ async def process_video_tool(listener, up_path):
         task_id, ospath.basename(up_path), audio_tracks, sub_tracks, up_path
     )
     state["video_duration"] = video_dur
+    with suppress(Exception):
+        state["file_size"] = await aiopath.getsize(up_path)
+
+    task_mode = "#Leech"
+    if getattr(listener, "is_gdrive", False):
+        task_mode = "#GDrive"
+    elif getattr(listener, "up_dest", None):
+        dest = str(listener.up_dest)
+        task_mode = f"#{dest}" if not dest.startswith("#") else dest
+    elif not getattr(listener, "is_leech", True):
+        task_mode = "#Mirror"
+    state["task_mode"] = task_mode
+
+    user_dict = getattr(listener, "user_dict", {}) or {}
+    if "MUX_AUTO_SYNC" in user_dict:
+        state["auto_sync"] = user_dict["MUX_AUTO_SYNC"]
+    if "MUX_PREVIEW_SYNC" in user_dict:
+        state["preview_sync"] = user_dict["MUX_PREVIEW_SYNC"]
+    if "MUX_FINAL_SAMPLE" in user_dict:
+        state["final_sample"] = user_dict["MUX_FINAL_SAMPLE"]
+    if "MUX_REMOVE_ORIGINAL" in user_dict:
+        state["remove_original_audio"] = user_dict["MUX_REMOVE_ORIGINAL"]
+
     await _refresh_external_tracks(state, up_path)
 
     if (
@@ -1034,6 +1259,8 @@ async def process_video_tool(listener, up_path):
 
         # Execute the FFmpeg pipeline
         new_path = await _execute_vt_pipeline(listener, up_path, state)
+        if new_path and state.get("final_sample", True):
+            await generate_final_sample(listener, new_path)
         return new_path if new_path else up_path
 
     except Exception as e:
@@ -1791,9 +2018,9 @@ async def _execute_vt_pipeline(listener, input_path, state):
         return input_path
 
     # Build mux output target
-    base_name = ospath.basename(input_path)
+    base_name = state.get("output_name") or ospath.basename(input_path)
     stem, ext = ospath.splitext(base_name)
-    output_ext = ".mkv" if extra_inputs else ext
+    output_ext = ".mkv" if (extra_inputs or base_name.endswith(".mkv")) else ext
     output_path = ospath.join(dir_path, f"vt_{stem}{output_ext}")
     await _send_track_merge_planner(listener, input_path, state, extra_inputs, output_path)
 
