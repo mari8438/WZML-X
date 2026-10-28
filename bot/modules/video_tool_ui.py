@@ -98,6 +98,9 @@ async def render_muxing_configuration(vt_msg, state):
     size_str = get_readable_file_size(file_size_bytes) if file_size_bytes else "N/A"
     task_mode = state.get("task_mode", "#Leech")
 
+    external_audio = state.get("external_audio", [])
+    external_sub = state.get("external_sub", [])
+
     delay_summary = ""
     if external_audio and state.get("auto_sync", True):
         first_delay = external_audio[0].get("delay_ms", 0)
@@ -113,9 +116,6 @@ async def render_muxing_configuration(vt_msg, state):
         source_audio_str = "0 stream(s) (Removed)"
     else:
         source_audio_str = f"{source_audio_count} stream(s)"
-
-    external_audio = state.get("external_audio", [])
-    external_sub = state.get("external_sub", [])
 
     output_name = state.get("output_name")
     if not output_name:
