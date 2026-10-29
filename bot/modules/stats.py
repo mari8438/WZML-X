@@ -56,7 +56,7 @@ commands = {
         [BinConfig.FFMPEG_NAME, "-version"],
         r"ffmpeg version ([\d.]+(-\w+)?).*",
     ),
-    "7z": (["7z", "i"], r"7-Zip ([\d.]+)"),
+    "7z": (["7z", "i"], r"7-Zip\s*(?:\[\d+\])?\s*([\d.]+)"),
     "aiohttp": (["uv", "pip", "show", "aiohttp"], r"Version: ([\d.]+)"),
     "pyrotgfork": (["uv", "pip", "show", "pyrotgfork"], r"Version: ([\d.]+)"),
     "gapi": (["uv", "pip", "show", "google-api-python-client"], r"Version: ([\d.]+)"),
@@ -355,7 +355,7 @@ async def stats_pages(_, query):
         await edit_message(message, msg, btns)
 
 
-async def get_version_async(command, regex, timeout=5):
+async def get_version_async(command, regex, timeout=25):
     try:
         out, err, code = await wait_for(cmd_exec(command), timeout=timeout)
         if code != 0:
@@ -375,6 +375,23 @@ async def get_packages_version():
     bot_cache["eng_versions"] = {}
     for tool, ver in zip(commands.keys(), versions):
         bot_cache["eng_versions"][tool] = ver
+
+    try:
+        import importlib.metadata
+        for key, pkg_name in [
+            ("yt-dlp", "yt-dlp"),
+            ("aiohttp", "aiohttp"),
+            ("pyrotgfork", "pyrotgfork"),
+            ("gapi", "google-api-python-client"),
+        ]:
+            try:
+                pkg_ver = importlib.metadata.version(pkg_name)
+                if pkg_ver:
+                    bot_cache["eng_versions"][key] = pkg_ver
+            except Exception:
+                pass
+    except Exception:
+        pass
     if await aiopath.exists(".git"):
         last_commit = await cmd_exec(
             "git log -1 --date=short --pretty=format:'%cd <b>From</b> %cr'", True

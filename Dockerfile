@@ -52,6 +52,7 @@ RUN sed -i 's/Components: main/Components: main contrib non-free/g' /etc/apt/sou
         libxml2-dev \
         libxslt1-dev \
         mediainfo \
+        megatools \
         mktorrent \
         mkvtoolnix \
         netcat-openbsd \
@@ -80,7 +81,8 @@ RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh -s -- -
     && curl -fsSL -o /usr/local/bin/qbittorrent-nox https://github.com/userdocs/qbittorrent-nox-static/releases/download/release-5.2.4_v2.0.15/x86_64-qbittorrent-nox \
     && chmod +x /usr/local/bin/qbittorrent-nox \
     && cp /usr/local/bin/qbittorrent-nox /usr/bin/qbittorrent-nox \
-    && qbittorrent-nox --version
+    && qbittorrent-nox --version \
+    && curl -fsSL https://rclone.org/install.sh | bash
 
 RUN python -m venv /wzvenv \
     && python -m pip install --no-cache-dir --upgrade pip uv setuptools wheel

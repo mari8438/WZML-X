@@ -23,6 +23,19 @@ def is_gdrive_link(url: str):
     return "drive.google.com" in url or "drive.usercontent.google.com" in url
 
 
+def is_mega_link(url: str):
+    return "mega.nz" in url or "mega.co.nz" in url
+
+
+def is_mega_folder(url: str):
+    return bool(
+        re_match(
+            r"https?:\/\/(?:[a-zA-Z0-9-]+\.)?mega\.(?:co\.)?nz\/(?:#F!|folder\/)",
+            url,
+        )
+    )
+
+
 def is_telegram_link(url: str):
     return url.startswith(("https://t.me/", "tg://openmessage?user_id="))
 

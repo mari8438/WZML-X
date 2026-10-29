@@ -17,6 +17,7 @@ from ..helper.ext_utils.links_utils import (
     is_gdrive_id,
     is_gdrive_link,
     is_magnet,
+    is_mega_link,
     is_rclone_path,
     is_telegram_link,
     is_url,
@@ -452,6 +453,7 @@ class Mirror(TaskListener):
             and not is_magnet(self.link)
             and not is_rclone_path(self.link)
             and not is_gdrive_link(self.link)
+            and not is_mega_link(self.link)
             and not self.link.endswith(".torrent")
             and file_ is None
             and not is_gdrive_id(self.link)
@@ -491,6 +493,11 @@ class Mirror(TaskListener):
             )
         elif isinstance(self.link, dict):
             await add_direct_download(self, path)
+        elif is_mega_link(self.link):
+            from ..helper.mirror_leech_utils.download_utils.megatools_download import (
+                add_mega_download,
+            )
+            await add_mega_download(self, path)
         elif self.is_jd:
             await add_jd_download(self, path)
         elif self.is_qbit:
