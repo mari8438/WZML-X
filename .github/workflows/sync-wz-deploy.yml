@@ -15,12 +15,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout WZML-X
+      - name: Checkout StarfallX
         uses: actions/checkout@v6
 
       - name: Clone WZ-Deploy
         run: |
-          git clone https://${{ secrets.WZDEDPLOY_TOKEN }}@github.com/SilentDemonSD/WZ-Deploy.git repo2
+          git clone https://${{ secrets.WZDEDPLOY_TOKEN }}@github.com/mari8438/WZ-Deploy.git repo2
 
       - name: Sync Files
         run: |
@@ -46,8 +46,8 @@ jobs:
         run: |
           cd repo2
 
-          git config user.name "SilentDemonSD"
-          git config user.email "105407900+SilentDemonSD@users.noreply.github.com"
+          git config user.name "mari8438"
+          git config user.email "105407900+mari8438@users.noreply.github.com"
 
           git add update.py start.sh Dockerfile
 
@@ -56,6 +56,6 @@ jobs:
             exit 0
           fi
 
-          git commit -m "ci: auto sync from WZML-X (${GITHUB_SHA::7})"
+          git commit -m "ci: auto sync from StarfallX (${GITHUB_SHA::7})"
 
           git push

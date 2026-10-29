@@ -231,7 +231,7 @@ async def gen_pyro_string(_, message):
 
     try:
         pyro_client = Client(
-            f"WZML-X-{user_id}",
+            f"StarfallX-{user_id}",
             api_id=api_id,
             api_hash=api_hash,
             workdir="/usr/src/app",
@@ -336,7 +336,7 @@ async def gen_pyro_string(_, message):
             "me",
             f"⌬ <b><u>Pyrogram Session Generated</u></b>\n\n"
             f"<code>{session_string}</code>\n\n"
-            f"<b>Via <a href='https://github.com/SilentDemonSD/WZML-X'>WZML-X</a> [ @WZML_X ]</b>",
+            f"<b>Via <a href='https://github.com/mari8438/WZML-X'>StarfallX</a> [ @Anime_Starfall ]</b>",
             disable_web_page_preview=True,
         )
         await _safe_disconnect(pyro_client)
@@ -354,7 +354,7 @@ async def gen_pyro_string(_, message):
         )
 
     for ext in ("session", "session-journal"):
-        path = f"WZML-X-{user_id}.{ext}"
+        path = f"StarfallX-{user_id}.{ext}"
         if path_exists(path):
             try:
                 await aioremove(path)

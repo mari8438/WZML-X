@@ -1,36 +1,36 @@
 <p align="center">
-   <img src="docs/WZML-X.png" alt="WZML-X logo" width="420">
+   <img src="docs/StarfallX.png" alt="StarfallX logo" width="420">
 </p>
 
-<h1 align="center">WZML-X</h1>
+<h1 align="center">StarfallX</h1>
 
 <p align="center">
    Telegram mirroring and leeching platform with a container-based runtime, a lightweight web UI, and a configurable transfer pipeline.
 </p>
 
 <p align="center">
-   <a href="https://github.com/SilentDemonSD/WZML-X">
-      <img src="https://img.shields.io/github/stars/SilentDemonSD/WZML-X?style=for-the-badge&logo=github&label=Stars" alt="Stars">
+   <a href="https://github.com/mari8438/StarfallX">
+      <img src="https://img.shields.io/github/stars/mari8438/StarfallX?style=for-the-badge&logo=github&label=Stars" alt="Stars">
    </a>
 
-   <a href="https://github.com/SilentDemonSD/WZML-X/search?l=python">
-      <img src="https://img.shields.io/github/languages/top/SilentDemonSD/WZML-X?style=for-the-badge&logo=python&label=Python" alt="Python">
+   <a href="https://github.com/mari8438/StarfallX/search?l=python">
+      <img src="https://img.shields.io/github/languages/top/mari8438/StarfallX?style=for-the-badge&logo=python&label=Python" alt="Python">
    </a>
 
-   <a href="https://github.com/SilentDemonSD/WZML-X/blob/main/docker-compose.yml">
+   <a href="https://github.com/mari8438/StarfallX/blob/main/docker-compose.yml">
       <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker Compose">
    </a>
 
-   <a href="https://t.me/WZML_X">
+   <a href="https://t.me/Anime_Starfall">
       <img src="https://img.shields.io/badge/Telegram-Community-26A5E4?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram">
    </a>
 
-   <a href="https://github.com/SilentDemonSD/WZML-X/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/SilentDemonSD/WZML-X?style=for-the-badge&label=License" alt="License">
+   <a href="https://github.com/mari8438/StarfallX/blob/main/LICENSE">
+      <img src="https://img.shields.io/github/license/mari8438/StarfallX?style=for-the-badge&label=License" alt="License">
    </a>
 
-   <a href="https://github.com/SilentDemonSD/WZML-X/commits/main">
-      <img src="https://img.shields.io/github/last-commit/SilentDemonSD/WZML-X?style=for-the-badge&label=Last%20Commit" alt="Last Commit">
+   <a href="https://github.com/mari8438/StarfallX/commits/main">
+      <img src="https://img.shields.io/github/last-commit/mari8438/StarfallX?style=for-the-badge&label=Last%20Commit" alt="Last Commit">
    </a>
 </p>
 
@@ -63,7 +63,7 @@
 
 ## Why Use It
 
-WZML-X is built for users who want a single bot stack that can mirror, leech, manage files, and expose a simple web-based selection flow without stitching together multiple tools. The README focuses on what you need to deploy it quickly, understand the moving parts, and tune the behavior safely.
+StarfallX is built for users who want a single bot stack that can mirror, leech, manage files, and expose a simple web-based selection flow without stitching together multiple tools. The README focuses on what you need to deploy it quickly, understand the moving parts, and tune the behavior safely.
 
 ## What It Covers
 
@@ -95,14 +95,14 @@ Deploy with Docker and provide the required configuration values. The container 
 
 On a new **Ubuntu/Debian VPS**, log in as `root` and paste this single command.
 It installs Docker and Docker Compose, asks for the required Telegram/MongoDB
-values, clones the `starfallx-v1.2-video-tools` branch into `/opt/WZML-X`, and
+values, clones the `starfallx-v1.2-video-tools` branch into `/opt/StarfallX`, and
 starts the bot.
 
 ```bash
-bash -c 'set -euo pipefail; apt-get update; apt-get install -y git ca-certificates python3 docker.io docker-compose-v2; systemctl enable --now docker; read -rp "BOT_TOKEN: " BOT_TOKEN; read -rp "TELEGRAM_API: " TELEGRAM_API; read -rp "TELEGRAM_HASH: " TELEGRAM_HASH; read -rp "OWNER_ID: " OWNER_ID; read -rp "DATABASE_URL: " DATABASE_URL; export BOT_TOKEN TELEGRAM_API TELEGRAM_HASH OWNER_ID DATABASE_URL; git clone --branch starfallx-v1.2-video-tools --single-branch https://github.com/mari8438/WZML-X.git /opt/WZML-X; cd /opt/WZML-X; cp config_sample.py config.py; python3 -c "from pathlib import Path; import os, re; p=Path(\"config.py\"); s=p.read_text(); [globals().__setitem__(\"s\", re.sub(r\"(?m)^%s\s*=.*$\" % k, \"%s = %r\" % (k, os.environ[k] if k not in (\"TELEGRAM_API\", \"OWNER_ID\") else int(os.environ[k])), s)) for k in (\"BOT_TOKEN\", \"TELEGRAM_API\", \"TELEGRAM_HASH\", \"OWNER_ID\", \"DATABASE_URL\")]; p.write_text(s)"; docker compose up -d --build; docker compose ps'
+bash -c 'set -euo pipefail; apt-get update; apt-get install -y git ca-certificates python3 docker.io docker-compose-v2; systemctl enable --now docker; read -rp "BOT_TOKEN: " BOT_TOKEN; read -rp "TELEGRAM_API: " TELEGRAM_API; read -rp "TELEGRAM_HASH: " TELEGRAM_HASH; read -rp "OWNER_ID: " OWNER_ID; read -rp "DATABASE_URL: " DATABASE_URL; export BOT_TOKEN TELEGRAM_API TELEGRAM_HASH OWNER_ID DATABASE_URL; git clone --branch starfallx-v1.2-video-tools --single-branch https://github.com/mari8438/StarfallX.git /opt/StarfallX; cd /opt/StarfallX; cp config_sample.py config.py; python3 -c "from pathlib import Path; import os, re; p=Path(\"config.py\"); s=p.read_text(); [globals().__setitem__(\"s\", re.sub(r\"(?m)^%s\s*=.*$\" % k, \"%s = %r\" % (k, os.environ[k] if k not in (\"TELEGRAM_API\", \"OWNER_ID\") else int(os.environ[k])), s)) for k in (\"BOT_TOKEN\", \"TELEGRAM_API\", \"TELEGRAM_HASH\", \"OWNER_ID\", \"DATABASE_URL\")]; p.write_text(s)"; docker compose up -d --build; docker compose ps'
 ```
 
-After it completes, use these commands from `/opt/WZML-X`:
+After it completes, use these commands from `/opt/StarfallX`:
 
 ```bash
 docker compose logs -f app       # live bot logs
@@ -115,8 +115,8 @@ docker compose pull && docker compose up -d --build  # update and rebuild
    <summary>VPS / Dedicated Server (Recommended)</summary>
 
    ```bash
-   git clone https://github.com/SilentDemonSD/WZML-X.git
-   cd WZML-X
+   git clone https://github.com/mari8438/StarfallX.git
+   cd StarfallX
    cp config_sample.py config.py
    # Edit config.py with your values
    docker compose up -d --build
@@ -173,8 +173,8 @@ docker compose pull && docker compose up -d --build  # update and rebuild
    <summary>Single Container (Manual)</summary>
 
    ```bash
-   git clone https://github.com/SilentDemonSD/WZML-X.git
-   cd WZML-X
+   git clone https://github.com/mari8438/StarfallX.git
+   cd StarfallX
    cp config_sample.py config.py
    docker build -t wzmlx .
    docker run --rm -p 8080:8080 \
@@ -203,7 +203,7 @@ docker compose pull && docker compose up -d --build  # update and rebuild
 
    Some users still rely on the external workflow path referenced by the previous README:
 
-   - [WZ Deploy workflow guide](https://github.com/SilentDemonSD/WZ-Deploy/tree/main?tab=readme-ov-file#2%EF%B8%8F%E2%83%A3-method-2-github-workflow-guide)
+   - [WZ Deploy workflow guide](https://github.com/mari8438/WZ-Deploy/tree/main?tab=readme-ov-file#2%EF%B8%8F%E2%83%A3-method-2-github-workflow-guide)
 
    Keep this only if that workflow still matches your deployment style.
 </details>
@@ -274,13 +274,13 @@ Then tune the optional behavior from `config_sample.py`.
 <details>
    <summary>Join Community</summary>
 
-   - Telegram channel: https://t.me/WZML_X
-   - Support group: https://t.me/WZML_Support
+   - Telegram channel: https://t.me/Anime_Starfall
+   - Support group: https://t.me/Anime_Starfall
 </details>
 
 ## Credits
 
-WZML-X is a fork of [mirror-leech-telegram-bot](https://github.com/anasty17/mirror-leech-telegram-bot). The base project belongs to [anasty17](https://github.com/anasty17) and upstream contributors.
+StarfallX is a fork of [mirror-leech-telegram-bot](https://github.com/anasty17/mirror-leech-telegram-bot). The base project belongs to [anasty17](https://github.com/anasty17) and upstream contributors.
 
 <details>
    <summary>Bot Authors</summary>
@@ -296,10 +296,10 @@ WZML-X is a fork of [mirror-leech-telegram-bot](https://github.com/anasty17/mirr
       </thead>
       <tbody>
          <tr>
-            <td><img src="https://avatars.githubusercontent.com/u/105407900?v=4" width="72" alt="SilentDemonSD"></td>
-            <td>SilentDemonSD</td>
+            <td><img src="https://avatars.githubusercontent.com/u/105407900?v=4" width="72" alt="mari8438"></td>
+            <td>mari8438</td>
             <td>Author, UI design, and custom features</td>
-            <td><a href="https://github.com/SilentDemonSD">GitHub</a></td>
+            <td><a href="https://github.com/mari8438">GitHub</a></td>
          </tr>
          <tr>
             <td><img src="https://avatars.githubusercontent.com/u/93116400?v=4" width="72" alt="RjRiajul"></td>
