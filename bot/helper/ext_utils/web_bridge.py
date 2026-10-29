@@ -177,6 +177,14 @@ async def start_web_bridge_daemon() -> None:
                             uid = int(evt["user_id"])
                             mode = "web" if str(evt.get("mode")).lower() == "web" else "telegram"
                             update_user_ldata(uid, "TASK_MODE", mode)
+                        elif etype == "cancel_task":
+                            target_gid = str(evt.get("gid") or evt.get("task_id") or "")
+                            for mid, st_obj in list(task_dict.items()):
+                                g_val = str(st_obj.gid()) if callable(getattr(st_obj, "gid", None)) else str(mid)
+                                if g_val == target_gid or str(mid) == target_gid:
+                                    t_obj = st_obj.task() if callable(getattr(st_obj, "task", None)) else None
+                                    if t_obj and hasattr(t_obj, "cancel_task"):
+                                        await t_obj.cancel_task()
                         elif etype == "start_leech":
                             from bot.helper.mirror_leech import start_web_leech_task
 

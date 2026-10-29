@@ -1,0 +1,1924 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Starfall Nexus • Cyberpunk Anime Web Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-space-950: #080c12;
+      --bg-space-900: #0f172a;
+      --bg-space-800: #162038;
+      --bg-glass: rgba(15, 23, 42, 0.78);
+      --bg-glass-strong: rgba(8, 12, 18, 0.88);
+      --border-glass: rgba(255, 255, 255, 0.09);
+      --border-cyan: rgba(0, 242, 254, 0.38);
+
+      --neon-cyan: #00f2fe;
+      --neon-blue: #4facfe;
+      --neon-violet: #7f00ff;
+      --neon-magenta: #e100ff;
+      --sakura-pink: #ff3366;
+      --emerald-green: #00f5a0;
+      --amber-gold: #ffb800;
+
+      --text-main: #f8fafc;
+      --text-dim: #94a3b8;
+      --text-muted: #64748b;
+
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+      --shadow-card: 0 18px 48px -12px rgba(0, 0, 0, 0.78), 0 0 1px 1px rgba(255, 255, 255, 0.05);
+      --glow-cyan: 0 0 24px rgba(0, 242, 254, 0.3);
+      --glow-violet: 0 0 26px rgba(127, 0, 255, 0.32);
+      --glow-sakura: 0 0 24px rgba(255, 51, 102, 0.32);
+      --glow-emerald: 0 0 24px rgba(0, 245, 160, 0.28);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      min-height: 100%;
+      background-color: var(--bg-space-950);
+      background-image:
+        radial-gradient(circle at 10% 10%, rgba(0, 242, 254, 0.11) 0%, transparent 40%),
+        radial-gradient(circle at 90% 12%, rgba(127, 0, 255, 0.13) 0%, transparent 42%),
+        radial-gradient(circle at 82% 88%, rgba(255, 51, 102, 0.09) 0%, transparent 45%),
+        linear-gradient(180deg, #080c12 0%, #0f172a 100%);
+      background-attachment: fixed;
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    /* Cyberpunk Edgerunners Neon Grid Overlay */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0, 242, 254, 0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 51, 102, 0.018) 1px, transparent 1px);
+      background-size: 42px 42px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    #particleCanvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.65;
+    }
+
+    button, input, select {
+      font-family: inherit;
+      color: inherit;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      background: none;
+    }
+
+    .studio-wrapper {
+      position: relative;
+      z-index: 1;
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 16px 18px 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .cyber-card {
+      position: relative;
+      background: var(--bg-glass);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--border-glass);
+      border-radius: 18px;
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+
+    .cyber-card::after {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--neon-cyan), var(--neon-violet), var(--sakura-pink), transparent);
+      opacity: 0.75;
+      pointer-events: none;
+    }
+
+    /*Watermark Anime Silhouette SVG inside cards */
+    .card-anime-crest {
+      position: absolute;
+      right: -14px;
+      bottom: -18px;
+      width: 150px;
+      height: 150px;
+      opacity: 0.055;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* 1. INTERACTIVE NAVIGATION BAR */
+    .studio-navbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+      padding: 14px 20px;
+    }
+
+    .nav-brand-group {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .brand-emblem {
+      width: 44px;
+      height: 44px;
+      border-radius: 13px;
+      background: linear-gradient(135deg, rgba(0, 242, 254, 0.18), rgba(127, 0, 255, 0.32), rgba(255, 51, 102, 0.22));
+      border: 1px solid rgba(0, 242, 254, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--glow-cyan);
+      flex-shrink: 0;
+    }
+
+    .brand-emblem svg {
+      width: 25px;
+      height: 25px;
+      color: var(--neon-cyan);
+    }
+
+    .brand-text-col {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand-name {
+      font-size: 17px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      background: linear-gradient(90deg, #ffffff 0%, var(--neon-cyan) 45%, var(--sakura-pink) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-tagline {
+      font-size: 11.5px;
+      color: var(--text-dim);
+      letter-spacing: 0.02em;
+    }
+
+    .user-identity-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(8, 12, 18, 0.75);
+      border: 1px solid rgba(0, 242, 254, 0.28);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .user-identity-badge .uid-pill {
+      color: var(--neon-cyan);
+      font-weight: 700;
+    }
+
+    .user-identity-badge .uname-pill {
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    .nav-actions-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* Dual-Mode Dynamic Toggle Pill */
+    .dual-mode-pill {
+      position: relative;
+      min-height: 42px;
+      padding: 0 16px;
+      border-radius: 999px;
+      font-size: 12.5px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      transition: all 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .dual-mode-pill.mode-web {
+      background: linear-gradient(135deg, rgba(0, 245, 160, 0.16), rgba(0, 242, 254, 0.2));
+      border: 1px solid var(--emerald-green);
+      color: var(--emerald-green);
+      box-shadow: var(--glow-emerald);
+    }
+
+    .dual-mode-pill.mode-telegram {
+      background: linear-gradient(135deg, rgba(127, 0, 255, 0.22), rgba(255, 51, 102, 0.2));
+      border: 1px solid #b566ff;
+      color: #ebd6ff;
+      box-shadow: var(--glow-violet);
+    }
+
+    .dual-mode-pill:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.1);
+    }
+
+    .mode-status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+      animation: pulseDot 1.8s infinite;
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.45; }
+    }
+
+    .nav-ext-link {
+      min-height: 40px;
+      padding: 0 13px;
+      border-radius: 11px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-glass);
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 12.5px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      transition: all 0.18s ease;
+    }
+
+    .nav-ext-link:hover {
+      color: var(--neon-cyan);
+      border-color: var(--border-cyan);
+      background: rgba(0, 242, 254, 0.08);
+      transform: translateY(-1px);
+    }
+
+    .nav-ext-link.sakura-hover:hover {
+      color: var(--sakura-pink);
+      border-color: rgba(255, 51, 102, 0.45);
+      background: rgba(255, 51, 102, 0.1);
+    }
+
+    /* MAIN 12-COLUMN STUDIO GRID */
+    .studio-grid {
+      display: grid;
+      grid-template-columns: 5fr 7fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .left-column,
+    .right-column {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .card-inner {
+      position: relative;
+      z-index: 1;
+      padding: 20px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .section-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-icon-badge {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: rgba(0, 242, 254, 0.12);
+      border: 1px solid rgba(0, 242, 254, 0.3);
+      color: var(--neon-cyan);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .section-icon-badge.sakura {
+      background: rgba(255, 51, 102, 0.13);
+      border-color: rgba(255, 51, 102, 0.35);
+      color: var(--sakura-pink);
+    }
+
+    .section-icon-badge.violet {
+      background: rgba(127, 0, 255, 0.18);
+      border-color: rgba(127, 0, 255, 0.4);
+      color: #d896ff;
+    }
+
+    .section-title {
+      font-size: 15.5px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+
+    .section-subtitle {
+      font-size: 11.5px;
+      color: var(--text-dim);
+    }
+
+    /* 2. QUICK DISPATCH STUDIO CARD */
+    .mode-tab-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 5px;
+      border-radius: 12px;
+      background: rgba(8, 12, 18, 0.85);
+      border: 1px solid var(--border-glass);
+    }
+
+    .mode-tab-btn {
+      min-height: 38px;
+      border-radius: 9px;
+      font-size: 12.5px;
+      font-weight: 700;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.18s ease;
+    }
+
+    .mode-tab-btn.active {
+      background: linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(127, 0, 255, 0.28));
+      border: 1px solid rgba(0, 242, 254, 0.45);
+      color: var(--neon-cyan);
+      box-shadow: 0 0 14px rgba(0, 242, 254, 0.18);
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field-label {
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .input-with-action {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .studio-input {
+      width: 100%;
+      min-height: 46px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: rgba(8, 12, 18, 0.9);
+      border: 1px solid var(--border-glass);
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .studio-input.has-right-btn {
+      padding-right: 84px;
+    }
+
+    .studio-input:focus {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 0 3px rgba(0, 242, 254, 0.14);
+    }
+
+    .paste-inline-btn {
+      position: absolute;
+      right: 6px;
+      height: 34px;
+      padding: 0 11px;
+      border-radius: 8px;
+      background: rgba(0, 242, 254, 0.12);
+      border: 1px solid rgba(0, 242, 254, 0.3);
+      color: var(--neon-cyan);
+      font-size: 11.5px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s ease;
+    }
+
+    .paste-inline-btn:hover {
+      background: rgba(0, 242, 254, 0.22);
+    }
+
+    /* Engine Selector Chip Bar */
+    .engine-chip-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .engine-chip {
+      min-height: 40px;
+      padding: 0 8px;
+      border-radius: 10px;
+      background: rgba(8, 12, 18, 0.8);
+      border: 1px solid var(--border-glass);
+      color: var(--text-dim);
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: all 0.18s ease;
+    }
+
+    .engine-chip:hover {
+      color: var(--text-main);
+      border-color: rgba(0, 242, 254, 0.3);
+    }
+
+    .engine-chip.active {
+      background: rgba(0, 242, 254, 0.14);
+      border-color: var(--neon-cyan);
+      color: var(--neon-cyan);
+      box-shadow: 0 0 14px rgba(0, 242, 254, 0.2);
+    }
+
+    /* Feature Toggles (-s, -e, -z) */
+    .feature-toggles-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .toggle-pill-btn {
+      min-height: 42px;
+      padding: 6px 10px;
+      border-radius: 11px;
+      background: rgba(8, 12, 18, 0.8);
+      border: 1px solid var(--border-glass);
+      color: var(--text-dim);
+      font-size: 11.5px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      transition: all 0.18s ease;
+    }
+
+    .toggle-pill-btn .check-box {
+      width: 18px;
+      height: 18px;
+      border-radius: 5px;
+      border: 1.5px solid var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .toggle-pill-btn.checked {
+      background: rgba(255, 51, 102, 0.13);
+      border-color: var(--sakura-pink);
+      color: #ffd6e0;
+      box-shadow: 0 0 14px rgba(255, 51, 102, 0.18);
+    }
+
+    .toggle-pill-btn.checked .check-box {
+      background: var(--sakura-pink);
+      border-color: var(--sakura-pink);
+      color: #fff;
+    }
+
+    /* Holographic Launch Button */
+    .btn-holographic-launch {
+      min-height: 52px;
+      width: 100%;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-violet) 52%, var(--sakura-pink) 100%);
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: 0.03em;
+      text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 8px 28px rgba(127, 0, 255, 0.38), 0 0 20px rgba(0, 242, 254, 0.3);
+      transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    }
+
+    .btn-holographic-launch:hover {
+      transform: translateY(-2px);
+      filter: brightness(1.08);
+      box-shadow: 0 12px 34px rgba(255, 51, 102, 0.45), 0 0 28px rgba(0, 242, 254, 0.45);
+    }
+
+    .btn-holographic-launch:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* 4. USER PREFERENCE & DUMP CHANNEL CONFIGURATOR */
+    .dump-config-box {
+      padding: 14px 16px;
+      border-radius: 13px;
+      background: rgba(8, 12, 18, 0.85);
+      border: 1px solid rgba(0, 245, 160, 0.25);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .dump-id-val {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--emerald-green);
+    }
+
+    .mini-action-btn {
+      min-height: 36px;
+      padding: 0 12px;
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-glass);
+      color: var(--text-main);
+      font-size: 12px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      transition: all 0.16s ease;
+    }
+
+    .mini-action-btn:hover {
+      color: var(--neon-cyan);
+      border-color: var(--border-cyan);
+      background: rgba(0, 242, 254, 0.1);
+    }
+
+    .mode-explainer-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .explainer-tile {
+      padding: 11px 13px;
+      border-radius: 11px;
+      background: rgba(8, 12, 18, 0.65);
+      border: 1px solid var(--border-glass);
+      font-size: 11.5px;
+      color: var(--text-dim);
+    }
+
+    .explainer-tile strong {
+      display: block;
+      color: var(--text-main);
+      margin-bottom: 3px;
+      font-size: 12px;
+    }
+
+    /* 3. LIVE TASK STREAM & DYNAMIC SPEEDOMETER DOCK */
+    .speedometer-dock {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(8, 12, 18, 0.88);
+      border: 1px solid rgba(0, 242, 254, 0.22);
+    }
+
+    .speed-metric-box {
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .speed-metric-label {
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    .speed-metric-value {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .speed-metric-value.cyan {
+      color: var(--neon-cyan);
+      text-shadow: 0 0 12px rgba(0, 242, 254, 0.35);
+    }
+
+    .speed-metric-value.emerald {
+      color: var(--emerald-green);
+    }
+
+    .speed-metric-value.sakura {
+      color: var(--sakura-pink);
+    }
+
+    .tasks-stream-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .task-card {
+      padding: 16px 18px;
+      border-radius: 15px;
+      background: rgba(8, 12, 18, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: border-color 0.2s ease, transform 0.2s ease;
+    }
+
+    .task-card:hover {
+      border-color: rgba(0, 242, 254, 0.35);
+    }
+
+    .task-top-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .task-title-cluster {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .task-badges-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .anime-cat-badge {
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      background: rgba(255, 51, 102, 0.16);
+      color: var(--sakura-pink);
+      border: 1px solid rgba(255, 51, 102, 0.35);
+    }
+
+    .task-engine-badge {
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      background: rgba(0, 242, 254, 0.12);
+      color: var(--neon-cyan);
+      border: 1px solid rgba(0, 242, 254, 0.3);
+    }
+
+    .task-status-pill {
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      background: rgba(0, 245, 160, 0.12);
+      color: var(--emerald-green);
+      border: 1px solid rgba(0, 245, 160, 0.3);
+    }
+
+    .task-filename {
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--text-main);
+      word-break: break-word;
+      line-height: 1.35;
+    }
+
+    .task-actions-cluster {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .btn-task-cancel {
+      min-height: 34px;
+      padding: 0 11px;
+      border-radius: 8px;
+      background: rgba(255, 51, 102, 0.12);
+      border: 1px solid rgba(255, 51, 102, 0.35);
+      color: var(--sakura-pink);
+      font-size: 11.5px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.16s ease;
+    }
+
+    .btn-task-cancel:hover {
+      background: var(--sakura-pink);
+      color: #fff;
+      box-shadow: var(--glow-sakura);
+    }
+
+    /* Animated Glowing Progress Bar */
+    .task-progress-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .task-progress-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+    }
+
+    .task-progress-track {
+      width: 100%;
+      height: 9px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .task-progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--neon-cyan) 0%, var(--neon-violet) 55%, var(--sakura-pink) 100%);
+      box-shadow: 0 0 14px rgba(0, 242, 254, 0.5);
+      transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .task-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+    }
+
+    .metric-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .metric-cell span.m-lbl {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: var(--font-sans);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .metric-cell strong.m-val {
+      color: var(--text-main);
+      font-weight: 700;
+    }
+
+    .metric-cell strong.m-val.speed-pulse {
+      color: var(--emerald-green);
+    }
+
+    /* Empty State Constellation */
+    .idle-constellation-box {
+      padding: 44px 20px;
+      text-align: center;
+      border-radius: 15px;
+      background: rgba(8, 12, 18, 0.65);
+      border: 1px dashed rgba(0, 242, 254, 0.25);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+
+    /* Toast Stack */
+    .toast-container {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      z-index: 150;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 360px;
+      pointer-events: none;
+    }
+
+    .studio-toast {
+      padding: 12px 16px;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid var(--neon-cyan);
+      box-shadow: var(--shadow-card), var(--glow-cyan);
+      color: var(--text-main);
+      font-size: 12.5px;
+      font-weight: 600;
+      pointer-events: auto;
+      animation: slideInRight 0.22s ease forwards;
+    }
+
+    .studio-toast.sakura {
+      border-color: var(--sakura-pink);
+      box-shadow: var(--shadow-card), var(--glow-sakura);
+    }
+
+    .studio-toast.emerald {
+      border-color: var(--emerald-green);
+      box-shadow: var(--shadow-card), var(--glow-emerald);
+    }
+
+    @keyframes slideInRight {
+      from { opacity: 0; transform: translateX(18px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    @media (max-width: 980px) {
+      .studio-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .studio-wrapper {
+        padding: 10px 10px 48px;
+      }
+      .engine-chip-bar,
+      .speedometer-dock,
+      .task-metrics-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+      .feature-toggles-grid,
+      .mode-explainer-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="particleCanvas"></canvas>
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <div class="studio-wrapper">
+    <!-- 1. INTERACTIVE NAVIGATION BAR -->
+    <header class="cyber-card studio-navbar">
+      <div class="nav-brand-group">
+        <div class="brand-emblem" title="Starfall Nexus • Cyberpunk Anime Studio">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+          </svg>
+        </div>
+        <div class="brand-text-col">
+          <div class="brand-name">
+            <span>ANIME STARFALL • STUDIO</span>
+          </div>
+          <span class="brand-tagline">Dual-Mode Cloud Leech &amp; Silent Dump Automation • VPS 172.105.94.62</span>
+        </div>
+
+        <div class="user-identity-badge" title="Authenticated Telegram Session">
+          <span id="navUserIdBadge" class="uid-pill">#ID987654321</span>
+          <span>•</span>
+          <span id="navUsernameBadge" class="uname-pill">@starfall_monarch</span>
+        </div>
+      </div>
+
+      <div class="nav-actions-group">
+        <button type="button" id="dualModeToggleBtn" class="dual-mode-pill mode-web" title="Click to toggle between Web Studio Silent Mode and Telegram Native Mode">
+          <span class="mode-status-dot"></span>
+          <span id="dualModeLabelText">🌐 Web Studio Mode (Active)</span>
+        </button>
+
+        <a href="https://t.me/Anime_Starfall" target="_blank" rel="noopener noreferrer" class="nav-ext-link sakura-hover">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+          <span>Anime Starfall</span>
+        </a>
+
+        <a href="https://github.com/mari8438/WZML-X" target="_blank" rel="noopener noreferrer" class="nav-ext-link">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- MAIN WORKSPACE GRID -->
+    <div class="studio-grid">
+      <!-- LEFT COLUMN: QUICK DISPATCH STUDIO + DUMP CHANNEL CONFIGURATOR -->
+      <div class="left-column">
+        <!-- 2. QUICK DISPATCH STUDIO CARD (DIRECT LEECH BOX) -->
+        <section class="cyber-card" aria-labelledby="dispatchCardTitle">
+          <!-- Subtle Solo Leveling Monarch Crest SVG Watermark -->
+          <svg class="card-anime-crest" viewBox="0 0 100 100" fill="none" stroke="var(--neon-cyan)" stroke-width="2">
+            <polygon points="50 5, 90 25, 80 75, 50 95, 20 75, 10 25" />
+            <polygon points="50 18, 75 35, 68 68, 50 82, 32 68, 25 35" />
+            <line x1="50" y1="5" x2="50" y2="95" />
+            <circle cx="50" cy="50" r="12" />
+          </svg>
+
+          <div class="card-inner">
+            <div class="section-header">
+              <div class="section-title-group">
+                <div class="section-icon-badge sakura">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                  </svg>
+                </div>
+                <div>
+                  <h2 id="dispatchCardTitle" class="section-title">Quick Dispatch Studio</h2>
+                  <p class="section-subtitle">Direct Leech &amp; Cloud Mirror Command Deck</p>
+                </div>
+              </div>
+
+              <button type="button" id="fillSampleAnimeBtn" class="mini-action-btn" title="Populate sample anime magnet link">
+                <span>✨ Sample Link</span>
+              </button>
+            </div>
+
+            <!-- Pipeline Mode Switch (Leech vs Mirror) -->
+            <div class="mode-tab-switch" role="tablist">
+              <button type="button" id="tabLeechModeBtn" class="mode-tab-btn active" data-dispatch-mode="leech">
+                <span>📤 Leech to Dump Channel</span>
+              </button>
+              <button type="button" id="tabMirrorModeBtn" class="mode-tab-btn" data-dispatch-mode="mirror">
+                <span>☁️ Mirror to Cloud Drive</span>
+              </button>
+            </div>
+
+            <!-- Media URL / Magnet / Torrent Input -->
+            <div class="field-group">
+              <label for="dispatchUrlInput" class="field-label">
+                <span>Media URL / Magnet / Torrent / NZB Link</span>
+                <span style="color: var(--neon-cyan); font-family: var(--font-mono);">REQUIRED</span>
+              </label>
+              <div class="input-with-action">
+                <input
+                  type="url"
+                  id="dispatchUrlInput"
+                  class="studio-input has-right-btn"
+                  placeholder="magnet:?xt=urn:btih:... or https://..."
+                  autocomplete="off"
+                />
+                <button type="button" id="pasteUrlClipboardBtn" class="paste-inline-btn" title="Paste from Clipboard">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+                    <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                  </svg>
+                  <span>Paste</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Custom Filename Input (Optional) -->
+            <div class="field-group">
+              <label for="dispatchNameInput" class="field-label">
+                <span>Custom Filename Override (<code>-n</code>)</span>
+                <span style="color: var(--text-muted);">Optional</span>
+              </label>
+              <input
+                type="text"
+                id="dispatchNameInput"
+                class="studio-input"
+                placeholder="e.g. [Starfall] Solo Leveling - S02E01 [1080p AV1].mkv"
+                autocomplete="off"
+              />
+            </div>
+
+            <!-- Engine Selector Chip Bar -->
+            <div class="field-group">
+              <span class="field-label">Transfer Engine Selector</span>
+              <div class="engine-chip-bar" role="radiogroup" aria-label="Download Engine">
+                <button type="button" class="engine-chip active" data-engine="auto">⚡ Auto</button>
+                <button type="button" class="engine-chip" data-engine="qbit">🌊 qBittorrent</button>
+                <button type="button" class="engine-chip" data-engine="nzb">📦 SABnzbd</button>
+                <button type="button" class="engine-chip" data-engine="jd">🦊 JDownloader2</button>
+              </div>
+            </div>
+
+            <!-- Feature Toggles: Selective (-s), Extract (-e), Zip (-z) -->
+            <div class="field-group">
+              <span class="field-label">Pipeline Flags &amp; Modifiers</span>
+              <div class="feature-toggles-grid">
+                <button type="button" id="toggleSelectBtn" class="toggle-pill-btn" data-flag="select">
+                  <span class="check-box">✓</span>
+                  <span>Selective (<code>-s</code>)</span>
+                </button>
+                <button type="button" id="toggleExtractBtn" class="toggle-pill-btn" data-flag="extract">
+                  <span class="check-box">✓</span>
+                  <span>Extract (<code>-e</code>)</span>
+                </button>
+                <button type="button" id="toggleCompressBtn" class="toggle-pill-btn" data-flag="compress">
+                  <span class="check-box">✓</span>
+                  <span>Archive Zip (<code>-z</code>)</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Custom Destination Dump Channel Override -->
+            <div class="field-group">
+              <label for="dispatchUpDestInput" class="field-label">
+                <span>Custom Destination Dump Channel Override (<code>-up</code>)</span>
+                <span style="color: var(--text-muted);">Optional</span>
+              </label>
+              <input
+                type="text"
+                id="dispatchUpDestInput"
+                class="studio-input"
+                placeholder="Default: uses configured Dump Channel ID below"
+                autocomplete="off"
+              />
+            </div>
+
+            <!-- Big Holographic Submit Button -->
+            <button type="button" id="launchLeechTaskBtn" class="btn-holographic-launch">
+              <span>🚀 Launch Leech Task</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- 4. USER PREFERENCE & DUMP CHANNEL CONFIGURATOR -->
+        <section class="cyber-card" aria-labelledby="dumpConfigTitle">
+          <!-- Cyberpunk Hex Crest SVG -->
+          <svg class="card-anime-crest" viewBox="0 0 100 100" fill="none" stroke="var(--neon-violet)" stroke-width="2">
+            <polygon points="50 10, 85 30, 85 70, 50 90, 15 70, 15 30" />
+            <circle cx="50" cy="50" r="22" />
+            <line x1="15" y1="30" x2="85" y2="70" />
+            <line x1="85" y1="30" x2="15" y2="70" />
+          </svg>
+
+          <div class="card-inner">
+            <div class="section-header">
+              <div class="section-title-group">
+                <div class="section-icon-badge violet">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                  </svg>
+                </div>
+                <div>
+                  <h2 id="dumpConfigTitle" class="section-title">Dump Channel &amp; Bot Preferences</h2>
+                  <p class="section-subtitle">Silent Delivery Routing &amp; Dual-Mode Telemetry</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="dump-config-box">
+              <div>
+                <div style="font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em;">Configured Telegram Dump Channel ID</div>
+                <div id="configuredDumpChannelText" class="dump-id-val">-1003887117402</div>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <button type="button" id="copyDumpChannelBtn" class="mini-action-btn" title="Copy Dump Channel ID">
+                  <span>📋 Copy ID</span>
+                </button>
+                <button type="button" id="useDumpInOverrideBtn" class="mini-action-btn" title="Fill into Override Input">
+                  <span>↗ Use in Override</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="mode-explainer-grid">
+              <div class="explainer-tile">
+                <strong style="color: var(--emerald-green);">🌐 Mode A: Web Studio Silent</strong>
+                Suppresses Telegram button spam. Sends only <code>🚀 Task Initiated</code> &amp; <code>✅ Finished</code> while streaming files straight to your Dump Channel.
+              </div>
+              <div class="explainer-tile">
+                <strong style="color: #d896ff;">📲 Mode B: Telegram Native</strong>
+                Classic interactive Telegram chat cards, video-tool button menus, and multi-message progress polling inside Telegram.
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+              <a href="https://t.me/Nothing_leech_2GB1_bot" target="_blank" rel="noopener noreferrer" class="mini-action-btn" style="border-color: rgba(0, 242, 254, 0.35); color: var(--neon-cyan);">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
+                </svg>
+                <span>Open @Nothing_leech_2GB1_bot Settings</span>
+              </a>
+
+              <button type="button" id="openSelectorShortcutLink" class="mini-action-btn">
+                <span>🗂 Open Torrent/NZB File Selector</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- RIGHT COLUMN: 3. LIVE TASK STREAM & DYNAMIC SPEEDOMETER DOCK -->
+      <div class="right-column">
+        <section class="cyber-card" aria-labelledby="liveStreamTitle">
+          <!-- Jujutsu Kaisen Cursed Energy Sigil Watermark -->
+          <svg class="card-anime-crest" viewBox="0 0 100 100" fill="none" stroke="var(--sakura-pink)" stroke-width="2">
+            <circle cx="50" cy="50" r="42" stroke-dasharray="6 4" />
+            <circle cx="50" cy="50" r="28" />
+            <polygon points="50 14, 82 68, 18 68" />
+            <polygon points="50 86, 82 32, 18 32" />
+          </svg>
+
+          <div class="card-inner">
+            <div class="section-header">
+              <div class="section-title-group">
+                <div class="section-icon-badge">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                  </svg>
+                </div>
+                <div>
+                  <h2 id="liveStreamTitle" class="section-title">Live Task Stream &amp; Speedometer Dock</h2>
+                  <p id="pollingStatusLabel" class="section-subtitle">Real-time 1.5s telemetry polling active • Zero-stutter DOM sync</p>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button type="button" id="spawnDemoTasksBtn" class="mini-action-btn" title="Inject sample active anime tasks">
+                  <span>⚡ Simulate Anime Queue</span>
+                </button>
+                <button type="button" id="refreshTasksNowBtn" class="mini-action-btn" title="Poll /api/user/tasks immediately">
+                  <span>🔄 Sync Now</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Dynamic Speedometer Dock -->
+            <div class="speedometer-dock">
+              <div class="speed-metric-box">
+                <span class="speed-metric-label">Aggregate Speed</span>
+                <div id="metricTotalSpeed" class="speed-metric-value cyan">0.0 MB/s</div>
+              </div>
+              <div class="speed-metric-box">
+                <span class="speed-metric-label">Active Pipelines</span>
+                <div id="metricActiveCount" class="speed-metric-value emerald">0 Tasks</div>
+              </div>
+              <div class="speed-metric-box">
+                <span class="speed-metric-label">Peak Velocity</span>
+                <div id="metricPeakSpeed" class="speed-metric-value sakura">0.0 MB/s</div>
+              </div>
+              <div class="speed-metric-box">
+                <span class="speed-metric-label">Engine Target</span>
+                <div id="metricTargetMode" class="speed-metric-value" style="font-size: 13.5px;">Silent Dump</div>
+              </div>
+            </div>
+
+            <!-- Dynamic Task Cards Container -->
+            <div id="liveTasksContainer" class="tasks-stream-list" role="region" aria-live="polite"></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      // --- 1. SUBTLE ANIME PARTICLE DUST CANVAS ---
+      const canvas = document.getElementById("particleCanvas");
+      const ctx = canvas.getContext("2d");
+      let particles = [];
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth || 1280;
+        canvas.height = window.innerHeight || 800;
+      }
+
+      function initParticles() {
+        resizeCanvas();
+        particles = [];
+        const colors = ["#00f2fe", "#7f00ff", "#ff3366", "#00f5a0"];
+        for (let i = 0; i < 38; i++) {
+          particles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            r: Math.random() * 2.1 + 0.6,
+            vx: (Math.random() - 0.5) * 0.35,
+            vy: -Math.random() * 0.45 - 0.12,
+            color: colors[i % colors.length],
+            alpha: Math.random() * 0.55 + 0.2
+          });
+        }
+      }
+
+      function animateParticles() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < particles.length; i++) {
+          const p = particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          if (p.y < -10) p.y = canvas.height + 10;
+          if (p.x < -10) p.x = canvas.width + 10;
+          if (p.x > canvas.width + 10) p.x = -10;
+
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.alpha;
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        window.requestAnimationFrame(animateParticles);
+      }
+
+      window.addEventListener("resize", resizeCanvas);
+      initParticles();
+      window.requestAnimationFrame(animateParticles);
+
+      // --- 2. APPLICATION STATE ---
+      const urlParams = new URLSearchParams(window.location.search);
+      const state = {
+        token: (urlParams.get("token") || "").trim(),
+        userId: 987654321,
+        username: "starfall_monarch",
+        mode: "web", // "web" | "telegram"
+        dumpChannel: "-1003887117402",
+        dispatchMode: "leech", // "leech" | "mirror"
+        selectedEngine: "auto", // "auto" | "qbit" | "nzb" | "jd"
+        flags: {
+          select: false,
+          extract: false,
+          compress: false
+        },
+        tasks: [],
+        simulatedTasks: [
+          {
+            task_id: "sf_1001",
+            gid: "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e",
+            name: "[Starfall] Solo Leveling - S02E04 [1080p BD AV1 10bit][Tam+Jap+Eng].mkv",
+            status: "Downloading",
+            progress: "74.5%",
+            pctNum: 74.5,
+            processed_bytes: "1.19 GB",
+            size: "1.60 GB",
+            speed: "14.8 MB/s",
+            speedMBps: 14.8,
+            eta: "28s",
+            engine: "qBittorrent"
+          },
+          {
+            task_id: "sf_1002",
+            gid: "a1b2c3d4e5f60718",
+            name: "[Starfall] Jujutsu Kaisen - Shibuya Incident Batch [1080p x265 10bit][Multi-Audio].zip",
+            status: "Remuxing & Tagging",
+            progress: "91.2%",
+            pctNum: 91.2,
+            processed_bytes: "8.39 GB",
+            size: "9.20 GB",
+            speed: "22.4 MB/s",
+            speedMBps: 22.4,
+            eta: "36s",
+            engine: "Aria2c"
+          }
+        ],
+        isLiveBackend: false,
+        peakSpeedMBps: 22.4,
+        pollTimerId: null
+      };
+
+      // --- 3. DOM ELEMENTS ---
+      const navUserIdBadge = document.getElementById("navUserIdBadge");
+      const navUsernameBadge = document.getElementById("navUsernameBadge");
+      const dualModeToggleBtn = document.getElementById("dualModeToggleBtn");
+      const dualModeLabelText = document.getElementById("dualModeLabelText");
+
+      const fillSampleAnimeBtn = document.getElementById("fillSampleAnimeBtn");
+      const tabLeechModeBtn = document.getElementById("tabLeechModeBtn");
+      const tabMirrorModeBtn = document.getElementById("tabMirrorModeBtn");
+      const dispatchUrlInput = document.getElementById("dispatchUrlInput");
+      const pasteUrlClipboardBtn = document.getElementById("pasteUrlClipboardBtn");
+      const dispatchNameInput = document.getElementById("dispatchNameInput");
+      const dispatchUpDestInput = document.getElementById("dispatchUpDestInput");
+      const toggleSelectBtn = document.getElementById("toggleSelectBtn");
+      const toggleExtractBtn = document.getElementById("toggleExtractBtn");
+      const toggleCompressBtn = document.getElementById("toggleCompressBtn");
+      const launchLeechTaskBtn = document.getElementById("launchLeechTaskBtn");
+
+      const configuredDumpChannelText = document.getElementById("configuredDumpChannelText");
+      const copyDumpChannelBtn = document.getElementById("copyDumpChannelBtn");
+      const useDumpInOverrideBtn = document.getElementById("useDumpInOverrideBtn");
+      const openSelectorShortcutLink = document.getElementById("openSelectorShortcutLink");
+
+      const pollingStatusLabel = document.getElementById("pollingStatusLabel");
+      const spawnDemoTasksBtn = document.getElementById("spawnDemoTasksBtn");
+      const refreshTasksNowBtn = document.getElementById("refreshTasksNowBtn");
+      const metricTotalSpeed = document.getElementById("metricTotalSpeed");
+      const metricActiveCount = document.getElementById("metricActiveCount");
+      const metricPeakSpeed = document.getElementById("metricPeakSpeed");
+      const metricTargetMode = document.getElementById("metricTargetMode");
+      const liveTasksContainer = document.getElementById("liveTasksContainer");
+
+      // --- 4. UI HELPERS ---
+      function showStudioToast(message, variant) {
+        const container = document.getElementById("toastContainer");
+        const toast = document.createElement("div");
+        toast.className = "studio-toast " + (variant || "");
+        toast.textContent = message;
+        container.appendChild(toast);
+        setTimeout(() => {
+          toast.style.opacity = "0";
+          toast.style.transform = "translateX(14px)";
+          toast.style.transition = "all 0.2s ease";
+          setTimeout(() => toast.remove(), 220);
+        }, 3400);
+      }
+
+      function escapeHtml(str) {
+        return String(str || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function parseSpeedToMBps(speedStr) {
+        if (!speedStr) return 0;
+        const m = String(speedStr).match(/([0-9.]+)\s*(KB|KIB|MB|MIB|GB|GIB|B)/i);
+        if (!m) return 0;
+        const val = parseFloat(m[1]) || 0;
+        const unit = m[2].toUpperCase();
+        if (unit.startsWith("G")) return val * 1024;
+        if (unit.startsWith("M")) return val;
+        if (unit.startsWith("K")) return val / 1024;
+        return val / (1024 * 1024);
+      }
+
+      function parseProgressPercent(progStr) {
+        const m = String(progStr || "0").match(/([0-9.]+)/);
+        if (!m) return 0;
+        return Math.min(100, Math.max(0, parseFloat(m[1]) || 0));
+      }
+
+      function inferAnimeBadge(name) {
+        const lower = String(name || "").toLowerCase();
+        if (lower.endsWith(".zip") || lower.includes("batch")) return "SEASON PACK";
+        if (lower.includes("av1") || lower.includes("hevc") || lower.includes("x265")) return "1080P BD HEVC";
+        if (lower.endsWith(".nzb")) return "USENET NZB";
+        return "ANIME MKV";
+      }
+
+      function renderSessionUI() {
+        navUserIdBadge.textContent = `#ID${state.userId}`;
+        const cleanUname = String(state.username || "user").replace(/^@/, "");
+        navUsernameBadge.textContent = `@${cleanUname}`;
+        configuredDumpChannelText.textContent = state.dumpChannel || "Not Configured (Bot PM)";
+
+        const isWeb = state.mode === "web";
+        dualModeToggleBtn.className = "dual-mode-pill " + (isWeb ? "mode-web" : "mode-telegram");
+        dualModeLabelText.textContent = isWeb
+          ? "🌐 Web Studio Mode (Active)"
+          : "📲 Telegram Mode (Active)";
+        metricTargetMode.textContent = isWeb ? "Silent Dump" : "Telegram Chat";
+      }
+
+      // --- 5. API INTEGRATION: SESSION & MODE ---
+      async function fetchUserSession() {
+        if (!state.token) {
+          state.isLiveBackend = false;
+          pollingStatusLabel.textContent = "Interactive Studio Preview Mode • 1.5s Live Telemetry Simulation";
+          renderSessionUI();
+          return;
+        }
+
+        const apiPath = ["/api", "user", "session"].join("/");
+        try {
+          const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+          const resp = await window.fetch(reqUrl);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          state.userId = data.user_id || state.userId;
+          state.mode = data.mode === "telegram" ? "telegram" : "web";
+          state.dumpChannel = data.dump_channel || state.dumpChannel;
+          state.username = data.username || state.username;
+          state.isLiveBackend = true;
+          pollingStatusLabel.textContent = "Connected to Live FastAPI Engine • Polling /api/user/tasks (1.5s)";
+          renderSessionUI();
+        } catch (err) {
+          state.isLiveBackend = false;
+          pollingStatusLabel.textContent = "Preview Mode Active (Backend unreachable) • 1.5s Telemetry Simulation";
+          renderSessionUI();
+        }
+      }
+
+      async function toggleDualMode() {
+        const nextMode = state.mode === "web" ? "telegram" : "web";
+        state.mode = nextMode;
+        renderSessionUI();
+
+        if (state.token && state.isLiveBackend) {
+          const apiPath = ["/api", "user", "mode"].join("/");
+          try {
+            const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+            const resp = await window.fetch(reqUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mode: nextMode })
+            });
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            showStudioToast(
+              nextMode === "web"
+                ? "Switched to 🌐 Web Studio Mode (Silent Dump Uploads)"
+                : "Switched to 📲 Telegram Native Mode",
+              nextMode === "web" ? "emerald" : "sakura"
+            );
+            return;
+          } catch (err) {
+            showStudioToast("Updated mode locally (" + err.message + ")", "sakura");
+            return;
+          }
+        }
+
+        showStudioToast(
+          nextMode === "web"
+            ? "🌐 Web Studio Mode Activated (Silent Dump Uploads)"
+            : "📲 Telegram Native Mode Activated",
+          nextMode === "web" ? "emerald" : "sakura"
+        );
+      }
+
+      // --- 6. LIVE TASK STREAM & SPEEDOMETER RENDERING ---
+      function renderTasksStream(tasksArray) {
+        let totalSpeedMBps = 0;
+        for (let i = 0; i < tasksArray.length; i++) {
+          const spd = tasksArray[i].speedMBps !== undefined
+            ? tasksArray[i].speedMBps
+            : parseSpeedToMBps(tasksArray[i].speed);
+          totalSpeedMBps += spd;
+        }
+        if (totalSpeedMBps > state.peakSpeedMBps) {
+          state.peakSpeedMBps = totalSpeedMBps;
+        }
+
+        metricTotalSpeed.textContent = `${totalSpeedMBps.toFixed(1)} MB/s`;
+        metricActiveCount.textContent = `${tasksArray.length} ${tasksArray.length === 1 ? "Task" : "Tasks"}`;
+        metricPeakSpeed.textContent = `${state.peakSpeedMBps.toFixed(1)} MB/s`;
+
+        if (tasksArray.length === 0) {
+          liveTasksContainer.innerHTML = `
+            <div class="idle-constellation-box">
+              <svg width="76" height="76" viewBox="0 0 100 100" fill="none" stroke="var(--neon-cyan)" stroke-width="1.8">
+                <circle cx="50" cy="20" r="4" fill="var(--neon-cyan)" />
+                <circle cx="22" cy="48" r="3.5" fill="var(--sakura-pink)" />
+                <circle cx="78" cy="44" r="3.5" fill="var(--emerald-green)" />
+                <circle cx="35" cy="80" r="4" fill="var(--neon-violet)" />
+                <circle cx="68" cy="76" r="3" fill="var(--neon-cyan)" />
+                <line x1="50" y1="20" x2="22" y2="48" stroke-dasharray="3 3" />
+                <line x1="50" y1="20" x2="78" y2="44" stroke-dasharray="3 3" />
+                <line x1="22" y1="48" x2="35" y2="80" />
+                <line x1="78" y1="44" x2="68" y2="76" />
+                <line x1="35" y1="80" x2="68" y2="76" stroke-dasharray="3 3" />
+                <line x1="22" y1="48" x2="78" y2="44" stroke-opacity="0.4" />
+              </svg>
+              <div>
+                <h3 style="font-size: 16px; font-weight: 800; color: var(--text-main);">System Idle • Ready to Leech</h3>
+                <p style="font-size: 12.5px; color: var(--text-dim); max-width: 420px; margin-top: 4px;">
+                  Paste a Magnet, Torrent, NZB, or Direct Link in the Quick Dispatch Studio on the left to ignite the pipeline.
+                </p>
+              </div>
+            </div>
+          `;
+          return;
+        }
+
+        liveTasksContainer.innerHTML = "";
+        for (let i = 0; i < tasksArray.length; i++) {
+          const t = tasksArray[i];
+          const pct = t.pctNum !== undefined ? t.pctNum : parseProgressPercent(t.progress);
+          const pctFormatted = `${pct.toFixed(1)}%`;
+          const gidStr = String(t.gid || t.task_id || "");
+
+          const card = document.createElement("div");
+          card.className = "task-card";
+          card.innerHTML = `
+            <div class="task-top-row">
+              <div class="task-title-cluster">
+                <div class="task-badges-row">
+                  <span class="anime-cat-badge">${escapeHtml(inferAnimeBadge(t.name))}</span>
+                  <span class="task-engine-badge">⚡ ${escapeHtml(t.engine || "qBittorrent")}</span>
+                  <span class="task-status-pill">${escapeHtml(t.status || "Downloading")}</span>
+                  <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--text-muted);">GID: ${escapeHtml(gidStr.slice(0, 10))}</span>
+                </div>
+                <div class="task-filename">${escapeHtml(t.name)}</div>
+              </div>
+
+              <div class="task-actions-cluster">
+                <button type="button" class="mini-action-btn btn-open-files" data-files-gid="${escapeHtml(gidStr)}" style="min-height: 34px; padding: 0 10px; font-size: 11.5px;" title="Select/Rename Files in Torrent">
+                  <span>🗂 Files</span>
+                </button>
+                <button type="button" class="btn-task-cancel" data-cancel-gid="${escapeHtml(gidStr)}" data-cancel-id="${escapeHtml(t.task_id)}">
+                  <span>✕ Cancel Task</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="task-progress-wrap">
+              <div class="task-progress-header">
+                <span style="color: var(--text-dim);">Pipeline Completion</span>
+                <strong style="color: var(--neon-cyan);">${pctFormatted}</strong>
+              </div>
+              <div class="task-progress-track">
+                <div class="task-progress-fill" style="width: ${pct}%;"></div>
+              </div>
+            </div>
+
+            <div class="task-metrics-grid">
+              <div class="metric-cell">
+                <span class="m-lbl">Processed / Size</span>
+                <strong class="m-val">${escapeHtml(t.processed_bytes || "0 B")} / ${escapeHtml(t.size || "Pending")}</strong>
+              </div>
+              <div class="metric-cell">
+                <span class="m-lbl">Transfer Speed</span>
+                <strong class="m-val speed-pulse">${escapeHtml(t.speed || "0 B/s")}</strong>
+              </div>
+              <div class="metric-cell">
+                <span class="m-lbl">ETA Remaining</span>
+                <strong class="m-val">${escapeHtml(t.eta || "-")}</strong>
+              </div>
+              <div class="metric-cell">
+                <span class="m-lbl">Engine</span>
+                <strong class="m-val" style="color: var(--neon-cyan);">${escapeHtml(t.engine || "Auto")}</strong>
+              </div>
+            </div>
+          `;
+
+          const filesBtn = card.querySelector(".btn-open-files");
+          if (filesBtn) {
+            filesBtn.addEventListener("click", () => {
+              if (state.isLiveBackend) {
+                window.location.assign(["/app", "files"].join("/") + "?gid=" + encodeURIComponent(gidStr));
+              } else {
+                showStudioToast("🗂 In production, this opens /app/files?gid=" + gidStr.slice(0, 10) + "…", "");
+              }
+            });
+          }
+          const cancelBtn = card.querySelector(".btn-task-cancel");
+          if (cancelBtn) {
+            cancelBtn.addEventListener("click", () => {
+              cancelTaskByGid(gidStr, t.task_id, t.name);
+            });
+          }
+
+          liveTasksContainer.appendChild(card);
+        }
+      }
+
+      async function pollLiveTasks() {
+        if (state.token && state.isLiveBackend) {
+          const apiPath = ["/api", "user", "tasks"].join("/");
+          try {
+            const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+          const resp = await window.fetch(reqUrl);
+            if (resp.ok) {
+              const data = await resp.json();
+              state.tasks = Array.isArray(data.tasks) ? data.tasks : [];
+              renderTasksStream(state.tasks);
+              return;
+            }
+          } catch (e) {
+            // Fall through to simulation tick if offline
+          }
+        }
+
+        // Advance simulated tasks smoothly for zero-stutter preview
+        for (let i = state.simulatedTasks.length - 1; i >= 0; i--) {
+          const st = state.simulatedTasks[i];
+          st.pctNum = Math.min(100, (st.pctNum || 0) + 1.4);
+          st.progress = `${st.pctNum.toFixed(1)}%`;
+          if (st.pctNum >= 100) {
+            showStudioToast(`✅ Finished & Uploaded to Dump: ${st.name.slice(0, 42)}…`, "emerald");
+            state.simulatedTasks.splice(i, 1);
+          }
+        }
+        renderTasksStream(state.simulatedTasks);
+      }
+
+      async function cancelTaskByGid(gid, taskId, name) {
+        if (state.token && state.isLiveBackend) {
+          const apiPath = ["/api", "leech", "cancel"].join("/");
+          try {
+            const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+            await window.fetch(reqUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ gid: gid, task_id: taskId })
+            });
+          } catch (e) {
+            // continue cleanup
+          }
+        }
+        state.simulatedTasks = state.simulatedTasks.filter(
+          (t) => String(t.gid) !== String(gid) && String(t.task_id) !== String(taskId)
+        );
+        state.tasks = state.tasks.filter(
+          (t) => String(t.gid) !== String(gid) && String(t.task_id) !== String(taskId)
+        );
+        renderTasksStream(state.isLiveBackend ? state.tasks : state.simulatedTasks);
+        showStudioToast(`🛑 Canceled task: ${String(name || gid).slice(0, 38)}`, "sakura");
+      }
+
+      // --- 7. LAUNCH LEECH TASK (POST /api/leech/start) ---
+      async function launchLeechTask() {
+        const rawUrl = dispatchUrlInput.value.trim();
+        if (!rawUrl) {
+          showStudioToast("⚠️ Please enter a Media URL, Magnet link, or NZB URL first.", "sakura");
+          dispatchUrlInput.focus();
+          return;
+        }
+
+        const customName = dispatchNameInput.value.trim();
+        const upDest = dispatchUpDestInput.value.trim();
+
+        const payload = {
+          url: rawUrl,
+          mode: state.dispatchMode,
+          engine: state.selectedEngine,
+          name: customName,
+          select: state.flags.select,
+          extract: state.flags.extract,
+          compress: state.flags.compress,
+          up_dest: upDest
+        };
+
+        launchLeechTaskBtn.disabled = true;
+        launchLeechTaskBtn.innerHTML = `<span>⚡ Dispatching to Starfall Engine...</span>`;
+
+        try {
+          if (state.token && state.isLiveBackend) {
+            const apiPath = ["/api", "leech", "start"].join("/");
+            const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+            const resp = await window.fetch(reqUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+            const data = await resp.json();
+            if (!resp.ok || data.error) {
+              throw new Error(data.detail || data.error || `HTTP ${resp.status}`);
+            }
+            showStudioToast(`🚀 Task Initiated: ${data.name || "Queued in Studio"}`, "emerald");
+            await pollLiveTasks();
+          } else {
+            const simGid = "sf_" + Math.random().toString(16).slice(2, 14);
+            const displayTitle = customName || rawUrl.split("/").pop().slice(0, 65) || "[Starfall] Anime Episode [1080p AV1].mkv";
+            const engLabel = {
+              auto: "qBittorrent",
+              qbit: "qBittorrent",
+              nzb: "SABnzbd+",
+              jd: "JDownloader2"
+            }[state.selectedEngine] || "qBittorrent";
+
+            state.simulatedTasks.unshift({
+              task_id: simGid,
+              gid: simGid,
+              name: displayTitle,
+              status: state.flags.select ? "Awaiting File Selection (-s)" : "Downloading",
+              progress: "4.2%",
+              pctNum: 4.2,
+              processed_bytes: "62.4 MB",
+              size: "1.45 GB",
+              speed: "18.6 MB/s",
+              speedMBps: 18.6,
+              eta: "1m 14s",
+              engine: engLabel
+            });
+            renderTasksStream(state.simulatedTasks);
+            showStudioToast(`🚀 Launched ${state.dispatchMode.toUpperCase()} task in Studio Stream!`, "emerald");
+          }
+
+          dispatchUrlInput.value = "";
+          dispatchNameInput.value = "";
+          document.getElementById("liveStreamTitle").scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch (err) {
+          showStudioToast("Launch error: " + err.message, "sakura");
+        } finally {
+          launchLeechTaskBtn.disabled = false;
+          launchLeechTaskBtn.innerHTML = `<span>🚀 Launch Leech Task</span>`;
+        }
+      }
+
+      // --- 8. EVENT LISTENERS ---
+      dualModeToggleBtn.addEventListener("click", toggleDualMode);
+
+      tabLeechModeBtn.addEventListener("click", () => {
+        state.dispatchMode = "leech";
+        tabLeechModeBtn.classList.add("active");
+        tabMirrorModeBtn.classList.remove("active");
+        launchLeechTaskBtn.innerHTML = `<span>🚀 Launch Leech Task</span>`;
+      });
+
+      tabMirrorModeBtn.addEventListener("click", () => {
+        state.dispatchMode = "mirror";
+        tabMirrorModeBtn.classList.add("active");
+        tabLeechModeBtn.classList.remove("active");
+        launchLeechTaskBtn.innerHTML = `<span>☁️ Launch Mirror Task</span>`;
+      });
+
+      document.querySelectorAll(".engine-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          document.querySelectorAll(".engine-chip").forEach((c) => c.classList.remove("active"));
+          chip.classList.add("active");
+          state.selectedEngine = chip.getAttribute("data-engine") || "auto";
+        });
+      });
+
+      [toggleSelectBtn, toggleExtractBtn, toggleCompressBtn].forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const flag = btn.getAttribute("data-flag");
+          state.flags[flag] = !state.flags[flag];
+          btn.classList.toggle("checked", state.flags[flag]);
+        });
+      });
+
+      pasteUrlClipboardBtn.addEventListener("click", async () => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.readText) {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+              dispatchUrlInput.value = text.trim();
+              showStudioToast("📋 Pasted link from clipboard!", "emerald");
+              return;
+            }
+          }
+        } catch (e) {
+          // Fallback sample
+        }
+        dispatchUrlInput.focus();
+        showStudioToast("Press Ctrl+V / Cmd+V to paste link into the field.", "");
+      });
+
+      fillSampleAnimeBtn.addEventListener("click", () => {
+        dispatchUrlInput.value = "magnet:?xt=urn:btih:8f4e2a91c0b3d7e6f5a4b3c2d1e0f9a8b7c6d5e4&dn=%5BBreeze%5D%20Solo%20Leveling%20-%20S02E05%20%5B1080p%20BD%20AV1%5D.mkv";
+        dispatchNameInput.value = "🄰🅂- [S02E05] Solo Leveling (2026) 1080p 10bit CR WEB-DL x265 [Tam+Jap-AAC 2.0] ESub ~ [@Anime_Starfall🥰].mkv";
+        showStudioToast("✨ Populated sample Solo Leveling S02E05 release!", "emerald");
+      });
+
+      launchLeechTaskBtn.addEventListener("click", launchLeechTask);
+
+      copyDumpChannelBtn.addEventListener("click", () => {
+        const val = state.dumpChannel || "-1003887117402";
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(val).catch(() => {});
+        }
+        showStudioToast(`📋 Copied Dump Channel ID: ${val}`, "emerald");
+      });
+
+      useDumpInOverrideBtn.addEventListener("click", () => {
+        dispatchUpDestInput.value = state.dumpChannel || "-1003887117402";
+        dispatchUpDestInput.focus();
+        showStudioToast("↗ Applied Dump Channel ID to override input", "");
+      });
+
+      openSelectorShortcutLink.addEventListener("click", () => {
+        const firstTask = (state.isLiveBackend ? state.tasks : state.simulatedTasks)[0];
+        const gidVal = firstTask && firstTask.gid ? firstTask.gid : "8f4e2a91c0b3";
+        if (state.isLiveBackend) {
+          window.location.assign(["/app", "files"].join("/") + "?gid=" + encodeURIComponent(gidVal));
+        } else {
+          showStudioToast("🗂 File Selector route: /app/files?gid=" + gidVal.slice(0, 12), "");
+        }
+      });
+
+      spawnDemoTasksBtn.addEventListener("click", () => {
+        const id = "sf_" + Math.floor(1000 + Math.random() * 9000);
+        state.simulatedTasks.unshift({
+          task_id: id,
+          gid: id,
+          name: `[Starfall] Cyberpunk Edgerunners - S01E0${Math.floor(1 + Math.random() * 9)} [2160p 4K HDR10 HEVC][Tam+Eng].mkv`,
+          status: "Downloading",
+          progress: "16.5%",
+          pctNum: 16.5,
+          processed_bytes: "412.0 MB",
+          size: "2.50 GB",
+          speed: "28.5 MB/s",
+          speedMBps: 28.5,
+          eta: "1m 15s",
+          engine: "qBittorrent"
+        });
+        renderTasksStream(state.simulatedTasks);
+        showStudioToast("⚡ Injected active anime task into live stream!", "emerald");
+      });
+
+      refreshTasksNowBtn.addEventListener("click", () => {
+        pollLiveTasks();
+        showStudioToast("🔄 Task telemetry synchronized!", "");
+      });
+
+      // --- 9. BOOTSTRAP & 1.5s INTERVAL POLLING ---
+      fetchUserSession().then(() => {
+        pollLiveTasks();
+        if (state.pollTimerId) clearInterval(state.pollTimerId);
+        state.pollTimerId = setInterval(pollLiveTasks, 1500);
+      });
+    })();
+  </script>
+</body>
+</html>

@@ -1023,3 +1023,39 @@ async def api_start_leech_task(token: str, body: LeechStartRequest):
             "dashboard_url": dashboard_url,
         }
     )
+
+
+class CancelTaskRequest(BaseModel):
+    gid: Optional[str] = ""
+    task_id: Optional[str] = ""
+
+
+@app.get("/app/user", response_class=HTMLResponse)
+@app.get("/app/dashboard", response_class=HTMLResponse)
+async def user_studio_dashboard(request: Request):
+    """Serve the standalone Anime Starfall Web Studio Dashboard (user_studio.html) with no-cache headers."""
+    response = templates.TemplateResponse(request, "user_studio.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.post("/api/leech/cancel")
+async def api_cancel_leech_task(token: str, body: CancelTaskRequest):
+    """Cancel an active task from the Web Studio Dashboard."""
+    user_id = _require_valid_user_token(token)
+    gid = (body.gid or body.task_id or "").strip()
+    if not gid:
+        raise HTTPException(status_code=400, detail="gid or task_id is required")
+
+    enqueue_ipc_event(
+        {
+            "type": "cancel_task",
+            "user_id": user_id,
+            "gid": gid,
+            "task_id": body.task_id or gid,
+        }
+    )
+    return JSONResponse({"status": "canceling", "gid": gid, "user_id": user_id})
+
