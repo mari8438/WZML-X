@@ -28,10 +28,9 @@ def _resolve_signing_secret() -> bytes:
     bot_token = environ.get("BOT_TOKEN", "").strip()
     if not bot_token:
         try:
-            import sys
-            cfg_mod = sys.modules.get("bot.core.config_manager")
-            if cfg_mod and hasattr(cfg_mod, "Config"):
-                bot_token = str(getattr(cfg_mod.Config, "BOT_TOKEN", "") or "").strip()
+            from bot.core.config_manager import Config
+
+            bot_token = str(getattr(Config, "BOT_TOKEN", "") or "").strip()
         except Exception:
             pass
     if not bot_token:

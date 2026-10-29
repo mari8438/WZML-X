@@ -639,6 +639,7 @@ async def load_configurations():
             access_pwd = token_bytes(32).hex()
             Config.WEB_ACCESS_PASSWORD = access_pwd
         environ["WEB_ACCESS_PASSWORD"] = str(access_pwd)
+        environ["BOT_TOKEN"] = str(Config.BOT_TOKEN or "")
         web_env = {
             **environ,
             "WEB_ACCESS_PASSWORD": str(access_pwd),
