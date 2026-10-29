@@ -589,6 +589,17 @@ def _message_merge_media(message):
 
 def _find_merge_intake_session(message):
     user = message.from_user or message.sender_chat
+    reply_id = getattr(message, "reply_to_message_id", None)
+    if reply_id:
+        for item in _active_vt_sessions.values():
+            listener = item.get("listener")
+            vt_msg = getattr(listener, "_vt_msg", None)
+            if vt_msg and vt_msg.id == reply_id:
+                state = item.get("state")
+                if state and not state.get("completed") and not state.get("cancelled"):
+                    state["merge_intake"] = True
+                    return item
+
     for item in _active_vt_sessions.values():
         listener = item.get("listener")
         state = item.get("state")
@@ -845,11 +856,12 @@ async def video_tools_media_collector(client, message):
     media = _message_merge_media(message)
     if not media:
         return
-    filename = (
+    raw_filename = (
         getattr(media, "file_name", "")
         or getattr(media, "title", "")
         or f"merge_track_{int(time())}"
     )
+    filename = re.sub(r'[\\/*?:"<>|]', '_', raw_filename).strip()
     ext = ospath.splitext(filename)[1].lower()
     if not ext:
         if getattr(message, "audio", None) or (getattr(media, "mime_type", "") or "").startswith("audio/"):
@@ -889,9 +901,28 @@ async def video_tools_media_collector(client, message):
 
     external_dir = await _ensure_external_dir(state)
     target = ospath.join(external_dir, filename)
-    downloaded = await message.download(file_name=target)
-    state.pop("downloading_status", None)
+
+    downloaded = None
+    try:
+        downloaded = await message.download(file_name=target)
+    except Exception as de:
+        LOGGER.warning(f"Video Tools: bot download failed for {filename}: {de}. Trying user client fallback...")
+        downloaded = None
+
     if not downloaded:
+        from ...core.tg_client import TgClient
+        if TgClient.user:
+            try:
+                user_msg = await TgClient.user.get_messages(
+                    chat_id=message.chat.id, message_ids=message.id
+                )
+                if user_msg:
+                    downloaded = await user_msg.download(file_name=target)
+            except Exception as ue:
+                LOGGER.error(f"Video Tools: user client download also failed: {ue}")
+
+    state.pop("downloading_status", None)
+    if not downloaded or not await aiopath.isfile(downloaded):
         await send_message(message, "Video Tools: failed to download merge-track file.")
         if vt_msg:
             with suppress(Exception):

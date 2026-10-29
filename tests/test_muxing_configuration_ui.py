@@ -214,3 +214,24 @@ def test_video_tools_lossless_stream_copy_engine():
     assert "Final Sample" in sample_body
     assert "send_sample_video" in sample_body
     assert "send_sample_video" in preview_body
+
+
+def test_manual_video_merge_flag_handling_for_single_link():
+    ml_file = _REPO_ROOT / "bot" / "modules" / "mirror_leech.py"
+    code = ml_file.read_text(encoding="utf-8")
+    assert "if self.multi > 1 and (is_bulk or len(self.bulk) > 0):" in code
+    assert "self.multi = 0" in code
+    assert 'self.folder_name = ""' in code
+
+
+def test_video_tools_media_collector_robust_download():
+    vt_file = _REPO_ROOT / "bot" / "helper" / "video_utils" / "video_tools.py"
+    code = vt_file.read_text(encoding="utf-8")
+    # Verify reply_to_message_id intake session matching
+    assert "reply_id = getattr(message, \"reply_to_message_id\", None)" in code
+    # Verify filename sanitization
+    assert "re.sub(r'[\\\\/*?:\"<>|]', '_', raw_filename)" in code
+    # Verify user client fallback
+    assert "from ...core.tg_client import TgClient" in code
+    assert "TgClient.user.get_messages" in code
+    assert "user_msg.download" in code

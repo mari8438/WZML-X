@@ -245,11 +245,14 @@ class Mirror(TaskListener):
         if self.manual_video_merge:
             self.video_tool = True
             self.skip_video_tool_ui = True
-            if self.multi > 1:
+            if self.multi > 1 and (is_bulk or len(self.bulk) > 0):
                 self._vt_processed = True
                 self._vt_state = {"video_merge": True}
-            if self.multi > 1 and not self.folder_name:
-                self.folder_name = f"/vt_video_merge_{self.message.id}"
+                if not self.folder_name:
+                    self.folder_name = f"/vt_video_merge_{self.message.id}"
+            else:
+                self.multi = 0
+                self.folder_name = ""
         if self.zip_merge and self.multi > 1 and not self.folder_name:
             self.folder_name = f"/zip_merge_{self.message.id}"
         # For -i combined with -m, advance the next item only once this item
