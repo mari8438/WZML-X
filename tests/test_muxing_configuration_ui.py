@@ -191,6 +191,8 @@ def test_video_tools_ui_source_code_integrity():
     assert 'mux_action == "audiolang"' in code
     assert 'mux_action == "removeaudio"' in code
     assert 'mux_action == "rename"' in code
+    assert 'mux_action == "preview"' in code
+    assert "vt_mux_preview_" in code
 
 
 def test_video_tools_lossless_stream_copy_engine():
@@ -210,3 +212,5 @@ def test_video_tools_lossless_stream_copy_engine():
     sample_body = sample_func_match.group(1)
     assert "copy" in sample_body
     assert "Final Sample" in sample_body
+    assert "send_sample_video" in sample_body
+    assert "send_sample_video" in preview_body

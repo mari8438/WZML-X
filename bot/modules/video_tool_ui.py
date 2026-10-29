@@ -185,6 +185,7 @@ async def render_muxing_configuration(vt_msg, state):
         ],
         [
             InlineKeyboardButton("✏️ Rename", callback_data=f"vt_mux_rename_{task_id}"),
+            InlineKeyboardButton("🎬 Delay Preview", callback_data=f"vt_mux_preview_{task_id}"),
         ],
         [
             InlineKeyboardButton(
@@ -767,6 +768,22 @@ async def video_tools_callback(_, query):
                 await render_muxing_configuration(query.message, state)
                 return
 
+            if mux_action == "preview":
+                if not state.get("external_audio"):
+                    await query.answer(
+                        "Please send an audio file to chat before previewing delay!",
+                        show_alert=True,
+                    )
+                    return
+                await query.answer("🎬 Generating lossless sync preview clip... Please wait.", show_alert=False)
+                try:
+                    await generate_merge_preview(state)
+                    await query.answer("✅ Delay preview sent to chat! Check audio sync.", show_alert=True)
+                except Exception as pe:
+                    LOGGER.warning(f"Video Tool manual preview generation failed: {pe}")
+                    await query.answer(f"Preview failed: {pe}", show_alert=True)
+                return
+
             if mux_action == "start":
                 if not state.get("external_audio") and not state.get("external_sub"):
                     await query.answer(
@@ -794,10 +811,11 @@ async def video_tools_callback(_, query):
                             await database.update_user_data(user_id)
 
                 if state.get("preview_sync", True):
-                    try:
-                        await generate_merge_preview(state)
-                    except Exception as pe:
-                        LOGGER.warning(f"Video Tool preview generation skipped: {pe}")
+                    if state.get("preview_stale", True):
+                        try:
+                            await generate_merge_preview(state)
+                        except Exception as pe:
+                            LOGGER.warning(f"Video Tool preview generation skipped: {pe}")
 
                 try:
                     finish_merge_track_intake(state, event)

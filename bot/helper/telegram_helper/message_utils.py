@@ -321,6 +321,14 @@ async def edit_reply_markup(message, buttons):
 
 async def send_file(message, file, caption="", buttons=None):
     try:
+        if isinstance(message, int):
+            return await TgClient.bot.send_document(
+                chat_id=message,
+                document=file,
+                caption=caption,
+                disable_notification=True,
+                reply_markup=buttons,
+            )
         return await message.reply_document(
             document=file,
             quote=True,
@@ -331,10 +339,56 @@ async def send_file(message, file, caption="", buttons=None):
     except FloodWait as f:
         LOGGER.warning(str(f))
         await sleep(f.value * 1.2)
-        return await send_file(message, file, caption)
+        return await send_file(message, file, caption, buttons=buttons)
     except Exception as e:
         LOGGER.error(str(e), exc_info=True)
         return str(e)
+
+
+async def send_sample_video(message, video, caption="", duration=0, buttons=None):
+    try:
+        parsed_target = _parse_chat_target(message)
+        thread_id = None
+        if parsed_target:
+            message, thread_id = parsed_target
+        kwargs = {}
+        if thread_id is not None:
+            kwargs["message_thread_id"] = thread_id
+
+        if hasattr(message, "reply_video"):
+            return await message.reply_video(
+                video=video,
+                quote=True,
+                caption=caption,
+                supports_streaming=True,
+                duration=int(duration or 0),
+                disable_notification=True,
+                reply_markup=buttons,
+                **kwargs,
+            )
+        elif hasattr(TgClient.bot, "send_video"):
+            chat_id = message if isinstance(message, int) else getattr(message, "chat", None)
+            if hasattr(chat_id, "id"):
+                chat_id = chat_id.id
+            if chat_id:
+                return await TgClient.bot.send_video(
+                    chat_id=chat_id,
+                    video=video,
+                    caption=caption,
+                    supports_streaming=True,
+                    duration=int(duration or 0),
+                    disable_notification=True,
+                    reply_markup=buttons,
+                    **kwargs,
+                )
+    except FloodWait as f:
+        LOGGER.warning(str(f))
+        await sleep(f.value * 1.2)
+        return await send_sample_video(message, video, caption, duration, buttons)
+    except Exception as e:
+        LOGGER.warning(f"send_sample_video reply_video failed: {e}, falling back to document")
+
+    return await send_file(message, video, caption=caption, buttons=buttons)
 
 
 async def send_rss(text, chat_id, thread_id):

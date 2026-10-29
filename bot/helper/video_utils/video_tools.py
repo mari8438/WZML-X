@@ -20,7 +20,7 @@ from ..ext_utils.ffmpeg_queue import ffmpeg_task
 from ..ext_utils.files_utils import get_source_container_name
 from ..ext_utils.links_utils import is_url
 from ..ext_utils.performance import get_ffmpeg_cores, get_ffmpeg_threads
-from ..telegram_helper.message_utils import send_message
+from ..telegram_helper.message_utils import send_message, send_sample_video
 
 # Extensions that are valid for video tools
 VIDEO_EXTENSIONS = {
@@ -785,11 +785,14 @@ async def generate_merge_preview(state):
             f"<code>{ospath.basename(input_path)}</code>\n"
             "<i>Zero-reencode lossless stream cut. Check audio sync.</i>"
         )
-        preview_msg = await send_message(listener.message, caption, file=preview_path)
+        preview_msg = await send_sample_video(listener.message, preview_path, caption=caption, duration=preview_duration)
         state["preview_message"] = preview_msg
-        state["preview_path"] = preview_path
         state["preview_stale"] = False
-        return preview_path
+        if await aiopath.exists(preview_path):
+            with suppress(Exception):
+                await remove(preview_path)
+        state["preview_path"] = ""
+        return preview_msg
     finally:
         state["busy"] = False
 
@@ -825,7 +828,7 @@ async def generate_final_sample(listener, output_path):
                 f"🎬 <b>Final Sample ({sample_dur}s • Lossless Cut)</b>\n"
                 f"<code>{ospath.basename(output_path)}</code>"
             )
-            await send_message(listener.message, caption, file=sample_path)
+            await send_sample_video(listener.message, sample_path, caption=caption, duration=sample_dur)
     except Exception as e:
         LOGGER.warning(f"Video Tool: Failed generating final sample: {e}")
     finally:
