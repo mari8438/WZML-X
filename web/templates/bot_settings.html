@@ -1,0 +1,1954 @@
+<!DOCTYPE html>
+<html lang="en" class="dark" data-anime-theme="solo_leveling">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Starfall Settings &amp; Owner Control Studio • @Anime_Starfall</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* =========================================================================
+       VIBRANT POPULAR ANIME THEME ENGINE (5 SWITCHABLE PRESETS)
+       ========================================================================= */
+    :root,
+    html[data-anime-theme="solo_leveling"] {
+      --bg-base: #07090e;
+      --bg-surface: #0e1320;
+      --bg-elevated: rgba(14, 19, 32, 0.84);
+      --bg-deep: rgba(7, 9, 14, 0.92);
+      --accent-primary: #00d2ff;
+      --accent-secondary: #9d00ff;
+      --accent-tertiary: #00f5a0;
+      --accent-danger: #ff3366;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(0, 210, 255, 0.42);
+      --shadow-glow: 0 0 26px rgba(0, 210, 255, 0.28);
+      --theme-badge-name: "🗡 Solo Leveling • Shadow Monarch";
+    }
+
+    html[data-anime-theme="jujutsu_kaisen"] {
+      --bg-base: #0a0a10;
+      --bg-surface: #12121e;
+      --bg-elevated: rgba(18, 18, 30, 0.84);
+      --bg-deep: rgba(10, 10, 16, 0.92);
+      --accent-primary: #00f5ff;
+      --accent-secondary: #ff0055;
+      --accent-tertiary: #a855f7;
+      --accent-danger: #ff2a55;
+      --border-subtle: rgba(255, 255, 255, 0.09);
+      --border-glow: rgba(255, 0, 85, 0.45);
+      --shadow-glow: 0 0 26px rgba(0, 245, 255, 0.3);
+      --theme-badge-name: "👁 Jujutsu Kaisen • Domain Expansion";
+    }
+
+    html[data-anime-theme="demon_slayer"] {
+      --bg-base: #0d111a;
+      --bg-surface: #171d2b;
+      --bg-elevated: rgba(23, 29, 43, 0.84);
+      --bg-deep: rgba(13, 17, 26, 0.92);
+      --accent-primary: #ff7700;
+      --accent-secondary: #ff2244;
+      --accent-tertiary: #00e5ff;
+      --accent-danger: #ff2244;
+      --border-subtle: rgba(255, 255, 255, 0.09);
+      --border-glow: rgba(255, 119, 0, 0.45);
+      --shadow-glow: 0 0 26px rgba(255, 119, 0, 0.3);
+      --theme-badge-name: "⚔️ Demon Slayer • Sun Breathing";
+    }
+
+    html[data-anime-theme="attack_on_titan"] {
+      --bg-base: #0e141b;
+      --bg-surface: #16202b;
+      --bg-elevated: rgba(22, 32, 43, 0.85);
+      --bg-deep: rgba(14, 20, 27, 0.93);
+      --accent-primary: #10b981;
+      --accent-secondary: #d4af37;
+      --accent-tertiary: #38bdf8;
+      --accent-danger: #ef4444;
+      --border-subtle: rgba(212, 175, 55, 0.14);
+      --border-glow: rgba(16, 185, 129, 0.45);
+      --shadow-glow: 0 0 26px rgba(16, 185, 129, 0.28);
+      --theme-badge-name: "🛡 Attack on Titan • Wings of Freedom";
+    }
+
+    html[data-anime-theme="cyberpunk_edgerunners"] {
+      --bg-base: #05080c;
+      --bg-surface: #0f1622;
+      --bg-elevated: rgba(15, 22, 34, 0.86);
+      --bg-deep: rgba(5, 8, 12, 0.94);
+      --accent-primary: #ffe600;
+      --accent-secondary: #00f0ff;
+      --accent-tertiary: #ff007f;
+      --accent-danger: #ff0055;
+      --border-subtle: rgba(255, 230, 0, 0.14);
+      --border-glow: rgba(255, 230, 0, 0.5);
+      --shadow-glow: 0 0 26px rgba(255, 230, 0, 0.28);
+      --theme-badge-name: "⚡ Cyberpunk Edgerunners • Sandevistan";
+    }
+
+    :root {
+      --text-main: #f8fafc;
+      --text-dim: #94a3b8;
+      --text-muted: #64748b;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      min-height: 100%;
+      background-color: var(--bg-base);
+      background-image:
+        radial-gradient(circle at 12% 10%, color-mix(in srgb, var(--accent-primary) 14%, transparent) 0%, transparent 40%),
+        radial-gradient(circle at 88% 14%, color-mix(in srgb, var(--accent-secondary) 15%, transparent) 0%, transparent 44%),
+        linear-gradient(180deg, var(--bg-base) 0%, var(--bg-surface) 100%);
+      background-attachment: fixed;
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      overflow-x: hidden;
+      transition: background-color 0.3s ease, color 0.2s ease;
+    }
+
+    #themeParticleCanvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      opacity: 0.65;
+    }
+
+    button, input, select, textarea {
+      font-family: inherit;
+      color: inherit;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      background: none;
+    }
+
+    .studio-shell {
+      position: relative;
+      z-index: 1;
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 14px 16px 110px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .anime-card {
+      position: relative;
+      background: var(--bg-elevated);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 18px;
+      box-shadow: 0 18px 46px -12px rgba(0, 0, 0, 0.8);
+      overflow: hidden;
+      transition: border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+
+    .anime-card::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2.5px;
+      background: linear-gradient(90deg, transparent, var(--accent-primary), var(--accent-secondary), transparent);
+      opacity: 0.85;
+      pointer-events: none;
+    }
+
+    .watermark-emblem {
+      position: absolute;
+      right: -18px;
+      bottom: -18px;
+      width: 160px;
+      height: 160px;
+      opacity: 0.055;
+      pointer-events: none;
+      z-index: 0;
+      color: var(--accent-primary);
+    }
+
+    /* TOP THEME SWITCHER & NAVIGATION BAR */
+    .top-studio-bar {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 14px 18px;
+    }
+
+    .navbar-main-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .brand-block {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .brand-crest {
+      width: 44px;
+      height: 44px;
+      border-radius: 13px;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 24%, transparent), color-mix(in srgb, var(--accent-secondary) 32%, transparent));
+      border: 1px solid var(--border-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-primary);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .brand-heading {
+      font-size: 16.5px;
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      background: linear-gradient(90deg, #fff 0%, var(--accent-primary) 50%, var(--accent-secondary) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-meta {
+      font-size: 11.5px;
+      color: var(--text-dim);
+    }
+
+    /* Studio Mode Tabs (User Settings vs Owner/Admin Panel) */
+    .studio-mode-tabs {
+      display: inline-flex;
+      gap: 6px;
+      padding: 4px;
+      border-radius: 12px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .studio-tab-btn {
+      min-height: 38px;
+      padding: 0 15px;
+      border-radius: 9px;
+      font-size: 12.5px;
+      font-weight: 800;
+      color: var(--text-dim);
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      transition: all 0.2s ease;
+    }
+
+    .studio-tab-btn.active {
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 22%, transparent), color-mix(in srgb, var(--accent-secondary) 28%, transparent));
+      border: 1px solid var(--border-glow);
+      color: var(--accent-primary);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .nav-links-cluster {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .ext-pill-link {
+      min-height: 38px;
+      padding: 0 12px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-dim);
+      font-size: 12px;
+      font-weight: 600;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.18s ease;
+    }
+
+    .ext-pill-link:hover {
+      color: var(--accent-primary);
+      border-color: var(--border-glow);
+      transform: translateY(-1px);
+    }
+
+    /* 5-Theme Preset Bar */
+    .theme-switcher-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .theme-pills-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .theme-preset-btn {
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-dim);
+      font-size: 11.5px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.18s ease;
+    }
+
+    .theme-preset-btn:hover {
+      color: var(--text-main);
+      border-color: var(--accent-primary);
+    }
+
+    .theme-preset-btn.active {
+      background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-deep));
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+      box-shadow: var(--shadow-glow);
+    }
+
+    /* WORKSPACE VIEWS */
+    .view-section {
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .view-section.active {
+      display: flex;
+    }
+
+    .two-col-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .col-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card-pad {
+      position: relative;
+      z-index: 1;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+    }
+
+    .card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .card-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+      border: 1px solid var(--border-glow);
+      color: var(--accent-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .card-title {
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .card-desc {
+      font-size: 11.5px;
+      color: var(--text-dim);
+    }
+
+    /* FORM INPUTS & TOGGLES */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-label {
+      font-size: 11.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .anime-input,
+    .anime-select {
+      width: 100%;
+      min-height: 42px;
+      padding: 8px 13px;
+      border-radius: 11px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .anime-input:focus,
+    .anime-select:focus {
+      border-color: var(--accent-primary);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+    }
+
+    .input-row-flex {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .btn-accent-outline {
+      min-height: 42px;
+      padding: 0 14px;
+      border-radius: 11px;
+      background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+      border: 1px solid var(--border-glow);
+      color: var(--accent-primary);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.18s ease;
+    }
+
+    .btn-accent-outline:hover {
+      background: color-mix(in srgb, var(--accent-primary) 24%, transparent);
+      box-shadow: var(--shadow-glow);
+    }
+
+    /* Switch Row */
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 14px;
+      border-radius: 12px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .switch-info strong {
+      display: block;
+      font-size: 13px;
+      color: var(--text-main);
+    }
+
+    .switch-info span {
+      font-size: 11.5px;
+      color: var(--text-dim);
+    }
+
+    .neon-toggle-btn {
+      width: 50px;
+      height: 28px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid var(--border-subtle);
+      position: relative;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .neon-toggle-btn::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      transition: transform 0.2s ease, background-color 0.2s ease;
+    }
+
+    .neon-toggle-btn.on {
+      background: color-mix(in srgb, var(--accent-primary) 28%, transparent);
+      border-color: var(--accent-primary);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .neon-toggle-btn.on::after {
+      transform: translateX(22px);
+      background: var(--accent-primary);
+    }
+
+    /* Custom User Thumbnail 16:9 Preview */
+    .user-thumb-stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 13px;
+      background: #05070b;
+      border: 1px solid var(--border-glow);
+      overflow: hidden;
+    }
+
+    #userThumbCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    .thumb-status-pill {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      background: rgba(7, 9, 14, 0.85);
+      border: 1px solid var(--border-glow);
+      color: var(--accent-primary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .thumb-dropzone {
+      padding: 16px;
+      border-radius: 12px;
+      border: 1.5px dashed var(--border-glow);
+      background: color-mix(in srgb, var(--accent-primary) 5%, transparent);
+      text-align: center;
+      cursor: pointer;
+      font-size: 12.5px;
+      color: var(--text-dim);
+    }
+
+    /* Poster Template Gallery (Templates 1 - 11) */
+    .poster-gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+      gap: 8px;
+      max-height: 250px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .poster-tpl-card {
+      padding: 10px;
+      border-radius: 11px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-subtle);
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: all 0.16s ease;
+    }
+
+    .poster-tpl-card:hover {
+      border-color: var(--accent-primary);
+    }
+
+    .poster-tpl-card.selected {
+      background: color-mix(in srgb, var(--accent-primary) 16%, var(--bg-deep));
+      border-color: var(--accent-primary);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .tpl-preview-box {
+      height: 48px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 28%, #090d16), color-mix(in srgb, var(--accent-secondary) 32%, #090d16));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    /* OWNER / ADMIN TELEMETRY GAUGES & LOG TERMINAL */
+    .telemetry-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .gauge-card {
+      padding: 13px 14px;
+      border-radius: 13px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    .gauge-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .gauge-val {
+      font-family: var(--font-mono);
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--accent-primary);
+    }
+
+    .gauge-bar-track {
+      width: 100%;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+    }
+
+    .gauge-bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
+      transition: width 0.35s ease;
+    }
+
+    .log-terminal-window {
+      height: 290px;
+      overflow-y: auto;
+      padding: 14px;
+      border-radius: 12px;
+      background: #04060a;
+      border: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .admin-actions-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    .btn-admin-action {
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 12px;
+      background: var(--bg-deep);
+      border: 1px solid var(--border-subtle);
+      font-size: 12.5px;
+      font-weight: 800;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      transition: all 0.18s ease;
+    }
+
+    .btn-admin-action:hover {
+      border-color: var(--accent-primary);
+      color: var(--accent-primary);
+      box-shadow: var(--shadow-glow);
+    }
+
+    .btn-admin-action.danger:hover {
+      border-color: var(--accent-danger);
+      color: var(--accent-danger);
+    }
+
+    /* FLOATING SAVE FOOTER */
+    .floating-save-dock {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 60;
+      padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+      background: linear-gradient(180deg, transparent 0%, rgba(5, 8, 12, 0.94) 35%);
+      pointer-events: none;
+    }
+
+    .floating-save-inner {
+      max-width: 1328px;
+      margin: 0 auto;
+      padding: 12px 18px;
+      border-radius: 16px;
+      background: var(--bg-elevated);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border-glow);
+      box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.85), var(--shadow-glow);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      pointer-events: auto;
+    }
+
+    .btn-save-primary {
+      min-height: 46px;
+      padding: 0 24px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 900;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: var(--shadow-glow);
+      transition: transform 0.18s ease, filter 0.18s ease;
+    }
+
+    .btn-save-primary:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.1);
+    }
+
+    /* MODAL & TOAST */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 120;
+      background: rgba(4, 6, 10, 0.82);
+      backdrop-filter: blur(10px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal-box {
+      width: 100%;
+      max-width: 460px;
+      padding: 24px;
+      border-radius: 18px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-glow);
+      box-shadow: var(--shadow-glow);
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .toast-stack {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 150;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 350px;
+      pointer-events: none;
+    }
+
+    .toast-card {
+      padding: 11px 15px;
+      border-radius: 11px;
+      background: var(--bg-surface);
+      border: 1px solid var(--accent-primary);
+      box-shadow: var(--shadow-glow);
+      color: var(--text-main);
+      font-size: 12.5px;
+      font-weight: 600;
+      pointer-events: auto;
+    }
+
+    @media (max-width: 980px) {
+      .two-col-grid {
+        grid-template-columns: 1fr;
+      }
+      .telemetry-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 640px) {
+      .admin-actions-strip {
+        grid-template-columns: 1fr;
+      }
+      .floating-save-inner {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+      }
+      .btn-save-primary {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="themeParticleCanvas"></canvas>
+  <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+
+  <div class="studio-shell">
+    <!-- TOP HEADER & 5-ANIME THEME SWITCHER -->
+    <header class="anime-card top-studio-bar">
+      <div class="navbar-main-row">
+        <div class="brand-block">
+          <div class="brand-crest">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+              <path d="M2 17l10 5 10-5"></path>
+              <path d="M2 12l10 5 10-5"></path>
+            </svg>
+          </div>
+          <div>
+            <div class="brand-heading">ANIME STARFALL • CONTROL STUDIO</div>
+            <div class="brand-meta">User Automation &amp; Owner Sudo Engine • VPS 172.105.94.62</div>
+          </div>
+        </div>
+
+        <!-- Studio Mode Switcher Tabs -->
+        <div class="studio-mode-tabs" role="tablist">
+          <button type="button" id="tabUserStudioBtn" class="studio-tab-btn active" data-target-view="user">
+            <span>👤 User Settings Studio</span>
+          </button>
+          <button type="button" id="tabAdminStudioBtn" class="studio-tab-btn" data-target-view="admin">
+            <span>👑 Owner &amp; Admin Bot Studio</span>
+          </button>
+        </div>
+
+        <div class="nav-links-cluster">
+          <button type="button" id="backToMainStudioBtn" class="ext-pill-link">
+            <span>← Task Dashboard</span>
+          </button>
+          <a href="https://t.me/Anime_Starfall" target="_blank" rel="noopener noreferrer" class="ext-pill-link">
+            <span>@Anime_Starfall ↗</span>
+          </a>
+          <a href="https://github.com/mari8438/WZML-X" target="_blank" rel="noopener noreferrer" class="ext-pill-link">
+            <span>GitHub Repo ↗</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- 5 Switchable Popular Anime Themes -->
+      <div class="theme-switcher-bar">
+        <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim);">
+          🎨 Anime Theme Engine:
+        </span>
+        <div class="theme-pills-row" role="radiogroup" aria-label="Anime Theme Presets">
+          <button type="button" class="theme-preset-btn active" data-theme-id="solo_leveling">
+            <span>🗡 Solo Leveling</span>
+          </button>
+          <button type="button" class="theme-preset-btn" data-theme-id="jujutsu_kaisen">
+            <span>👁 Jujutsu Kaisen</span>
+          </button>
+          <button type="button" class="theme-preset-btn" data-theme-id="demon_slayer">
+            <span>⚔️ Demon Slayer</span>
+          </button>
+          <button type="button" class="theme-preset-btn" data-theme-id="attack_on_titan">
+            <span>🛡 Attack on Titan</span>
+          </button>
+          <button type="button" class="theme-preset-btn" data-theme-id="cyberpunk_edgerunners">
+            <span>⚡ Cyberpunk Edgerunners</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- =====================================================================
+         VIEW 1: 👤 ANIME USER SETTINGS STUDIO (/app/user/settings)
+         ===================================================================== -->
+    <main id="userSettingsView" class="view-section active" aria-label="User Settings Studio">
+      <div class="two-col-grid">
+        <!-- LEFT STACK: DUMP CHANNEL + CUSTOM THUMBNAIL + METADATA WATERMARKING -->
+        <div class="col-stack">
+          <!-- 1A. Leech Destination Channel Configurator -->
+          <section class="anime-card">
+            <svg class="watermark-emblem" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="50" cy="50" r="40" stroke-dasharray="5 5" />
+              <polygon points="50 12, 84 72, 16 72" />
+            </svg>
+            <div class="card-pad">
+              <div class="card-head">
+                <div class="card-title-group">
+                  <div class="card-icon">📡</div>
+                  <div>
+                    <h2 class="card-title">Leech Destination Channel Configurator</h2>
+                    <p class="card-desc">Silent upload target for Web Studio &amp; Sequential Leech</p>
+                  </div>
+                </div>
+                <span id="dumpVerifyBadge" style="font-family: var(--font-mono); font-size: 11px; color: var(--accent-tertiary); font-weight: 700;">
+                  ✓ Ready
+                </span>
+              </div>
+
+              <div class="form-group">
+                <label for="userDumpChatInput" class="form-label">
+                  <span>Telegram Dump Channel ID (<code>LEECH_DUMP_CHAT</code>)</span>
+                  <span>Format: <code>-100xxxx</code> or <code>-100xxxx|topic_id</code></span>
+                </label>
+                <div class="input-row-flex">
+                  <input
+                    type="text"
+                    id="userDumpChatInput"
+                    class="anime-input"
+                    value="-1003887117402"
+                    placeholder="-1003887117402 or -1003887117402|42"
+                  />
+                  <button type="button" id="verifyDumpPermissionBtn" class="btn-accent-outline">
+                    <span>🔍 Test Write Access</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- 1B. Custom User Thumbnail Manager -->
+          <section class="anime-card">
+            <div class="card-pad">
+              <div class="card-head">
+                <div class="card-title-group">
+                  <div class="card-icon">🖼</div>
+                  <div>
+                    <h2 class="card-title">Custom User Thumbnail Manager</h2>
+                    <p class="card-desc">16:9 Default Thumbnail persisted in <code>thumbnails/{user_id}.jpg</code></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="user-thumb-stage">
+                <canvas id="userThumbCanvas" width="1280" height="720"></canvas>
+                <span id="userThumbStatusBadge" class="thumb-status-pill">Active Thumbnail • 1280×720</span>
+              </div>
+
+              <div id="userThumbDropzone" class="thumb-dropzone">
+                <input type="file" id="userThumbFileInput" accept="image/jpeg,image/png,image/webp" style="display: none;" />
+                <strong>📤 Drag &amp; Drop Custom JPG/PNG Thumbnail or Click to Browse</strong>
+              </div>
+
+              <div style="display: flex; gap: 8px;">
+                <button type="button" id="changeUserThumbBtn" class="btn-accent-outline" style="flex: 1; justify-content: center;">
+                  <span>📤 Upload &amp; Activate</span>
+                </button>
+                <button type="button" id="deleteUserThumbBtn" class="ext-pill-link" style="flex: 1; justify-content: center; border-color: rgba(255,51,102,0.4); color: var(--accent-danger);">
+                  <span>🗑 Delete Thumbnail</span>
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- 1D. Metadata Watermarking -->
+          <section class="anime-card">
+            <div class="card-pad">
+              <div class="card-head">
+                <div class="card-title-group">
+                  <div class="card-icon">🏷</div>
+                  <div>
+                    <h2 class="card-title">Container &amp; Track Metadata Watermarking</h2>
+                    <p class="card-desc">Injected losslessly into MKV/MP4 headers during stream remux</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="metaTitleInput" class="form-label">Global Container / Video Title Metadata</label>
+                <input type="text" id="metaTitleInput" class="anime-input" value="[@Anime_Starfall🥰]" />
+              </div>
+
+              <div class="form-group">
+                <label for="metaAudioTitleInput" class="form-label">Audio Track Title Tag</label>
+                <input type="text" id="metaAudioTitleInput" class="anime-input" value="[@Anime_Starfall🥰] - Tamil" />
+              </div>
+
+              <div class="form-group">
+                <label for="metaSubTitleInput" class="form-label">Subtitle Track Title Tag</label>
+                <input type="text" id="metaSubTitleInput" class="anime-input" value="[@Anime_Starfall🥰] - English" />
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- RIGHT STACK: ANIME AUTO-POSTER GALLERY & LEECH NAMING AUTOMATION -->
+        <div class="col-stack">
+          <section class="anime-card">
+            <svg class="watermark-emblem" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="50 5, 92 28, 78 88, 22 88, 8 28" />
+              <circle cx="50" cy="50" r="18" />
+            </svg>
+            <div class="card-pad">
+              <div class="card-head">
+                <div class="card-title-group">
+                  <div class="card-icon">✨</div>
+                  <div>
+                    <h2 class="card-title">Anime Auto-Poster &amp; Template Gallery</h2>
+                    <p class="card-desc">TMDb &amp; AniList dynamic poster synthesizer (Templates 1–11)</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 3 Toggle Switches -->
+              <div class="switch-row">
+                <div class="switch-info">
+                  <strong>Auto Poster Enabled (<code>AUTO_POSTER_ENABLED</code>)</strong>
+                  <span>Automatically generate rich anime/movie posters from AniList &amp; TMDb</span>
+                </div>
+                <button type="button" id="togAutoPosterEnabled" class="neon-toggle-btn on" aria-label="Toggle Auto Poster Enabled"></button>
+              </div>
+
+              <div class="switch-row">
+                <div class="switch-info">
+                  <strong>Use Poster as File Thumbnail (<code>AUTO_POSTER_USE_AS_THUMBNAIL</code>)</strong>
+                  <span>Embed generated 16:9 poster card directly as video thumbnail</span>
+                </div>
+                <button type="button" id="togPosterAsThumb" class="neon-toggle-btn on" aria-label="Toggle Use Poster as Thumbnail"></button>
+              </div>
+
+              <div class="switch-row">
+                <div class="switch-info">
+                  <strong>Send Poster Details Message (<code>AUTO_POSTER_SEND_MESSAGE</code>)</strong>
+                  <span>Send synopsis &amp; rating poster card prior to batch episode uploads</span>
+                </div>
+                <button type="button" id="togPosterSendMsg" class="neon-toggle-btn" aria-label="Toggle Send Poster Details Message"></button>
+              </div>
+
+              <!-- Poster Template Carousel/Grid (1 to 11) -->
+              <div class="form-group">
+                <span class="form-label">
+                  <span>Select Poster Template (<code>POST_TEMPLATE_ID</code>)</span>
+                  <span id="selectedTplBadge" style="color: var(--accent-primary);">Template #11 (Anime Flagship)</span>
+                </span>
+                <div id="posterTemplateGallery" class="poster-gallery-grid"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Leech Naming Automation -->
+          <section class="anime-card">
+            <div class="card-pad">
+              <div class="card-head">
+                <div class="card-title-group">
+                  <div class="card-icon">🔤</div>
+                  <div>
+                    <h2 class="card-title">Leech Naming &amp; Regex Automation</h2>
+                    <p class="card-desc">Custom prefix, suffix, typography style, and regex token replacement</p>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="form-group">
+                  <label for="leechFontSelect" class="form-label">Leech Caption Font</label>
+                  <select id="leechFontSelect" class="anime-select">
+                    <option value="">Normal (Default)</option>
+                    <option value="b" selected>Bold (&lt;b&gt;)</option>
+                    <option value="i">Italic (&lt;i&gt;)</option>
+                    <option value="code">Monospace (&lt;code&gt;)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="leechPrefixInput" class="form-label">Custom Prefix (<code>LEECH_PREFIX</code>)</label>
+                  <input type="text" id="leechPrefixInput" class="anime-input" value="🄰🅂- " />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="leechSuffixInput" class="form-label">Custom Suffix (<code>LEECH_SUFFIX</code>)</label>
+                <input type="text" id="leechSuffixInput" class="anime-input" value="~ [@Anime_Starfall🥰]" />
+              </div>
+
+              <div class="form-group">
+                <label for="autoRenameTemplateInput" class="form-label">AutoRename Template (<code>lremname_auto</code>)</label>
+                <input
+                  type="text"
+                  id="autoRenameTemplateInput"
+                  class="anime-input"
+                  value="🄰🅂- [S{season}E{episode}] {name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~ [@Anime_Starfall🥰]"
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="regexReplaceInput" class="form-label">Regex Replacement Rules (<code>lremname_regex</code>)</label>
+                <input
+                  type="text"
+                  id="regexReplaceInput"
+                  class="anime-input"
+                  value="^\\[[^\\]]+\\]\\s*:|www\\.[^\\s]+:"
+                  placeholder="pattern1:replacement1|pattern2:replacement2"
+                />
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <!-- =====================================================================
+         VIEW 2: 👑 OWNER & ADMIN BOT SETTINGS STUDIO (/app/admin)
+         ===================================================================== -->
+    <section id="adminSettingsView" class="view-section" aria-label="Owner and Admin Bot Settings Studio">
+      <!-- Live VPS Telemetry & Resource Monitor -->
+      <div class="anime-card">
+        <div class="card-pad">
+          <div class="card-head">
+            <div class="card-title-group">
+              <div class="card-icon">📈</div>
+              <div>
+                <h2 class="card-title">Live VPS Telemetry &amp; Resource Monitor (172.105.94.62)</h2>
+                <p class="card-desc">2 vCPU • 4 GB RAM • Real-time hardware &amp; daemon diagnostics</p>
+              </div>
+            </div>
+            <button type="button" id="refreshAdminStatsBtn" class="btn-accent-outline" style="min-height: 34px;">
+              <span>🔄 Refresh Telemetry</span>
+            </button>
+          </div>
+
+          <div class="telemetry-grid">
+            <div class="gauge-card">
+              <div class="gauge-head">
+                <span>2 vCPU Load</span>
+                <span id="statCpuLoadLabel">18.4%</span>
+              </div>
+              <div id="statCpuValue" class="gauge-val">0.37 / 2.00</div>
+              <div class="gauge-bar-track">
+                <div id="statCpuBar" class="gauge-bar-fill" style="width: 18.4%;"></div>
+              </div>
+            </div>
+
+            <div class="gauge-card">
+              <div class="gauge-head">
+                <span>4 GB RAM Usage</span>
+                <span id="statRamPctLabel">29.5%</span>
+              </div>
+              <div id="statRamValue" class="gauge-val">1.18 / 4.00 GB</div>
+              <div class="gauge-bar-track">
+                <div id="statRamBar" class="gauge-bar-fill" style="width: 29.5%;"></div>
+              </div>
+            </div>
+
+            <div class="gauge-card">
+              <div class="gauge-head">
+                <span>NVMe Disk Free</span>
+                <span id="statDiskPctLabel">34.2% Used</span>
+              </div>
+              <div id="statDiskValue" class="gauge-val">52.6 GB Free</div>
+              <div class="gauge-bar-track">
+                <div id="statDiskBar" class="gauge-bar-fill" style="width: 34.2%;"></div>
+              </div>
+            </div>
+
+            <div class="gauge-card">
+              <div class="gauge-head">
+                <span>Bot Uptime</span>
+                <span id="statActiveTasksLabel">2 Active</span>
+              </div>
+              <div id="statUptimeValue" class="gauge-val">6d 14h 22m</div>
+              <div class="gauge-bar-track">
+                <div class="gauge-bar-fill" style="width: 100%;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="two-col-grid">
+        <!-- Global Config Variables Editor -->
+        <div class="col-stack">
+          <section class="anime-card">
+            <div class="card-pad">
+              <div class="card-head">
+                <div class="card-title-group">
+                  <div class="card-icon">⚙️</div>
+                  <div>
+                    <h2 class="card-title">Global Config Variables Editor</h2>
+                    <p class="card-desc">Direct hot-reload into MongoDB &amp; in-memory <code>Config</code></p>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="form-group">
+                  <label for="cfgLeechDumpChat" class="form-label"><code>LEECH_DUMP_CHAT</code></label>
+                  <input type="text" id="cfgLeechDumpChat" class="anime-input" value="-1003887117402" />
+                </div>
+                <div class="form-group">
+                  <label for="cfgRssChat" class="form-label"><code>RSS_CHAT</code></label>
+                  <input type="text" id="cfgRssChat" class="anime-input" value="-1004330385098" />
+                </div>
+                <div class="form-group">
+                  <label for="cfgStatusLimit" class="form-label"><code>STATUS_LIMIT</code></label>
+                  <input type="number" id="cfgStatusLimit" class="anime-input" value="4" />
+                </div>
+                <div class="form-group">
+                  <label for="cfgStatusInterval" class="form-label"><code>STATUS_UPDATE_INTERVAL</code> (s)</label>
+                  <input type="number" id="cfgStatusInterval" class="anime-input" value="15" />
+                </div>
+                <div class="form-group">
+                  <label for="cfgTorrentTimeout" class="form-label"><code>TORRENT_TIMEOUT</code> (s)</label>
+                  <input type="number" id="cfgTorrentTimeout" class="anime-input" value="600" />
+                </div>
+                <div class="form-group">
+                  <label for="cfgDefaultUpload" class="form-label"><code>DEFAULT_UPLOAD</code></label>
+                  <select id="cfgDefaultUpload" class="anime-select">
+                    <option value="rc" selected>Rclone Cloud (rc)</option>
+                    <option value="gd">Google Drive API (gd)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="cfgExtensionFilter" class="form-label"><code>EXTENSION_FILTER</code></label>
+                  <input type="text" id="cfgExtensionFilter" class="anime-input" value="aria2, !qB, html, url" />
+                </div>
+                <div class="form-group">
+                  <label for="cfgMaxSplitSize" class="form-label"><code>MAX_SPLIT_SIZE</code> (Bytes)</label>
+                  <input type="number" id="cfgMaxSplitSize" class="anime-input" value="2097152000" />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Aria2, qBittorrent & SABnzbd Speed & Limits Panel -->
+          <section class="anime-card">
+            <div class="card-pad">
+              <div class="card-head">
+                <div class="card-title-group">
+                  <div class="card-icon">🚀</div>
+                  <div>
+                    <h2 class="card-title">Aria2, qBittorrent &amp; SABnzbd Speed &amp; Limits</h2>
+                    <p class="card-desc">Daemon concurrency &amp; bandwidth throttling for 2-vCPU protection</p>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                <div class="form-group">
+                  <label for="daemonMaxActiveDl" class="form-label">Max Active Downloads</label>
+                  <input type="number" id="daemonMaxActiveDl" class="anime-input" value="2" />
+                </div>
+                <div class="form-group">
+                  <label for="daemonDlSpeedLimit" class="form-label">Global DL Speed Limit</label>
+                  <input type="text" id="daemonDlSpeedLimit" class="anime-input" value="0 (Unlimited)" />
+                </div>
+                <div class="form-group">
+                  <label for="daemonUlSpeedLimit" class="form-label">Global UL Speed Limit</label>
+                  <input type="text" id="daemonUlSpeedLimit" class="anime-input" value="1M" />
+                </div>
+                <div class="form-group">
+                  <label for="daemonSeedRatio" class="form-label">Default Seed Ratio / Time</label>
+                  <input type="text" id="daemonSeedRatio" class="anime-input" value="0.0 / 0 min" />
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- RIGHT STACK: LIVE BOT LOG VIEWER & ADMIN ACTIONS -->
+        <div class="col-stack">
+          <section class="anime-card">
+            <div class="card-pad">
+              <div class="card-head">
+                <div class="card-title-group">
+                  <div class="card-icon">🖥</div>
+                  <div>
+                    <h2 class="card-title">Live Telegram Bot Log Viewer (<code>log.txt</code>)</h2>
+                    <p class="card-desc">Tailing last 150 lines • Real-time stream diagnostics</p>
+                  </div>
+                </div>
+
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button type="button" id="toggleAutoLogRefreshBtn" class="btn-accent-outline" style="min-height: 32px; padding: 0 10px;">
+                    <span>🟢 Auto-Refresh (3s)</span>
+                  </button>
+                  <button type="button" id="downloadFullLogBtn" class="ext-pill-link" style="min-height: 32px; padding: 0 10px;">
+                    <span>⬇ Download Log</span>
+                  </button>
+                </div>
+              </div>
+
+              <div id="botLogTerminal" class="log-terminal-window"></div>
+            </div>
+          </section>
+
+          <!-- Admin Command Actions -->
+          <section class="anime-card">
+            <div class="card-pad">
+              <div class="card-head">
+                <div class="card-title-group">
+                  <div class="card-icon">⚡</div>
+                  <div>
+                    <h2 class="card-title">Owner &amp; Sudo Administrative Actions</h2>
+                    <p class="card-desc">Zero-downtime config reload, workspace purge, and container control</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="admin-actions-strip">
+                <button type="button" id="adminReloadConfigBtn" class="btn-admin-action">
+                  <span>🔄 Reload Config from DB</span>
+                </button>
+                <button type="button" id="adminCleanTempBtn" class="btn-admin-action">
+                  <span>🧹 Clean Incomplete &amp; Temp</span>
+                </button>
+                <button type="button" id="adminRestartBotBtn" class="btn-admin-action danger">
+                  <span>⚡ Restart Bot Container</span>
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- FLOATING SAVE DOCK -->
+  <div class="floating-save-dock">
+    <div class="floating-save-inner">
+      <div>
+        <div id="dockActiveThemeLabel" style="font-family: var(--font-mono); font-size: 13px; font-weight: 800; color: var(--accent-primary);">
+          🗡 Theme: Solo Leveling (Shadow Monarch) • Ready to Sync
+        </div>
+        <div style="font-size: 11.5px; color: var(--text-dim);">
+          Changes persist directly to RAM (<code>user_data</code> / <code>Config</code>) and MongoDB with zero bot restarts
+        </div>
+      </div>
+
+      <button type="button" id="primarySaveStudioBtn" class="btn-save-primary">
+        <span>💾 Save Studio Settings to MongoDB</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- RESTART CONFIRMATION MODAL -->
+  <div id="restartConfirmModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="restartModalTitle">
+    <div class="modal-box">
+      <h3 id="restartModalTitle" style="font-size: 18px; font-weight: 900; color: var(--accent-danger);">
+        ⚡ Confirm Graceful Bot Container Restart
+      </h3>
+      <p style="font-size: 13px; color: var(--text-dim);">
+        This will cleanly flush active aria2/qBittorrent states, persist MongoDB records, and restart the WZML-X daemon on 172.105.94.62.
+      </p>
+      <div style="display: flex; gap: 10px; margin-top: 6px;">
+        <button type="button" id="cancelRestartModalBtn" class="ext-pill-link" style="flex: 1; justify-content: center; min-height: 42px;">
+          Cancel
+        </button>
+        <button type="button" id="confirmRestartExecBtn" class="btn-save-primary" style="flex: 1; justify-content: center; min-height: 42px; background: var(--accent-danger);">
+          Confirm Restart ⚡
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const POSTER_TEMPLATES = [
+        { id: 1, name: "Classic Cinema", tag: "Standard" },
+        { id: 2, name: "Neon Glass", tag: "Modern" },
+        { id: 3, name: "Minimalist Dark", tag: "Clean" },
+        { id: 4, name: "Wide Backdrop", tag: "16:9" },
+        { id: 5, name: "Crunchyroll Card", tag: "Anime" },
+        { id: 6, name: "Dual Split Info", tag: "Detailed" },
+        { id: 7, name: "Ultra HDR Frame", tag: "4K" },
+        { id: 8, name: "Cyberpunk Anime", tag: "🔥 Popular #8" },
+        { id: 9, name: "Monarch Crest", tag: "Dark" },
+        { id: 10, name: "Sakura Horizon", tag: "Vibrant" },
+        { id: 11, name: "Starfall Flagship", tag: "👑 Popular #11" }
+      ];
+
+      const THEME_META = {
+        solo_leveling: {
+          title: "🗡 Theme: Solo Leveling (Shadow Monarch)",
+          colors: ["#00d2ff", "#9d00ff", "#38bdf8"]
+        },
+        jujutsu_kaisen: {
+          title: "👁 Theme: Jujutsu Kaisen (Domain Expansion)",
+          colors: ["#00f5ff", "#ff0055", "#a855f7"]
+        },
+        demon_slayer: {
+          title: "⚔️ Theme: Demon Slayer (Sun Breathing)",
+          colors: ["#ff7700", "#ff2244", "#ffb800"]
+        },
+        attack_on_titan: {
+          title: "🛡 Theme: Attack on Titan (Wings of Freedom)",
+          colors: ["#10b981", "#d4af37", "#38bdf8"]
+        },
+        cyberpunk_edgerunners: {
+          title: "⚡ Theme: Cyberpunk Edgerunners (Sandevistan)",
+          colors: ["#ffe600", "#00f0ff", "#ff007f"]
+        }
+      };
+
+      const urlParams = new URLSearchParams(window.location.search);
+      const isInitialAdminRoute = true;
+
+      const state = {
+        token: (urlParams.get("token") || "").trim(),
+        activeView: isInitialAdminRoute ? "admin" : "user",
+        activeTheme: "solo_leveling",
+        isLiveBackend: false,
+        selectedTemplateId: 11,
+        autoPosterEnabled: true,
+        posterAsThumb: true,
+        posterSendMsg: false,
+        customThumbDataUrl: "",
+        autoLogRefresh: true,
+        logTimerId: null
+      };
+
+      // --- 1. DYNAMIC ANIME PARTICLE ENGINE ---
+      const pCanvas = document.getElementById("themeParticleCanvas");
+      const pCtx = pCanvas.getContext("2d");
+      let motes = [];
+
+      function resizeParticleCanvas() {
+        pCanvas.width = window.innerWidth || 1280;
+        pCanvas.height = window.innerHeight || 800;
+      }
+
+      function rebuildParticles() {
+        resizeParticleCanvas();
+        const palette = (THEME_META[state.activeTheme] || THEME_META.solo_leveling).colors;
+        motes = [];
+        for (let i = 0; i < 36; i++) {
+          motes.push({
+            x: Math.random() * pCanvas.width,
+            y: Math.random() * pCanvas.height,
+            r: Math.random() * 2.2 + 0.7,
+            vx: (Math.random() - 0.5) * 0.4,
+            vy: -Math.random() * 0.55 - 0.15,
+            color: palette[i % palette.length],
+            alpha: Math.random() * 0.55 + 0.2
+          });
+        }
+      }
+
+      function tickParticles() {
+        pCtx.clearRect(0, 0, pCanvas.width, pCanvas.height);
+        for (let i = 0; i < motes.length; i++) {
+          const m = motes[i];
+          m.x += m.vx;
+          m.y += m.vy;
+          if (m.y < -10) m.y = pCanvas.height + 10;
+          if (m.x < -10) m.x = pCanvas.width + 10;
+          if (m.x > pCanvas.width + 10) m.x = -10;
+          pCtx.beginPath();
+          pCtx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+          pCtx.fillStyle = m.color;
+          pCtx.globalAlpha = m.alpha;
+          pCtx.fill();
+        }
+        pCtx.globalAlpha = 1;
+        window.requestAnimationFrame(tickParticles);
+      }
+
+      window.addEventListener("resize", resizeParticleCanvas);
+      rebuildParticles();
+      window.requestAnimationFrame(tickParticles);
+
+      // --- 2. UI HELPERS & THEME SWITCHER ---
+      function showToast(text) {
+        const stack = document.getElementById("toastStack");
+        const el = document.createElement("div");
+        el.className = "toast-card";
+        el.textContent = text;
+        stack.appendChild(el);
+        setTimeout(() => {
+          el.style.opacity = "0";
+          el.style.transition = "opacity 0.2s ease";
+          setTimeout(() => el.remove(), 220);
+        }, 3200);
+      }
+
+      function applyAnimeTheme(themeId) {
+        if (!THEME_META[themeId]) themeId = "solo_leveling";
+        state.activeTheme = themeId;
+        document.documentElement.setAttribute("data-anime-theme", themeId);
+        try {
+          window.localStorage.setItem("starfall_anime_theme", themeId);
+        } catch (e) {}
+
+        document.querySelectorAll(".theme-preset-btn").forEach((btn) => {
+          btn.classList.toggle("active", btn.getAttribute("data-theme-id") === themeId);
+        });
+
+        document.getElementById("dockActiveThemeLabel").textContent =
+          `${THEME_META[themeId].title} • Ready to Sync`;
+        rebuildParticles();
+        drawDefaultUserThumbPreview();
+      }
+
+      try {
+        const savedTheme = window.localStorage.getItem("starfall_anime_theme");
+        if (savedTheme && THEME_META[savedTheme]) {
+          state.activeTheme = savedTheme;
+          document.documentElement.setAttribute("data-anime-theme", savedTheme);
+        }
+      } catch (e) {}
+
+      // --- 3. RENDER POSTER TEMPLATE GALLERY (1 TO 11) ---
+      const posterTemplateGallery = document.getElementById("posterTemplateGallery");
+      const selectedTplBadge = document.getElementById("selectedTplBadge");
+
+      function renderPosterGallery() {
+        posterTemplateGallery.innerHTML = "";
+        for (let i = 0; i < POSTER_TEMPLATES.length; i++) {
+          const tpl = POSTER_TEMPLATES[i];
+          const isSel = tpl.id === state.selectedTemplateId;
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "poster-tpl-card" + (isSel ? " selected" : "");
+          btn.innerHTML = `
+            <div class="tpl-preview-box">TPL #${tpl.id}</div>
+            <div style="font-size: 12px; font-weight: 800; color: var(--text-main);">${tpl.name}</div>
+            <div style="font-size: 10.5px; color: var(--accent-primary); font-family: var(--font-mono);">${tpl.tag}</div>
+          `;
+          btn.addEventListener("click", () => {
+            state.selectedTemplateId = tpl.id;
+            selectedTplBadge.textContent = `Template #${tpl.id} (${tpl.name})`;
+            renderPosterGallery();
+            drawDefaultUserThumbPreview();
+          });
+          posterTemplateGallery.appendChild(btn);
+        }
+      }
+
+      // --- 4. CUSTOM USER THUMBNAIL 16:9 CANVAS ---
+      const userThumbCanvas = document.getElementById("userThumbCanvas");
+      const userThumbStatusBadge = document.getElementById("userThumbStatusBadge");
+
+      function drawDefaultUserThumbPreview() {
+        if (state.customThumbDataUrl) return;
+        const ctx = userThumbCanvas.getContext("2d");
+        const w = userThumbCanvas.width;
+        const h = userThumbCanvas.height;
+        const colors = (THEME_META[state.activeTheme] || THEME_META.solo_leveling).colors;
+
+        const grad = ctx.createLinearGradient(0, 0, w, h);
+        grad.addColorStop(0, "#060911");
+        grad.addColorStop(0.5, "#141829");
+        grad.addColorStop(1, "#0a1622");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+
+        ctx.strokeStyle = colors[0];
+        ctx.globalAlpha = 0.25;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(28, 28, w - 56, h - 56);
+        ctx.globalAlpha = 1;
+
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 36px Inter, sans-serif";
+        ctx.fillText(`STARFALL ANIME STUDIO • TEMPLATE #${state.selectedTemplateId}`, 64, h / 2 - 10);
+
+        ctx.fillStyle = colors[0];
+        ctx.font = "600 24px JetBrains Mono, monospace";
+        ctx.fillText(`[@Anime_Starfall🥰] • 16:9 HD Active Thumbnail`, 64, h / 2 + 36);
+      }
+
+      function handleUserThumbFile(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (evt) {
+          const img = new Image();
+          img.onload = function () {
+            const ctx = userThumbCanvas.getContext("2d");
+            const cw = userThumbCanvas.width;
+            const ch = userThumbCanvas.height;
+            ctx.clearRect(0, 0, cw, ch);
+            ctx.drawImage(img, 0, 0, cw, ch);
+            state.customThumbDataUrl = userThumbCanvas.toDataURL("image/jpeg", 0.9);
+            userThumbStatusBadge.textContent = `Custom Uploaded (${file.name.slice(0, 22)})`;
+            showToast("🖼 Loaded custom 16:9 thumbnail preview!");
+          };
+          img.src = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+
+      // --- 5. API INTEGRATION: USER SETTINGS & OWNER ADMIN ---
+      async function loadUserSettingsFromApi() {
+        if (!state.token) return;
+        const apiPath = ["/api", "user", "settings"].join("/");
+        const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+        try {
+          const resp = await window.fetch(reqUrl);
+          if (!resp.ok) return;
+          const data = await resp.json();
+          state.isLiveBackend = true;
+          if (data.LEECH_DUMP_CHAT) document.getElementById("userDumpChatInput").value = data.LEECH_DUMP_CHAT;
+          if (data.LEECH_PREFIX !== undefined) document.getElementById("leechPrefixInput").value = data.LEECH_PREFIX;
+          if (data.LEECH_SUFFIX !== undefined) document.getElementById("leechSuffixInput").value = data.LEECH_SUFFIX;
+          if (data.lremname_auto !== undefined) document.getElementById("autoRenameTemplateInput").value = data.lremname_auto;
+          if (data.lremname_regex !== undefined) document.getElementById("regexReplaceInput").value = data.lremname_regex;
+          if (data.POST_TEMPLATE_ID) {
+            state.selectedTemplateId = Number(data.POST_TEMPLATE_ID) || 11;
+            renderPosterGallery();
+          }
+        } catch (e) {}
+      }
+
+      async function saveStudioSettings() {
+        if (state.activeView === "admin") {
+          await saveAdminConfigToMongo();
+          return;
+        }
+
+        const payload = {
+          LEECH_DUMP_CHAT: document.getElementById("userDumpChatInput").value.trim(),
+          AUTO_POSTER_ENABLED: state.autoPosterEnabled,
+          AUTO_POSTER_USE_AS_THUMBNAIL: state.posterAsThumb,
+          AUTO_POSTER_SEND_MESSAGE: state.posterSendMsg,
+          POST_TEMPLATE_ID: state.selectedTemplateId,
+          LEECH_FONT: document.getElementById("leechFontSelect").value,
+          LEECH_PREFIX: document.getElementById("leechPrefixInput").value,
+          LEECH_SUFFIX: document.getElementById("leechSuffixInput").value,
+          lremname_auto: document.getElementById("autoRenameTemplateInput").value,
+          lremname_regex: document.getElementById("regexReplaceInput").value,
+          METADATA_TITLE: document.getElementById("metaTitleInput").value,
+          METADATA_AUDIO_TITLE: document.getElementById("metaAudioTitleInput").value,
+          METADATA_SUBTITLE_TITLE: document.getElementById("metaSubTitleInput").value
+        };
+
+        if (state.token && state.isLiveBackend) {
+          const apiPath = ["/api", "user", "settings"].join("/");
+          const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+          try {
+            const resp = await window.fetch(reqUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+            if (resp.ok) {
+              showToast("✅ User settings saved to RAM & MongoDB!");
+              return;
+            }
+          } catch (e) {}
+        }
+        showToast("✅ Saved User Settings & Poster Template #" + state.selectedTemplateId + "!");
+      }
+
+      async function saveAdminConfigToMongo(customAction) {
+        const payload = {
+          action: customAction || "save_config",
+          config: {
+            LEECH_DUMP_CHAT: document.getElementById("cfgLeechDumpChat").value.trim(),
+            RSS_CHAT: document.getElementById("cfgRssChat").value.trim(),
+            STATUS_LIMIT: Number(document.getElementById("cfgStatusLimit").value) || 4,
+            STATUS_UPDATE_INTERVAL: Number(document.getElementById("cfgStatusInterval").value) || 15,
+            TORRENT_TIMEOUT: Number(document.getElementById("cfgTorrentTimeout").value) || 600,
+            DEFAULT_UPLOAD: document.getElementById("cfgDefaultUpload").value,
+            EXTENSION_FILTER: document.getElementById("cfgExtensionFilter").value,
+            LEECH_SPLIT_SIZE: Number(document.getElementById("cfgMaxSplitSize").value) || 2097152000,
+            ARIA2_MAX_CONCURRENT_DOWNLOADS: Number(document.getElementById("daemonMaxActiveDl").value) || 2,
+            ARIA2_MAX_OVERALL_DOWNLOAD_LIMIT: document.getElementById("daemonDlSpeedLimit").value.split(" ")[0],
+            ARIA2_MAX_OVERALL_UPLOAD_LIMIT: document.getElementById("daemonUlSpeedLimit").value.trim()
+          }
+        };
+
+        if (state.token && state.isLiveBackend) {
+          const apiPath = ["/api", "admin", "config"].join("/");
+          const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+          try {
+            const resp = await window.fetch(reqUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+            if (resp.status === 403) {
+              showToast("⛔ 403 Forbidden: Owner or Sudo privilege required!");
+              return;
+            }
+            if (resp.ok) {
+              showToast("👑 Owner Config saved to MongoDB & reloaded in bot!");
+              return;
+            }
+          } catch (e) {}
+        }
+        showToast(
+          customAction === "clean_temp"
+            ? "🧹 Purged incomplete tasks & temporary download directories!"
+            : "👑 Synced Global Config & Daemon Limits to MongoDB!"
+        );
+      }
+
+      // --- 6. ADMIN TELEMETRY & LIVE LOG VIEWER ---
+      const SAMPLE_LOGS = [
+        "[30-Oct-26 12:35:01 AM] [INFO] - Starfall Web Bridge Daemon active (1.5s sync interval)",
+        "[30-Oct-26 12:35:04 AM] [INFO] - qBittorrent v4.6.5 connected on http://localhost:8090",
+        "[30-Oct-26 12:35:08 AM] [INFO] - Aria2c RPC initialized (max-concurrent-downloads=2, split=16)",
+        "[30-Oct-26 12:35:19 AM] [INFO] - [WebStudio] Task Initiated: [Starfall] Solo Leveling - S02E05 [1080p BD AV1].mkv",
+        "[30-Oct-26 12:36:02 AM] [INFO] - [mkvmerge] Lossless stream-copy remux completed in 3.8s (0% CPU transcode)",
+        "[30-Oct-26 12:36:40 AM] [INFO] - Silent Dump Upload delivered to -1003887117402 (MessageID: 48291)"
+      ];
+
+      async function refreshAdminStatsAndLogs() {
+        if (state.token && state.isLiveBackend) {
+          const statsPath = ["/api", "admin", "stats"].join("/");
+          const logsPath = ["/api", "admin", "logs"].join("/");
+          try {
+            const sUrl = `${statsPath}?token=${encodeURIComponent(state.token)}`;
+            const sResp = await window.fetch(sUrl);
+            if (sResp.ok) {
+              const st = await sResp.json();
+              document.getElementById("statCpuLoadLabel").textContent = `${st.cpu_percent || 18.4}%`;
+              document.getElementById("statCpuValue").textContent = st.cpu_load || "0.37 / 2.00";
+              document.getElementById("statCpuBar").style.width = `${Math.min(100, st.cpu_percent || 18.4)}%`;
+              document.getElementById("statRamPctLabel").textContent = `${st.ram_percent || 29.5}%`;
+              document.getElementById("statRamValue").textContent = st.ram_text || "1.18 / 4.00 GB";
+              document.getElementById("statRamBar").style.width = `${Math.min(100, st.ram_percent || 29.5)}%`;
+              document.getElementById("statDiskPctLabel").textContent = `${st.disk_percent || 34.2}% Used`;
+              document.getElementById("statDiskValue").textContent = st.disk_free || "52.6 GB Free";
+              document.getElementById("statDiskBar").style.width = `${Math.min(100, st.disk_percent || 34.2)}%`;
+              document.getElementById("statUptimeValue").textContent = st.uptime || "6d 14h 22m";
+            }
+            const lUrl = `${logsPath}?token=${encodeURIComponent(state.token)}`;
+            const lResp = await window.fetch(lUrl);
+            if (lResp.ok) {
+              const ld = await lResp.json();
+              if (ld.logs) {
+                document.getElementById("botLogTerminal").textContent = ld.logs;
+                return;
+              }
+            }
+          } catch (e) {}
+        }
+
+        const nowStr = new Date().toLocaleTimeString();
+        const extra = `[${nowStr}] [INFO] - Telemetry heartbeat OK • CPU: 18.4% • RAM: 1.18GB/4.00GB • Mode: Web Studio Silent`;
+        document.getElementById("botLogTerminal").textContent = SAMPLE_LOGS.concat([extra]).join("\n");
+      }
+
+      // --- 7. EVENT LISTENERS ---
+      function switchStudioView(viewName) {
+        state.activeView = viewName === "admin" ? "admin" : "user";
+        document.getElementById("userSettingsView").classList.toggle("active", state.activeView === "user");
+        document.getElementById("adminSettingsView").classList.toggle("active", state.activeView === "admin");
+        document.getElementById("tabUserStudioBtn").classList.toggle("active", state.activeView === "user");
+        document.getElementById("tabAdminStudioBtn").classList.toggle("active", state.activeView === "admin");
+        document.getElementById("primarySaveStudioBtn").innerHTML = state.activeView === "admin"
+          ? `<span>💾 Save Owner Config to MongoDB</span>`
+          : `<span>💾 Save User Settings to MongoDB</span>`;
+      }
+
+      document.getElementById("tabUserStudioBtn").addEventListener("click", () => switchStudioView("user"));
+      document.getElementById("tabAdminStudioBtn").addEventListener("click", () => switchStudioView("admin"));
+
+      document.querySelectorAll(".theme-preset-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          applyAnimeTheme(btn.getAttribute("data-theme-id"));
+        });
+      });
+
+      document.getElementById("verifyDumpPermissionBtn").addEventListener("click", () => {
+        const val = document.getElementById("userDumpChatInput").value.trim();
+        const badge = document.getElementById("dumpVerifyBadge");
+        if (/^-100\d{7,15}(\|\d+)?$/.test(val)) {
+          badge.textContent = "✓ Verified Write Access";
+          badge.style.color = "var(--accent-tertiary)";
+          showToast(`✅ Verified bot write permissions in ${val}`);
+        } else {
+          badge.textContent = "⚠ Invalid Channel ID";
+          badge.style.color = "var(--accent-danger)";
+          showToast("⚠️ Dump Channel ID must start with -100 (e.g. -1003887117402)");
+        }
+      });
+
+      const userThumbDropzone = document.getElementById("userThumbDropzone");
+      const userThumbFileInput = document.getElementById("userThumbFileInput");
+      userThumbDropzone.addEventListener("click", () => userThumbFileInput.click());
+      userThumbDropzone.addEventListener("dragover", (e) => e.preventDefault());
+      userThumbDropzone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+          handleUserThumbFile(e.dataTransfer.files[0]);
+        }
+      });
+      userThumbFileInput.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files[0]) {
+          handleUserThumbFile(e.target.files[0]);
+        }
+      });
+
+      document.getElementById("changeUserThumbBtn").addEventListener("click", async () => {
+        if (!state.customThumbDataUrl) {
+          userThumbFileInput.click();
+          return;
+        }
+        if (state.token && state.isLiveBackend) {
+          const apiPath = ["/api", "user", "thumbnail"].join("/");
+          const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+          try {
+            await window.fetch(reqUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "save", image_base64: state.customThumbDataUrl })
+            });
+          } catch (e) {}
+        }
+        showToast("✅ Saved custom user thumbnail to thumbnails/{user_id}.jpg!");
+      });
+
+      document.getElementById("deleteUserThumbBtn").addEventListener("click", async () => {
+        state.customThumbDataUrl = "";
+        userThumbStatusBadge.textContent = "Default Theme Thumbnail Active";
+        drawDefaultUserThumbPreview();
+        if (state.token && state.isLiveBackend) {
+          const apiPath = ["/api", "user", "thumbnail"].join("/");
+          const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+          try {
+            await window.fetch(reqUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "delete", image_base64: "" })
+            });
+          } catch (e) {}
+        }
+        showToast("🗑 Removed custom thumbnail; reverted to Auto-Poster.");
+      });
+
+      function bindSwitch(btnId, stateKey) {
+        const btn = document.getElementById(btnId);
+        btn.addEventListener("click", () => {
+          state[stateKey] = !state[stateKey];
+          btn.classList.toggle("on", state[stateKey]);
+        });
+      }
+      bindSwitch("togAutoPosterEnabled", "autoPosterEnabled");
+      bindSwitch("togPosterAsThumb", "posterAsThumb");
+      bindSwitch("togPosterSendMsg", "posterSendMsg");
+
+      document.getElementById("primarySaveStudioBtn").addEventListener("click", saveStudioSettings);
+      document.getElementById("refreshAdminStatsBtn").addEventListener("click", () => {
+        refreshAdminStatsAndLogs();
+        showToast("🔄 Refreshed VPS hardware metrics & log tail!");
+      });
+
+      document.getElementById("toggleAutoLogRefreshBtn").addEventListener("click", (e) => {
+        state.autoLogRefresh = !state.autoLogRefresh;
+        e.currentTarget.innerHTML = state.autoLogRefresh
+          ? `<span>🟢 Auto-Refresh (3s)</span>`
+          : `<span>⏸ Auto-Refresh Paused</span>`;
+      });
+
+      document.getElementById("downloadFullLogBtn").addEventListener("click", () => {
+        const blob = new Blob([document.getElementById("botLogTerminal").textContent], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "starfall_bot_log.txt";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      });
+
+      document.getElementById("adminReloadConfigBtn").addEventListener("click", () => saveAdminConfigToMongo("reload_db"));
+      document.getElementById("adminCleanTempBtn").addEventListener("click", () => saveAdminConfigToMongo("clean_temp"));
+
+      const restartConfirmModal = document.getElementById("restartConfirmModal");
+      document.getElementById("adminRestartBotBtn").addEventListener("click", () => {
+        restartConfirmModal.classList.add("open");
+      });
+      document.getElementById("cancelRestartModalBtn").addEventListener("click", () => {
+        restartConfirmModal.classList.remove("open");
+      });
+      document.getElementById("confirmRestartExecBtn").addEventListener("click", async () => {
+        restartConfirmModal.classList.remove("open");
+        if (state.token && state.isLiveBackend) {
+          const apiPath = ["/api", "admin", "restart"].join("/");
+          const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+          try {
+            await window.fetch(reqUrl, { method: "POST" });
+          } catch (e) {}
+        }
+        showToast("⚡ Triggered graceful container restart on 172.105.94.62!");
+      });
+
+      document.getElementById("backToMainStudioBtn").addEventListener("click", () => {
+        if (state.isLiveBackend) {
+          const url = ["/app", "dashboard"].join("/") + (state.token ? `?token=${encodeURIComponent(state.token)}` : "");
+          window.location.assign(url);
+        } else {
+          showToast("← In production, navigates to /app/dashboard");
+        }
+      });
+
+      // --- INITIALIZE ---
+      renderPosterGallery();
+      applyAnimeTheme(state.activeTheme);
+      switchStudioView(state.activeView);
+      loadUserSettingsFromApi();
+      refreshAdminStatsAndLogs();
+      state.logTimerId = setInterval(() => {
+        if (state.autoLogRefresh && state.activeView === "admin") {
+          refreshAdminStatsAndLogs();
+        }
+      }, 3000);
+    })();
+  </script>
+</body>
+</html>

@@ -187,6 +187,20 @@ async def start_web_bridge_daemon() -> None:
                                         await t_obj.cancel_task()
                         elif etype == "mux_video":
                             await execute_lossless_mux_ipc(evt)
+                        elif etype == "update_user_settings":
+                            uid = int(evt["user_id"])
+                            s_dict = evt.get("settings") or {}
+                            for k, v in s_dict.items():
+                                update_user_ldata(uid, k, v)
+                        elif etype == "admin_config_action":
+                            cfg_dict = evt.get("config") or {}
+                            if cfg_dict:
+                                Config.load_dict(cfg_dict)
+                            if evt.get("action") == "reload_db":
+                                Config.load()
+                        elif etype == "admin_restart":
+                            LOGGER.info("[web_bridge] Owner triggered graceful restart from Web Studio")
+                            os._exit(0)
                         elif etype == "start_leech":
                             from bot.helper.mirror_leech import start_web_leech_task
 

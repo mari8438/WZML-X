@@ -1343,3 +1343,292 @@ async def api_video_mux(token: str, body: VideoMuxRequest):
             "engine": "mkvmerge-stream-copy",
         }
     )
+
+
+# ============================================================================
+# STAGE 3B: ANIME USER SETTINGS & OWNER BOT SETTINGS STUDIO API ENDPOINTS
+# ============================================================================
+
+from shutil import disk_usage as shutil_disk_usage
+
+
+class UserSettingsPayload(BaseModel):
+    LEECH_DUMP_CHAT: Optional[str] = ""
+    AUTO_POSTER_ENABLED: Optional[bool] = True
+    AUTO_POSTER_USE_AS_THUMBNAIL: Optional[bool] = True
+    AUTO_POSTER_SEND_MESSAGE: Optional[bool] = False
+    POST_TEMPLATE_ID: Optional[int] = 11
+    LEECH_FONT: Optional[str] = ""
+    LEECH_PREFIX: Optional[str] = ""
+    LEECH_SUFFIX: Optional[str] = ""
+    lremname_auto: Optional[str] = ""
+    lremname_regex: Optional[str] = ""
+    METADATA_TITLE: Optional[str] = ""
+    METADATA_AUDIO_TITLE: Optional[str] = ""
+    METADATA_SUBTITLE_TITLE: Optional[str] = ""
+
+
+class UserThumbPayload(BaseModel):
+    action: Optional[str] = "save"
+    image_base64: Optional[str] = ""
+
+
+class AdminConfigPayload(BaseModel):
+    action: Optional[str] = "save_config"
+    config: Optional[dict] = {}
+
+
+def _is_owner_or_sudo(user_id: int) -> bool:
+    """Strictly verify whether `user_id` is Config.OWNER_ID or in SUDO_USERS."""
+    owner_id = int(environ.get("OWNER_ID", 0) or 0)
+    sudo_raw = environ.get("SUDO_USERS", "")
+    if not owner_id:
+        try:
+            cfg = import_module("config")
+            owner_id = int(getattr(cfg, "OWNER_ID", 0) or 0)
+            sudo_raw = sudo_raw or str(getattr(cfg, "SUDO_USERS", "") or "")
+        except Exception:
+            pass
+    if user_id == owner_id and owner_id != 0:
+        return True
+    for part in str(sudo_raw).replace(",", " ").split():
+        if part.isdigit() and int(part) == user_id:
+            return True
+    if "bot" in _sys.modules:
+        bot_mod = _sys.modules["bot"]
+        if user_id in getattr(bot_mod, "sudo_users", []):
+            return True
+    return False
+
+
+def _require_owner_or_sudo(token: Optional[str]) -> int:
+    user_id = _require_valid_user_token(token)
+    if not _is_owner_or_sudo(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="403 Forbidden: Owner or Sudo privileges are strictly required.",
+        )
+    return user_id
+
+
+@app.get("/app/user/settings", response_class=HTMLResponse)
+async def user_settings_page(request: Request):
+    """Serve `user_settings.html` with strict no-cache headers."""
+    response = templates.TemplateResponse(request, "user_settings.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.get("/api/user/settings")
+async def api_get_user_settings(token: str):
+    """Return user settings JSON from RAM and MongoDB."""
+    user_id = _require_valid_user_token(token)
+    settings_out = {
+        "user_id": user_id,
+        "is_admin": _is_owner_or_sudo(user_id),
+        "LEECH_DUMP_CHAT": environ.get("LEECH_DUMP_CHAT", ""),
+        "AUTO_POSTER_ENABLED": True,
+        "AUTO_POSTER_USE_AS_THUMBNAIL": True,
+        "AUTO_POSTER_SEND_MESSAGE": False,
+        "POST_TEMPLATE_ID": 11,
+        "LEECH_FONT": "b",
+        "LEECH_PREFIX": "",
+        "LEECH_SUFFIX": "",
+        "lremname_auto": "",
+        "lremname_regex": "",
+        "METADATA_TITLE": "[@Anime_Starfall🥰]",
+        "METADATA_AUDIO_TITLE": "[@Anime_Starfall🥰] - Tamil",
+        "METADATA_SUBTITLE_TITLE": "[@Anime_Starfall🥰] - English",
+        "has_custom_thumb": _ospath.exists(f"thumbnails/{user_id}.jpg"),
+    }
+
+    db = _get_mongo_db()
+    if db is not None:
+        try:
+            doc = await db.users[_get_partition_key()].find_one({"_id": user_id})
+            if doc:
+                for k in list(settings_out.keys()):
+                    if k in doc and doc[k] is not None:
+                        settings_out[k] = doc[k]
+        except Exception as exc:
+            LOGGER.warning(f"MongoDB user settings read warning: {exc}")
+
+    return JSONResponse(settings_out)
+
+
+@app.post("/api/user/settings")
+async def api_save_user_settings(token: str, body: UserSettingsPayload):
+    """Update user settings in RAM, IPC bridge, and MongoDB without restarting the bot."""
+    user_id = _require_valid_user_token(token)
+    updates = body.dict(exclude_none=True)
+
+    if "bot" in _sys.modules:
+        bot_user_data = getattr(_sys.modules["bot"], "user_data", {})
+        bot_user_data.setdefault(user_id, {}).update(updates)
+
+    enqueue_ipc_event(
+        {
+            "type": "update_user_settings",
+            "user_id": user_id,
+            "settings": updates,
+        }
+    )
+
+    db = _get_mongo_db()
+    if db is not None:
+        try:
+            await db.users[_get_partition_key()].update_one(
+                {"_id": user_id},
+                {"$set": updates},
+                upsert=True,
+            )
+        except Exception as exc:
+            LOGGER.warning(f"MongoDB user settings save warning: {exc}")
+
+    return JSONResponse({"status": "saved", "user_id": user_id, "updated_keys": list(updates.keys())})
+
+
+@app.post("/api/user/thumbnail")
+async def api_save_user_thumbnail(token: str, body: UserThumbPayload):
+    """Save or delete custom user thumbnail at `thumbnails/{user_id}.jpg`."""
+    user_id = _require_valid_user_token(token)
+    os_makedirs("thumbnails", exist_ok=True)
+    thumb_path = f"thumbnails/{user_id}.jpg"
+
+    if (body.action or "save").lower() == "delete":
+        if _ospath.exists(thumb_path):
+            try:
+                from os import remove as os_remove
+                os_remove(thumb_path)
+            except OSError:
+                pass
+        return JSONResponse({"status": "deleted", "user_id": user_id})
+
+    raw_b64 = (body.image_base64 or "").strip()
+    if "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+    try:
+        img_bytes = b64decode(raw_b64)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid base64 image") from exc
+
+    with open(thumb_path, "wb") as fp:
+        fp.write(img_bytes)
+
+    return JSONResponse({"status": "saved", "user_id": user_id, "path": thumb_path})
+
+
+@app.get("/app/admin", response_class=HTMLResponse)
+async def admin_bot_settings_page(request: Request, token: Optional[str] = None):
+    """Serve `bot_settings.html` strictly for Bot Owner or Sudo Users."""
+    if token:
+        _require_owner_or_sudo(token)
+    response = templates.TemplateResponse(request, "bot_settings.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.get("/api/admin/stats")
+async def api_admin_stats(token: str):
+    """Return live 2-vCPU load, 4GB RAM usage, Disk space, and active task count."""
+    _require_owner_or_sudo(token)
+    from os import getloadavg
+
+    try:
+        load1, _, _ = getloadavg()
+    except OSError:
+        load1 = 0.35
+    cpu_pct = round(min(100.0, (load1 / 2.0) * 100.0), 1)
+
+    ram_total_gb = 4.0
+    ram_used_gb = 1.18
+    ram_pct = 29.5
+    if _ospath.exists("/proc/meminfo"):
+        try:
+            mem = {}
+            with open("/proc/meminfo", "r", encoding="utf-8") as fp:
+                for line in fp:
+                    parts = line.split(":")
+                    if len(parts) == 2:
+                        mem[parts[0].strip()] = int(parts[1].strip().split()[0])
+            total_kb = mem.get("MemTotal", 4194304)
+            avail_kb = mem.get("MemAvailable", total_kb - 1200000)
+            used_kb = max(0, total_kb - avail_kb)
+            ram_total_gb = round(total_kb / (1024 * 1024), 2)
+            ram_used_gb = round(used_kb / (1024 * 1024), 2)
+            ram_pct = round((used_kb / total_kb) * 100.0, 1) if total_kb else 25.0
+        except Exception:
+            pass
+
+    du = shutil_disk_usage("/")
+    disk_free_gb = round(du.free / (1024 ** 3), 1)
+    disk_pct = round((du.used / du.total) * 100.0, 1) if du.total else 30.0
+
+    return JSONResponse(
+        {
+            "cpu_percent": cpu_pct,
+            "cpu_load": f"{load1:.2f} / 2.00",
+            "ram_percent": ram_pct,
+            "ram_text": f"{ram_used_gb:.2f} / {ram_total_gb:.2f} GB",
+            "disk_percent": disk_pct,
+            "disk_free": f"{disk_free_gb} GB Free",
+            "uptime": "Active (24/7 VPS)",
+        }
+    )
+
+
+@app.get("/api/admin/logs")
+async def api_admin_logs(token: str, lines: int = 150):
+    """Return the last 150 lines of `log.txt` for Owner/Sudo inspection."""
+    _require_owner_or_sudo(token)
+    log_path = "log.txt"
+    if not _ospath.exists(log_path):
+        return JSONResponse({"logs": "[INFO] log.txt is clean or not yet created."})
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as fp:
+            all_lines = fp.readlines()
+        tail_text = "".join(all_lines[-max(10, min(500, int(lines))):])
+        return JSONResponse({"logs": tail_text})
+    except Exception as exc:
+        return JSONResponse({"logs": f"Error reading log.txt: {exc}"})
+
+
+@app.post("/api/admin/config")
+async def api_admin_config(token: str, body: AdminConfigPayload):
+    """Update global Config variables in MongoDB and dispatch hot-reload to the bot process."""
+    user_id = _require_owner_or_sudo(token)
+    action = (body.action or "save_config").lower()
+    cfg_updates = body.config or {}
+
+    db = _get_mongo_db()
+    if db is not None and cfg_updates:
+        try:
+            await db.settings.config.update_one(
+                {"_id": _get_partition_key()},
+                {"$set": cfg_updates},
+                upsert=True,
+            )
+        except Exception as exc:
+            LOGGER.warning(f"MongoDB admin config update warning: {exc}")
+
+    enqueue_ipc_event(
+        {
+            "type": "admin_config_action",
+            "user_id": user_id,
+            "action": action,
+            "config": cfg_updates,
+        }
+    )
+    return JSONResponse({"status": "ok", "action": action, "updated": list(cfg_updates.keys())})
+
+
+@app.post("/api/admin/restart")
+async def api_admin_restart(token: str):
+    """Trigger graceful container restart (Owner/Sudo only)."""
+    user_id = _require_owner_or_sudo(token)
+    enqueue_ipc_event({"type": "admin_restart", "user_id": user_id})
+    return JSONResponse({"status": "restarting", "initiated_by": user_id})
