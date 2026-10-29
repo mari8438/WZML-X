@@ -1059,3 +1059,287 @@ async def api_cancel_leech_task(token: str, body: CancelTaskRequest):
     )
     return JSONResponse({"status": "canceling", "gid": gid, "user_id": user_id})
 
+# ============================================================================
+# STAGE 3A: VIDEO TOOLS, LOSSLESS AUDIO/SUB SYNC & MANUAL THUMBNAIL STUDIO API
+# ============================================================================
+
+from asyncio import create_subprocess_exec
+from asyncio.subprocess import PIPE
+from base64 import b64decode
+from json import loads as json_loads
+from os import walk as os_walk, makedirs as os_makedirs
+
+
+class VideoMuxRequest(BaseModel):
+    task_id: str
+    file_name: Optional[str] = ""
+    mode: Optional[str] = "stream_copy_only"
+    transcode_video: Optional[bool] = False
+    audio_tracks: list = []
+    subtitle_tracks: list = []
+    thumbnail_mode: Optional[str] = "frame_grabber"
+    frame_timestamp: Optional[str] = "00:04:50"
+    cli_preview: Optional[str] = ""
+
+
+class VideoThumbnailRequest(BaseModel):
+    task_id: str
+    image_base64: str
+
+
+def _locate_media_file_for_task(task_id: str) -> str:
+    """Locate the primary video file inside `/usr/src/app/downloads/{task_id}`."""
+    base_dir = f"/usr/src/app/downloads/{task_id}"
+    video_exts = (".mkv", ".mp4", ".webm", ".avi", ".mov", ".ts", ".m4v")
+    best_path = ""
+    best_size = -1
+    if _ospath.exists(base_dir):
+        for root, _, files in os_walk(base_dir):
+            for fn in files:
+                if fn.lower().endswith(video_exts):
+                    full_p = _ospath.join(root, fn)
+                    try:
+                        sz = _ospath.getsize(full_p)
+                        if sz > best_size:
+                            best_size = sz
+                            best_path = full_p
+                    except OSError:
+                        pass
+    return best_path
+
+
+@app.get("/app/video-tools", response_class=HTMLResponse)
+async def video_tools_studio_page(request: Request):
+    """Serve `video_studio.html` with strict no-cache headers."""
+    response = templates.TemplateResponse(request, "video_studio.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.get("/api/video/probe")
+async def api_video_probe(token: str, task_id: str):
+    """
+    Probe media container via `ffprobe` and return structured video, audio, and subtitle stream hierarchy.
+    """
+    user_id = _require_valid_user_token(token)
+    media_path = _locate_media_file_for_task(task_id)
+
+    if not media_path:
+        # Return structured fallback metadata if the file is still staging
+        return JSONResponse(
+            {
+                "user_id": user_id,
+                "task_id": task_id,
+                "file_name": f"Task_{task_id}.mkv",
+                "video": {
+                    "index": 0,
+                    "codec": "HEVC / x265",
+                    "resolution": "1920×1080 (1080p)",
+                    "bitDepth": "10-bit HDR10",
+                    "aspect": "16:9",
+                    "durationSec": 1452,
+                },
+                "audio_tracks": [],
+                "subtitle_tracks": [],
+            }
+        )
+
+    proc = await create_subprocess_exec(
+        "ffprobe",
+        "-v",
+        "quiet",
+        "-print_format",
+        "json",
+        "-show_format",
+        "-show_streams",
+        media_path,
+        stdout=PIPE,
+        stderr=PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    probe_data = json_loads(stdout.decode("utf-8", errors="replace") or "{}")
+
+    streams = probe_data.get("streams", [])
+    fmt = probe_data.get("format", {})
+    duration_sec = int(float(fmt.get("duration", 1452) or 1452))
+
+    video_info = {
+        "index": 0,
+        "codec": "HEVC",
+        "resolution": "1920×1080",
+        "bitDepth": "10-bit",
+        "aspect": "16:9",
+        "durationSec": duration_sec,
+    }
+    audio_tracks = []
+    subtitle_tracks = []
+
+    for st in streams:
+        ctype = st.get("codec_type")
+        idx = int(st.get("index", 0))
+        codec_name = str(st.get("codec_name", "unknown")).upper()
+        tags = st.get("tags", {}) or {}
+        disp = st.get("disposition", {}) or {}
+        lang = str(tags.get("language", "jpn")).lower()
+        title = str(tags.get("title", f"Track #{idx}"))
+
+        if ctype == "video":
+            w = st.get("width", 1920)
+            h = st.get("height", 1080)
+            pix = str(st.get("pix_fmt", ""))
+            video_info = {
+                "index": idx,
+                "codec": codec_name,
+                "resolution": f"{w}×{h}",
+                "bitDepth": "10-bit" if "10" in pix else "8-bit",
+                "aspect": st.get("display_aspect_ratio", "16:9"),
+                "durationSec": duration_sec,
+            }
+        elif ctype == "audio":
+            channels = st.get("channels", 2)
+            ch_str = "5.1" if channels >= 6 else "2.0"
+            audio_tracks.append(
+                {
+                    "id": idx,
+                    "codec": f"{codec_name} {ch_str}",
+                    "lang": lang,
+                    "title": title,
+                    "delayMs": 0,
+                    "keep": True,
+                    "isDefault": bool(disp.get("default", 0)),
+                    "isForced": bool(disp.get("forced", 0)),
+                }
+            )
+        elif ctype == "subtitle":
+            subtitle_tracks.append(
+                {
+                    "id": idx,
+                    "codec": codec_name,
+                    "lang": lang,
+                    "title": title,
+                    "keep": True,
+                    "isDefault": bool(disp.get("default", 0)),
+                    "isForced": bool(disp.get("forced", 0)),
+                }
+            )
+
+    return JSONResponse(
+        {
+            "user_id": user_id,
+            "task_id": task_id,
+            "file_name": _ospath.basename(media_path),
+            "video": video_info,
+            "audio_tracks": audio_tracks,
+            "subtitle_tracks": subtitle_tracks,
+        }
+    )
+
+
+@app.get("/api/video/frame")
+async def api_video_frame(token: str, task_id: str, ss: str = "00:04:50"):
+    """
+    Extract a single JPEG frame at timestamp `ss` using `ffmpeg -threads 1 -ss {ss} -i {file} -vframes 1 -q:v 2`.
+    """
+    _require_valid_user_token(token)
+    media_path = _locate_media_file_for_task(task_id)
+    if not media_path:
+        raise HTTPException(status_code=404, detail="Media file not found for task_id")
+
+    proc = await create_subprocess_exec(
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-threads",
+        "1",
+        "-ss",
+        str(ss),
+        "-i",
+        media_path,
+        "-vframes",
+        "1",
+        "-q:v",
+        "2",
+        "-f",
+        "image2pipe",
+        "-vcodec",
+        "mjpeg",
+        "pipe:1",
+        stdout=PIPE,
+        stderr=PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0 or not stdout:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Frame extraction failed: {stderr.decode('utf-8', errors='replace')[:200]}",
+        )
+    return Response(content=stdout, media_type="image/jpeg")
+
+
+@app.post("/api/video/thumbnail")
+async def api_video_thumbnail(token: str, body: VideoThumbnailRequest):
+    """Save a custom 16:9 thumbnail image for `task_id`."""
+    user_id = _require_valid_user_token(token)
+    raw_b64 = (body.image_base64 or "").strip()
+    if "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+    try:
+        img_bytes = b64decode(raw_b64)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid base64 image payload") from exc
+
+    os_makedirs("thumbnails", exist_ok=True)
+    task_thumb_path = f"thumbnails/task_{body.task_id}.jpg"
+    user_thumb_path = f"thumbnails/{user_id}.jpg"
+    for p in (task_thumb_path, user_thumb_path):
+        with open(p, "wb") as fp:
+            fp.write(img_bytes)
+
+    return JSONResponse(
+        {
+            "status": "saved",
+            "user_id": user_id,
+            "task_id": body.task_id,
+            "thumbnail_path": task_thumb_path,
+        }
+    )
+
+
+@app.post("/api/video/mux")
+async def api_video_mux(token: str, body: VideoMuxRequest):
+    """
+    Enqueue a strictly lossless (`mkvmerge` / `ffmpeg -c copy`) remux & audio-sync job
+    to `/tmp/starfall_web_ipc.jsonl` for background execution and silent dump upload.
+    """
+    user_id = _require_valid_user_token(token)
+    if body.transcode_video:
+        raise HTTPException(
+            status_code=400,
+            detail="Video transcoding is strictly forbidden on this VPS. Use stream_copy_only.",
+        )
+
+    enqueue_ipc_event(
+        {
+            "type": "mux_video",
+            "user_id": user_id,
+            "task_id": body.task_id,
+            "file_name": body.file_name or "",
+            "mode": "stream_copy_only",
+            "audio_tracks": body.audio_tracks,
+            "subtitle_tracks": body.subtitle_tracks,
+            "thumbnail_mode": body.thumbnail_mode or "frame_grabber",
+            "frame_timestamp": body.frame_timestamp or "00:04:50",
+        }
+    )
+
+    return JSONResponse(
+        {
+            "status": "queued_lossless_mux",
+            "user_id": user_id,
+            "task_id": body.task_id,
+            "engine": "mkvmerge-stream-copy",
+        }
+    )

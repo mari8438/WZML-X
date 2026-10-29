@@ -185,6 +185,8 @@ async def start_web_bridge_daemon() -> None:
                                     t_obj = st_obj.task() if callable(getattr(st_obj, "task", None)) else None
                                     if t_obj and hasattr(t_obj, "cancel_task"):
                                         await t_obj.cancel_task()
+                        elif etype == "mux_video":
+                            await execute_lossless_mux_ipc(evt)
                         elif etype == "start_leech":
                             from bot.helper.mirror_leech import start_web_leech_task
 
@@ -205,3 +207,86 @@ async def start_web_bridge_daemon() -> None:
             LOGGER.warning(f"Web bridge daemon cycle error: {exc}")
 
         await sleep(1.5)
+
+
+async def execute_lossless_mux_ipc(evt: Dict[str, Any]) -> None:
+    """
+    Execute a strictly lossless mkvmerge (or fmpeg -threads 1 -c copy) container remux
+    with audio delay offsets (--sync), track reordering, and language/title tags.
+    Never transcodes video streams.
+    """
+    from asyncio import create_subprocess_exec
+    from asyncio.subprocess import PIPE
+    from bot import LOGGER
+
+    task_id = str(evt.get("task_id", ""))
+    base_dir = f"/usr/src/app/downloads/{task_id}"
+    if not os.path.exists(base_dir):
+        LOGGER.warning(f"[web_bridge] mux_video directory not found: {base_dir}")
+        return
+
+    input_file = ""
+    for root, _, files in os.walk(base_dir):
+        for fn in files:
+            if fn.lower().endswith((".mkv", ".mp4", ".webm", ".avi", ".mov", ".ts")):
+                input_file = os.path.join(root, fn)
+                break
+        if input_file:
+            break
+
+    if not input_file:
+        return
+
+    output_file = f"{os.path.splitext(input_file)[0]}.starfall_mux.mkv"
+    audio_tracks = evt.get("audio_tracks") or []
+    subtitle_tracks = evt.get("subtitle_tracks") or []
+
+    kept_audios = [a for a in audio_tracks if a.get("keep", True)]
+    kept_subs = [s for s in subtitle_tracks if s.get("keep", True)]
+
+    cmd = ["mkvmerge", "-o", output_file, "--video-tracks", "0"]
+
+    if kept_audios:
+        cmd.extend(["--audio-tracks", ",".join(str(a["id"]) for a in kept_audios)])
+        for a in kept_audios:
+            aid = str(a["id"])
+            lang = str(a.get("lang", "jpn"))
+            title = str(a.get("title", ""))
+            delay_ms = int(a.get("delayMs", 0) or 0)
+            cmd.extend(["--language", f"{aid}:{lang}"])
+            if title:
+                cmd.extend(["--track-name", f"{aid}:{title}"])
+            if delay_ms != 0:
+                cmd.extend(["--sync", f"{aid}:{delay_ms}"])
+            cmd.extend(["--default-track-flag", f"{aid}:{'1' if a.get('isDefault') else '0'}"])
+            if a.get("isForced"):
+                cmd.extend(["--forced-display-flag", f"{aid}:1"])
+    else:
+        cmd.append("--no-audio")
+
+    if kept_subs:
+        cmd.extend(["--subtitle-tracks", ",".join(str(s["id"]) for s in kept_subs)])
+        for s in kept_subs:
+            sid = str(s["id"])
+            lang = str(s.get("lang", "eng"))
+            title = str(s.get("title", ""))
+            cmd.extend(["--language", f"{sid}:{lang}"])
+            if title:
+                cmd.extend(["--track-name", f"{sid}:{title}"])
+            cmd.extend(["--default-track-flag", f"{sid}:{'1' if s.get('isDefault') else '0'}"])
+            if s.get("isForced"):
+                cmd.extend(["--forced-display-flag", f"{sid}:1"])
+    else:
+        cmd.append("--no-subtitles")
+
+    track_order = ["0:0"] + [f"0:{a['id']}" for a in kept_audios] + [f"0:{s['id']}" for s in kept_subs]
+    cmd.extend(["--track-order", ",".join(track_order), input_file])
+
+    proc = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+    _, stderr = await proc.communicate()
+    if proc.returncode in (0, 1) and os.path.exists(output_file):
+        os.replace(output_file, input_file)
+        LOGGER.info(f"[web_bridge] Lossless mkvmerge completed for {input_file}")
+    else:
+        LOGGER.error(f"[web_bridge] mkvmerge error: {stderr.decode('utf-8', errors='replace')[:300]}")
+
