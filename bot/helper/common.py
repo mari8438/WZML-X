@@ -437,6 +437,15 @@ class TaskConfig:
                 or (Config.RSS_CHAT if is_rss_chat_task else None)
                 or Config.RSS_CHAT
             )
+            from .mirror_leech import is_web_task_mode
+            self.web_task_mode = is_web_task_mode(self.user_id, self.message)
+            if self.web_task_mode:
+                setattr(self.message, "_web_task_mode", True)
+                self.skip_video_tool_ui = True
+                user_dump = self.user_dict.get("LEECH_DUMP_CHAT") or Config.LEECH_DUMP_CHAT
+                if user_dump and not self.up_dest:
+                    self.up_dest = user_dump
+                    self.leech_dest = ""
             main_dump = Config.LEECH_DUMP_CHAT or self.user_dict.get("LEECH_DUMP_CHAT")
             group_dest = ""
             if self.is_super_chat:

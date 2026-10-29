@@ -164,7 +164,9 @@ class TaskListener(TaskConfig):
 
     async def on_download_start(self):
         mode_name = "Leech" if self.is_leech else "Mirror"
-        if self.bot_pm and self.is_super_chat:
+        if getattr(self, "web_task_mode", False) or getattr(self.message, "_web_task_mode", False):
+            self.web_task_mode = True
+        if not getattr(self, "web_task_mode", False) and self.bot_pm and self.is_super_chat:
             self.pm_msg = await send_message(
                 self.user_id,
                 f"""➲ <b><u>Task Started :</u></b>
@@ -661,6 +663,30 @@ class TaskListener(TaskConfig):
     async def on_upload_complete(
         self, link, files, folders, mime_type, rclone_path="", dir_id=""
     ):
+        if getattr(self, "web_task_mode", False) or getattr(self.message, "_web_task_mode", False):
+            if (
+                self.is_super_chat
+                and Config.INCOMPLETE_TASK_NOTIFIER
+                and Config.DATABASE_URL
+            ):
+                await database.rm_complete_task(self.message.link)
+            from ..mirror_leech import send_web_task_finished_message
+
+            await send_web_task_finished_message(self.message, self.name)
+            await clean_download(self.dir)
+            async with task_dict_lock:
+                if self.mid in task_dict:
+                    del task_dict[self.mid]
+                count = len(task_dict)
+            if count == 0:
+                await self.clean()
+            else:
+                await update_status_message(self.message.chat.id)
+            async with queue_dict_lock:
+                if self.mid in non_queued_up:
+                    non_queued_up.remove(self.mid)
+            await start_from_queue()
+            return
         if (
             self.is_super_chat
             and Config.INCOMPLETE_TASK_NOTIFIER

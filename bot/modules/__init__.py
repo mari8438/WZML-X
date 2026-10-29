@@ -71,6 +71,7 @@ from .users_settings import (
     set_custom_thumbnail,
 )
 from .ytdlp import ytdl, ytdl_leech
+from .web_auth import web_command, web_studio_callback, get_user_task_mode, set_user_task_mode
 from .video_tool_ui import video_tools_callback
 from ..helper.video_utils.video_tools import (
     active_merge_track_filter,
@@ -169,6 +170,10 @@ __all__ = [
     "set_custom_thumbnail",
     "ytdl",
     "ytdl_leech",
+    "web_command",
+    "web_studio_callback",
+    "get_user_task_mode",
+    "set_user_task_mode",
     "video_tools_callback",
     "active_merge_track_filter",
     "active_merge_text_filter",

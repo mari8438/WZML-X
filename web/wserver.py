@@ -687,3 +687,339 @@ async def page_not_found(_, exc):
         f"<h1>404: Task not found! Mostly wrong input. <br><br>Error: {escape(str(exc))}</h1>",
         status_code=404,
     )
+
+
+# ============================================================================
+# STAGE 1: ANIME STARFALL SECURITY TOKENS & DUAL-MODE STUDIO API ENDPOINTS
+# ============================================================================
+
+from typing import Optional
+from pydantic import BaseModel
+from pymongo import AsyncMongoClient
+from pymongo.server_api import ServerApi
+
+import sys as _sys
+from importlib.util import module_from_spec as _module_from_spec, spec_from_file_location as _spec_from_file_location
+from os import path as _ospath
+
+
+def _load_ext_module(mod_name: str, rel_path: str):
+    if mod_name in _sys.modules:
+        return _sys.modules[mod_name]
+    full_path = _ospath.abspath(_ospath.join(_ospath.dirname(__file__), "..", rel_path))
+    spec = _spec_from_file_location(mod_name, full_path)
+    mod = _module_from_spec(spec)
+    _sys.modules[mod_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_tm_mod = _load_ext_module("starfall_token_manager", "bot/helper/ext_utils/token_manager.py")
+generate_user_token = _tm_mod.generate_user_token
+verify_user_token = _tm_mod.verify_user_token
+inspect_user_token = _tm_mod.inspect_user_token
+resolve_base_url = _tm_mod.resolve_base_url
+
+_wb_mod = _load_ext_module("starfall_web_bridge", "bot/helper/ext_utils/web_bridge.py")
+enqueue_ipc_event = _wb_mod.enqueue_ipc_event
+read_active_tasks_for_user = _wb_mod.read_active_tasks_for_user
+read_user_snapshot = _wb_mod.read_user_snapshot
+update_user_snapshot_mode = _wb_mod.update_user_snapshot_mode
+
+_mongo_client = None
+
+
+def _get_database_url() -> str:
+    db_url = environ.get("DATABASE_URL", "").strip()
+    if not db_url:
+        try:
+            cfg = import_module("config")
+            db_url = str(getattr(cfg, "DATABASE_URL", "") or "").strip()
+        except Exception:
+            pass
+    return db_url
+
+
+def _get_mongo_db():
+    global _mongo_client
+    db_url = _get_database_url()
+    if not db_url:
+        return None
+    if _mongo_client is None:
+        _mongo_client = AsyncMongoClient(db_url, server_api=ServerApi("1"))
+    return _mongo_client.wzmlx
+
+
+def _get_partition_key() -> str:
+    try:
+        from hashlib import blake2b
+        return blake2b(str(_BOT_ID or '0').encode(), digest_size=8).hexdigest()
+    except Exception:
+        return str(_BOT_ID or "0")
+
+
+def _require_valid_user_token(token: Optional[str]) -> int:
+    user_id = verify_user_token(token or "")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired Starfall Studio magic token.",
+        )
+    return user_id
+
+
+class ModeUpdateRequest(BaseModel):
+    mode: str
+
+
+class LeechStartRequest(BaseModel):
+    url: str
+    mode: Optional[str] = "leech"
+    engine: Optional[str] = "auto"
+    name: Optional[str] = ""
+    select: Optional[bool] = False
+    extract: Optional[bool] = False
+    compress: Optional[bool] = False
+    up_dest: Optional[str] = ""
+
+
+@app.get("/api/user/session")
+async def api_user_session(token: str):
+    """
+    Validate magic token and return:
+    { "user_id": ..., "mode": "web"|"telegram", "dump_channel": ..., "username": ... }
+    """
+    user_id = _require_valid_user_token(token)
+    snap = read_user_snapshot(user_id)
+    mode = str(snap.get("mode", "telegram") or "telegram").lower()
+    dump_channel = snap.get("dump_channel")
+    username = snap.get("username") or f"user_{user_id}"
+
+    # Check in-memory user_data if running in shared process
+    try:
+        bot_user_data = _sys.modules['bot'].user_data if 'bot' in _sys.modules else {}
+
+        u_dict = bot_user_data.get(user_id, {})
+        if u_dict:
+            if "TASK_MODE" in u_dict:
+                mode = str(u_dict["TASK_MODE"] or "telegram").lower()
+            if u_dict.get("LEECH_DUMP_CHAT"):
+                dump_channel = u_dict["LEECH_DUMP_CHAT"]
+            if u_dict.get("USERNAME"):
+                username = u_dict["USERNAME"]
+    except Exception:
+        pass
+
+    # Query MongoDB users collection
+    db = _get_mongo_db()
+    if db is not None:
+        try:
+            doc = await db.users[_get_partition_key()].find_one({"_id": user_id})
+            if doc:
+                if "TASK_MODE" in doc and doc["TASK_MODE"]:
+                    mode = str(doc["TASK_MODE"]).lower()
+                if doc.get("LEECH_DUMP_CHAT"):
+                    dump_channel = doc["LEECH_DUMP_CHAT"]
+                if doc.get("USERNAME"):
+                    username = doc["USERNAME"]
+        except Exception as exc:
+            LOGGER.warning(f"MongoDB session lookup warning for {user_id}: {exc}")
+
+    if not dump_channel:
+        dump_channel = environ.get("LEECH_DUMP_CHAT") or None
+        if not dump_channel:
+            try:
+                cfg = import_module("config")
+                dump_channel = getattr(cfg, "LEECH_DUMP_CHAT", None)
+            except Exception:
+                pass
+
+    mode = "web" if mode == "web" else "telegram"
+    return JSONResponse(
+        {
+            "user_id": user_id,
+            "mode": mode,
+            "dump_channel": dump_channel,
+            "username": username,
+        }
+    )
+
+
+@app.post("/api/user/mode")
+async def api_update_user_mode(token: str, body: ModeUpdateRequest):
+    """
+    Update user's TASK_MODE ("web" | "telegram") in MongoDB, shared IPC snapshot, and in-memory user_data.
+    """
+    user_id = _require_valid_user_token(token)
+    requested_mode = (body.mode or "").strip().lower()
+    if requested_mode not in {"web", "telegram"}:
+        raise HTTPException(
+            status_code=400,
+            detail="mode must be 'web' or 'telegram'",
+        )
+
+    # 1. Update in-memory user_data if shared
+    try:
+        bot_user_data = _sys.modules['bot'].user_data if 'bot' in _sys.modules else {}
+
+        bot_user_data.setdefault(user_id, {})["TASK_MODE"] = requested_mode
+    except Exception:
+        pass
+
+    # 2. Update shared snapshot & enqueue IPC sync to the live bot process
+    update_user_snapshot_mode(user_id, requested_mode)
+
+    # 3. Persist in MongoDB
+    db = _get_mongo_db()
+    if db is not None:
+        try:
+            await db.users[_get_partition_key()].update_one(
+                {"_id": user_id},
+                {"$set": {"TASK_MODE": requested_mode}},
+                upsert=True,
+            )
+        except Exception as exc:
+            LOGGER.warning(f"MongoDB mode update warning for {user_id}: {exc}")
+
+    return JSONResponse(
+        {
+            "status": "ok",
+            "user_id": user_id,
+            "mode": requested_mode,
+        }
+    )
+
+
+@app.get("/api/user/tasks")
+async def api_get_user_tasks(token: str):
+    """
+    Return active tasks for the authenticated user (speeds, progress, size, ETA, engine).
+    Combines live snapshots from the bot process's `task_dict` and MongoDB `web_tasks`.
+    """
+    user_id = _require_valid_user_token(token)
+    tasks_list = []
+    seen_gids = set()
+
+    # 1. Read live task_dict snapshot exported by the bot process
+    for t in read_active_tasks_for_user(user_id):
+        gid = str(t.get("gid") or t.get("task_id"))
+        seen_gids.add(gid)
+        tasks_list.append(t)
+
+    # 2. Also inspect in-process task_dict if running in the same process
+    try:
+        bot_task_dict = _sys.modules['bot'].task_dict if 'bot' in _sys.modules else {}
+
+        for mid, status_obj in list(bot_task_dict.items()):
+            listener = getattr(status_obj, "listener", None)
+            if listener and getattr(listener, "user_id", None) == user_id:
+                gid = str(status_obj.gid()) if callable(getattr(status_obj, "gid", None)) else str(mid)
+                if gid in seen_gids:
+                    continue
+                seen_gids.add(gid)
+                tasks_list.append(
+                    {
+                        "task_id": mid,
+                        "gid": gid,
+                        "name": str(status_obj.name()) if callable(getattr(status_obj, "name", None)) else getattr(listener, "name", "Task"),
+                        "status": str(status_obj.status()) if callable(getattr(status_obj, "status", None)) else "Processing",
+                        "progress": str(status_obj.progress()) if callable(getattr(status_obj, "progress", None)) else "0%",
+                        "processed_bytes": str(status_obj.processed_bytes()) if callable(getattr(status_obj, "processed_bytes", None)) else "0 B",
+                        "size": str(status_obj.size()) if callable(getattr(status_obj, "size", None)) else "0 B",
+                        "speed": str(status_obj.speed()) if callable(getattr(status_obj, "speed", None)) else "0 B/s",
+                        "eta": str(status_obj.eta()) if callable(getattr(status_obj, "eta", None)) else "-",
+                        "engine": str(getattr(status_obj, "engine", "StarfallEngine")),
+                    }
+                )
+    except Exception:
+        pass
+
+    return JSONResponse(
+        {
+            "user_id": user_id,
+            "count": len(tasks_list),
+            "tasks": tasks_list,
+        }
+    )
+
+
+@app.post("/api/leech/start")
+async def api_start_leech_task(token: str, body: LeechStartRequest):
+    """
+    Start a direct leech or mirror task from the Web Studio dashboard.
+    Dispatches via in-process `start_web_leech_task` or the cross-process IPC bridge to the live bot.
+    """
+    user_id = _require_valid_user_token(token)
+    source_url = (body.url or "").strip()
+    if not source_url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    task_mode = "mirror" if (body.mode or "leech").strip().lower() == "mirror" else "leech"
+    engine = (body.engine or "auto").strip().lower()
+    task_name = (body.name or "").strip() or source_url.split("/")[-1][:64] or "Web Studio Task"
+    dashboard_url = f"{resolve_base_url()}/app/dashboard?token={token}"
+
+    # 1. Try direct in-process dispatch if TgClient.bot is running in this process
+    try:
+        if 'bot' not in _sys.modules:
+            raise RuntimeError('bot runs in separate process')
+        from bot.core.tg_client import TgClient
+        from bot.helper.mirror_leech import start_web_leech_task
+
+        if TgClient.bot is not None:
+            res = await start_web_leech_task(
+                user_id=user_id,
+                url=source_url,
+                mode=task_mode,
+                engine=engine,
+                custom_name=body.name or "",
+                select=bool(body.select),
+                extract=bool(body.extract),
+                compress=bool(body.compress),
+                up_dest=body.up_dest or "",
+            )
+            return JSONResponse(
+                {
+                    "status": "started",
+                    "user_id": user_id,
+                    "task_id": res["mid"],
+                    "gid": f"web_{res['mid']}",
+                    "name": task_name,
+                    "mode": task_mode,
+                    "engine": engine,
+                    "dashboard_url": dashboard_url,
+                }
+            )
+    except Exception:
+        pass
+
+    # 2. Enqueue via IPC bridge to the live Pyrogram bot process (`start_web_bridge_daemon`)
+    synthetic_id = f"sf_{int(time() * 1000)}"
+    enqueue_ipc_event(
+        {
+            "type": "start_leech",
+            "task_id": synthetic_id,
+            "user_id": user_id,
+            "url": source_url,
+            "mode": task_mode,
+            "engine": engine,
+            "name": body.name or "",
+            "select": bool(body.select),
+            "extract": bool(body.extract),
+            "compress": bool(body.compress),
+            "up_dest": body.up_dest or "",
+        }
+    )
+
+    return JSONResponse(
+        {
+            "status": "started",
+            "user_id": user_id,
+            "task_id": synthetic_id,
+            "gid": synthetic_id,
+            "name": task_name,
+            "mode": task_mode,
+            "engine": engine,
+            "dashboard_url": dashboard_url,
+        }
+    )

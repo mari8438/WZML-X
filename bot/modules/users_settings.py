@@ -56,6 +56,7 @@ from ..helper.ext_utils.starfallx_upload import (
     safe_user_token_data,
     starfallx_upload,
 )
+from ..helper.ext_utils.token_manager import build_studio_url
 from ..helper.telegram_helper.button_build import ButtonMaker
 from ..helper.telegram_helper.message_utils import (
     delete_message,
@@ -486,6 +487,19 @@ async def get_user_settings(from_user, stype="main"):
     user_dict = user_data.get(user_id, {})
 
     if stype == "main":
+        task_mode = str(user_dict.get("TASK_MODE", "telegram") or "telegram").lower()
+        next_mode = "telegram" if task_mode == "web" else "web"
+        mode_btn_label = "?? Mode: Web Studio" if task_mode == "web" else "?? Mode: Telegram"
+        buttons.url_button(
+            "?? Open Starfall Studio",
+            build_studio_url(user_id, "/app/user"),
+            position="header",
+        )
+        buttons.data_button(
+            mode_btn_label,
+            f"userset {user_id} taskmode {next_mode}",
+            position="header",
+        )
         buttons.data_button(
             "General Settings", f"userset {user_id} general", position="header"
         )
@@ -537,7 +551,8 @@ async def get_user_settings(from_user, stype="main"):
 ┠ <b>UserID</b> → #ID{user_id}
 ┠ <b>Username</b> → @{from_user.username}
 ┠ <b>Telegram DC</b> → {from_user.dc_id}
-┖ <b>Telegram Lang</b> → {Language.get(lc).display_name() if (lc := from_user.language_code) else "N/A"}"""
+┠ <b>Telegram Lang</b> → {Language.get(lc).display_name() if (lc := from_user.language_code) else "N/A"}
+┖ <b>Task Mode</b> → <code>{"Web Studio (Silent)" if str(user_dict.get("TASK_MODE", "telegram")).lower() == "web" else "Telegram Native"}</code>"""
 
         btns = buttons.build_menu(2)
 
@@ -2430,6 +2445,12 @@ async def edit_user_settings(client, query):
         rfunc = partial(update_user_settings, query, "main")
         pfunc = partial(import_user_settings_zip, rfunc=rfunc)
         await event_handler(client, query, pfunc, rfunc, document=True)
+    elif data[2] == "taskmode":
+        new_mode = "web" if (len(data) > 3 and data[3] == "web") else "telegram"
+        update_user_ldata(user_id, "TASK_MODE", new_mode)
+        await database.update_user_data(user_id)
+        await query.answer(f"Task Mode set to {new_mode.upper()}!", show_alert=True)
+        await update_user_settings(query, "main")
     elif data[2] == "font":
         await query.answer()
         current = user_dict.get("LEECH_FONT", Config.LEECH_FONT) or ""

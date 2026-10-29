@@ -180,6 +180,9 @@ class TelegramUploader:
         if getattr(self._listener, "rss_auto_leech", False) and not self._listener.up_dest:
             self._sent_msg = self._listener.message
             return True
+        if getattr(self._listener, "web_task_mode", False):
+            self._sent_msg = self._listener.message
+            return True
         if self._listener.up_dest:
             msg_link = (
                 self._listener.message.link if self._listener.is_super_chat else ""

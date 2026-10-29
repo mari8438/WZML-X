@@ -484,11 +484,30 @@ class Mirror(TaskListener):
                     await delete_links(self.message)
                     return
 
+        from ..helper.mirror_leech import (
+            is_web_task_mode,
+            send_web_task_initiated_message,
+            start_web_leech_task,
+        )
+        self.web_task_mode = is_web_task_mode(self.user_id, self.message)
+        if self.web_task_mode:
+            setattr(self.message, "_web_task_mode", True)
+            self.skip_video_tool_ui = True
+
         if self.video_tool and not getattr(self, "skip_video_tool_ui", False):
             from ..helper.video_utils.video_tools import pre_probe_and_show_ui
             await pre_probe_and_show_ui(self, file_, reply_to)
 
         await delete_links(self.message)
+
+        if self.web_task_mode and not getattr(self.message, "_web_start_card_sent", False):
+            task_display_name = (
+                self.name
+                or (getattr(file_, "file_name", "") if file_ is not None else "")
+                or (self.link.split("/")[-1][:64] if isinstance(self.link, str) and self.link else "Media Task")
+            )
+            setattr(self.message, "_web_start_card_sent", True)
+            await send_web_task_initiated_message(self.message, self.user_id, str(task_display_name))
 
         if file_ is not None:
             await TelegramDownloadHelper(self).add_download(
@@ -620,3 +639,6 @@ async def uphoster(client, message):
     bot_loop.create_task(
         Mirror(client, message, is_uphoster=True).new_event()
     )
+
+
+from ..helper.mirror_leech import start_web_leech_task  # noqa: E402,F401

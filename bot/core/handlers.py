@@ -22,6 +22,16 @@ def add_handlers():
     register_source_handler(TgClient.bot)
     TgClient.bot.add_handler(
         MessageHandler(
+            web_command,
+            filters=command(BotCommands.WebCommand, case_sensitive=True)
+            & CustomFilters.authorized,
+        )
+    )
+    TgClient.bot.add_handler(
+        CallbackQueryHandler(web_studio_callback, filters=regex("^webstudio"))
+    )
+    TgClient.bot.add_handler(
+        MessageHandler(
             authorize,
             filters=command(BotCommands.AuthorizeCommand, case_sensitive=True)
             & CustomFilters.sudo,

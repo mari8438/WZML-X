@@ -18,6 +18,7 @@ from ..helper.ext_utils.status_utils import get_readable_time
 from ..helper.ext_utils.db_handler import database
 from ..helper.languages import Language
 from ..helper.telegram_helper.bot_commands import BotCommands
+from ..helper.ext_utils.token_manager import build_studio_url
 from ..helper.telegram_helper.button_build import ButtonMaker
 from ..helper.telegram_helper.filters import CustomFilters
 from ..helper.telegram_helper.message_utils import (
@@ -34,6 +35,11 @@ async def start(_, message):
     userid = message.from_user.id
     lang = Language()
     buttons = ButtonMaker()
+    buttons.url_button(
+        "?? Open Starfall Studio",
+        build_studio_url(userid, "/app/user"),
+        position="header",
+    )
     buttons.url_button(
         lang.START_BUTTON1, "https://github.com/mari8438/WZML-X"
     )

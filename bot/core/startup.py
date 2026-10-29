@@ -638,7 +638,17 @@ async def load_configurations():
 
             access_pwd = token_bytes(32).hex()
             Config.WEB_ACCESS_PASSWORD = access_pwd
-        web_env = {**environ, "WEB_ACCESS_PASSWORD": access_pwd}
+        environ["WEB_ACCESS_PASSWORD"] = str(access_pwd)
+        web_env = {
+            **environ,
+            "WEB_ACCESS_PASSWORD": str(access_pwd),
+            "BOT_TOKEN": str(Config.BOT_TOKEN or ""),
+            "DATABASE_URL": str(Config.DATABASE_URL or ""),
+            "BASE_URL": str(Config.BASE_URL or ""),
+            "LEECH_DUMP_CHAT": str(Config.LEECH_DUMP_CHAT or ""),
+            "TELEGRAM_API": str(Config.TELEGRAM_API or ""),
+            "TELEGRAM_HASH": str(Config.TELEGRAM_HASH or ""),
+        }
         await _start_background_process(
             "web-server",
             [
@@ -660,5 +670,8 @@ async def load_configurations():
         )
 
     from ..helper.ext_utils.tunnel_monitor import apply_tunnel_url_once
+    from ..helper.ext_utils.web_bridge import start_web_bridge_daemon
+    from .. import bot_loop
 
+    bot_loop.create_task(start_web_bridge_daemon())
     await apply_tunnel_url_once()
