@@ -40,6 +40,26 @@ def _resolve_signing_secret() -> bytes:
         except Exception:
             pass
 
+    _secret_file = "/tmp/starfall_token_secret.bin"
+    if bot_token:
+        seed = f"{bot_token}|{_TOKEN_NAMESPACE}"
+        derived = sha256(seed.encode("utf-8")).digest()
+        try:
+            with open(_secret_file, "wb") as fp:
+                fp.write(derived)
+        except Exception:
+            pass
+        return derived
+
+    if os.path.exists(_secret_file):
+        try:
+            with open(_secret_file, "rb") as fp:
+                data = fp.read()
+                if len(data) == 32:
+                    return data
+        except Exception:
+            pass
+
     seed = f"{bot_token}|{_TOKEN_NAMESPACE}"
     return sha256(seed.encode("utf-8")).digest()
 
