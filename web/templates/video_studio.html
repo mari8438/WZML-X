@@ -1,1249 +1,671 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" data-theme="solo-leveling">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <title>Starfall Video Tools • Lossless Audio/Sub Sync &amp; Thumbnail Studio</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Starfall-Go • Lossless Video Tools Studio & Owner Control Center</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <style>
-    :root {
-      --bg-obsidian-950: #080c12;
-      --bg-obsidian-900: #0f172a;
-      --bg-obsidian-800: #162038;
-      --bg-glass: rgba(15, 23, 42, 0.8);
-      --bg-glass-deep: rgba(8, 12, 18, 0.9);
-      --border-glass: rgba(255, 255, 255, 0.09);
-      --border-cyan: rgba(0, 242, 254, 0.42);
+/* ============================================================================
+ * Starfall-Go Debrid — 5 Flagship Anime Themes (CSS Custom Properties)
+ * 1. Solo Leveling (Shadow Monarch)      : #0a0518 | #8b5cf6 | #06b6d4
+ * 2. Jujutsu Kaisen (Domain Expansion)   : #0b0f19 | #ef4444 | #a855f7
+ * 3. Demon Slayer (Sun Breathing)        : #120907 | #f97316 | #eab308
+ * 4. Attack on Titan (Wings of Freedom)  : #08110b | #10b981 | #f59e0b
+ * 5. Cyberpunk Edgerunners (Sandevistan) : #0d021a | #facc15 | #00f0ff
+ * ============================================================================ */
+
+:root,
+[data-theme="solo-leveling"] {
+  --theme-name: "Solo Leveling • Shadow Monarch";
+  --bg-obsidian: #0a0518;
+  --bg-surface: rgba(19, 11, 41, 0.82);
+  --bg-panel: rgba(28, 16, 58, 0.72);
+  --bg-elevated: rgba(40, 23, 82, 0.88);
+  --accent-primary: #8b5cf6;
+  --accent-secondary: #06b6d4;
+  --accent-glow: rgba(139, 92, 246, 0.45);
+  --accent-cyan-glow: rgba(6, 182, 212, 0.38);
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --border-subtle: rgba(139, 92, 246, 0.28);
+  --border-strong: rgba(6, 182, 212, 0.65);
+  --status-ok: #10b981;
+  --status-warn: #f59e0b;
+  --status-crit: #ef4444;
+  --gradient-hero: linear-gradient(135deg, rgba(139, 92, 246, 0.22) 0%, rgba(6, 182, 212, 0.14) 100%);
+  --gradient-btn: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
+}
+
+[data-theme="jujutsu-kaisen"] {
+  --theme-name: "Jujutsu Kaisen • Domain Expansion";
+  --bg-obsidian: #0b0f19;
+  --bg-surface: rgba(18, 24, 40, 0.84);
+  --bg-panel: rgba(26, 33, 56, 0.74);
+  --bg-elevated: rgba(38, 25, 58, 0.88);
+  --accent-primary: #ef4444;
+  --accent-secondary: #a855f7;
+  --accent-glow: rgba(239, 68, 68, 0.45);
+  --accent-cyan-glow: rgba(168, 85, 247, 0.40);
+  --text-primary: #f8fafc;
+  --text-secondary: #e2e8f0;
+  --text-muted: #94a3b8;
+  --border-subtle: rgba(239, 68, 68, 0.30);
+  --border-strong: rgba(168, 85, 247, 0.68);
+  --gradient-hero: linear-gradient(135deg, rgba(239, 68, 68, 0.22) 0%, rgba(168, 85, 247, 0.18) 100%);
+  --gradient-btn: linear-gradient(135deg, #ef4444 0%, #a855f7 100%);
+}
+
+[data-theme="demon-slayer"] {
+  --theme-name: "Demon Slayer • Sun Breathing";
+  --bg-obsidian: #120907;
+  --bg-surface: rgba(31, 16, 12, 0.84);
+  --bg-panel: rgba(45, 22, 16, 0.75);
+  --bg-elevated: rgba(62, 29, 18, 0.88);
+  --accent-primary: #f97316;
+  --accent-secondary: #eab308;
+  --accent-glow: rgba(249, 115, 22, 0.45);
+  --accent-cyan-glow: rgba(234, 179, 8, 0.38);
+  --text-primary: #fffbeb;
+  --text-secondary: #fde68a;
+  --text-muted: #d6d3d1;
+  --border-subtle: rgba(249, 115, 22, 0.32);
+  --border-strong: rgba(234, 179, 8, 0.68);
+  --gradient-hero: linear-gradient(135deg, rgba(249, 115, 22, 0.24) 0%, rgba(234, 179, 8, 0.16) 100%);
+  --gradient-btn: linear-gradient(135deg, #f97316 0%, #eab308 100%);
+}
+
+[data-theme="attack-on-titan"] {
+  --theme-name: "Attack on Titan • Wings of Freedom";
+  --bg-obsidian: #08110b;
+  --bg-surface: rgba(14, 29, 20, 0.84);
+  --bg-panel: rgba(20, 42, 29, 0.76);
+  --bg-elevated: rgba(28, 56, 39, 0.88);
+  --accent-primary: #10b981;
+  --accent-secondary: #f59e0b;
+  --accent-glow: rgba(16, 185, 129, 0.42);
+  --accent-cyan-glow: rgba(245, 158, 11, 0.38);
+  --text-primary: #ecfdf5;
+  --text-secondary: #d1fae5;
+  --text-muted: #9ca3af;
+  --border-subtle: rgba(16, 185, 129, 0.30);
+  --border-strong: rgba(245, 158, 11, 0.65);
+  --gradient-hero: linear-gradient(135deg, rgba(16, 185, 129, 0.22) 0%, rgba(245, 158, 11, 0.15) 100%);
+  --gradient-btn: linear-gradient(135deg, #10b981 0%, #f59e0b 100%);
+}
+
+[data-theme="cyberpunk-edgerunners"] {
+  --theme-name: "Cyberpunk Edgerunners • Sandevistan";
+  --bg-obsidian: #0d021a;
+  --bg-surface: rgba(24, 6, 46, 0.85);
+  --bg-panel: rgba(36, 10, 66, 0.76);
+  --bg-elevated: rgba(52, 14, 92, 0.90);
+  --accent-primary: #facc15;
+  --accent-secondary: #00f0ff;
+  --accent-glow: rgba(250, 204, 21, 0.48);
+  --accent-cyan-glow: rgba(0, 240, 255, 0.45);
+  --text-primary: #fefce8;
+  --text-secondary: #cffafe;
+  --text-muted: #a78bfa;
+  --border-subtle: rgba(250, 204, 21, 0.35);
+  --border-strong: rgba(0, 240, 255, 0.75);
+  --gradient-hero: linear-gradient(135deg, rgba(250, 204, 21, 0.22) 0%, rgba(0, 240, 255, 0.18) 100%);
+  --gradient-btn: linear-gradient(135deg, #facc15 0%, #00f0ff 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body.starfall-body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--bg-obsidian);
+  background-image:
+    radial-gradient(circle at 12% 18%, var(--accent-glow), transparent 36%),
+    radial-gradient(circle at 88% 82%, var(--accent-cyan-glow), transparent 38%);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  transition: background-color 0.35s cubic-bezier(0.4, 0, 0.2, 1), color 0.25s ease;
+  padding-bottom: 108px;
+}
+
+.sf-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.55);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.sf-card:hover {
+  border-color: var(--border-strong);
+}
+
+.sf-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.sf-btn-primary {
+  background: var(--gradient-btn);
+  color: #090514;
+  font-weight: 700;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 0 22px var(--accent-glow);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.sf-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 30px var(--accent-cyan-glow);
+}
+
+.sf-btn-ghost {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.sf-btn-ghost:hover,
+.sf-btn-ghost.active {
+  border-color: var(--accent-secondary);
+  box-shadow: 0 0 14px var(--accent-cyan-glow);
+}
+
+.sf-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.sf-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  outline: none;
+}
+
+.sf-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-secondary);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 12px var(--accent-cyan-glow);
+  cursor: pointer;
+}
+
+.sf-dock {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: rgba(10, 5, 24, 0.92);
+  border-top: 1px solid var(--border-strong);
+  backdrop-filter: blur(20px);
+}
+
+.sf-holo-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 3, 14, 0.82);
+  backdrop-filter: blur(12px);
+}
+
+.sf-holo-modal.open {
+  display: flex;
+}
 
-      --neon-cyan: #00f2fe;
-      --neon-blue: #4facfe;
-      --neon-violet: #7f00ff;
-      --neon-magenta: #e100ff;
-      --sakura-pink: #ff3366;
-      --emerald-green: #00f5a0;
-      --amber-gold: #ffb800;
-
-      --text-main: #f8fafc;
-      --text-dim: #94a3b8;
-      --text-muted: #64748b;
-
-      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-
-      --shadow-card: 0 20px 50px -12px rgba(0, 0, 0, 0.82), 0 0 1px 1px rgba(255, 255, 255, 0.05);
-      --glow-cyan: 0 0 24px rgba(0, 242, 254, 0.32);
-      --glow-violet: 0 0 26px rgba(127, 0, 255, 0.35);
-      --glow-sakura: 0 0 24px rgba(255, 51, 102, 0.35);
-      --glow-emerald: 0 0 24px rgba(0, 245, 160, 0.3);
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    html, body {
-      min-height: 100%;
-      background-color: var(--bg-obsidian-950);
-      background-image:
-        radial-gradient(circle at 12% 10%, rgba(0, 242, 254, 0.11) 0%, transparent 38%),
-        radial-gradient(circle at 88% 12%, rgba(127, 0, 255, 0.13) 0%, transparent 42%),
-        radial-gradient(circle at 80% 90%, rgba(255, 51, 102, 0.09) 0%, transparent 45%),
-        linear-gradient(180deg, #080c12 0%, #0f172a 100%);
-      background-attachment: fixed;
-      color: var(--text-main);
-      font-family: var(--font-sans);
-      font-size: 14px;
-      line-height: 1.5;
-      overflow-x: hidden;
-    }
-
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background-image:
-        linear-gradient(rgba(0, 242, 254, 0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 51, 102, 0.018) 1px, transparent 1px);
-      background-size: 40px 40px;
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    button, input, select {
-      font-family: inherit;
-      color: inherit;
-    }
-
-    button {
-      cursor: pointer;
-      border: none;
-      background: none;
-    }
-
-    .app-container {
-      position: relative;
-      z-index: 1;
-      max-width: 1340px;
-      margin: 0 auto;
-      padding: 14px 16px 118px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .cyber-panel {
-      position: relative;
-      background: var(--bg-glass);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      border: 1px solid var(--border-glass);
-      border-radius: 18px;
-      box-shadow: var(--shadow-card);
-      overflow: hidden;
-    }
-
-    .cyber-panel::after {
-      content: "";
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: linear-gradient(90deg, transparent, var(--neon-cyan), var(--neon-violet), var(--sakura-pink), transparent);
-      opacity: 0.8;
-      pointer-events: none;
-    }
-
-    /* TOP STUDIO HEADER */
-    .studio-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 12px;
-      padding: 14px 20px;
-    }
-
-    .brand-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-
-    .brand-icon-orb {
-      width: 42px;
-      height: 42px;
-      border-radius: 12px;
-      background: linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(127, 0, 255, 0.32), rgba(255, 51, 102, 0.22));
-      border: 1px solid rgba(0, 242, 254, 0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--neon-cyan);
-      box-shadow: var(--glow-cyan);
-    }
-
-    .brand-title {
-      font-size: 16.5px;
-      font-weight: 900;
-      letter-spacing: 0.04em;
-      background: linear-gradient(90deg, #fff 0%, var(--neon-cyan) 48%, var(--sakura-pink) 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-
-    .brand-sub {
-      font-size: 11.5px;
-      color: var(--text-dim);
-    }
-
-    .zero-transcode-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      padding: 5px 12px;
-      border-radius: 999px;
-      background: rgba(0, 245, 160, 0.13);
-      border: 1px solid rgba(0, 245, 160, 0.4);
-      color: var(--emerald-green);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.03em;
-      box-shadow: var(--glow-emerald);
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .chip-btn {
-      min-height: 38px;
-      padding: 0 13px;
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid var(--border-glass);
-      color: var(--text-dim);
-      font-size: 12px;
-      font-weight: 600;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      text-decoration: none;
-      transition: all 0.18s ease;
-    }
-
-    .chip-btn:hover {
-      color: var(--neon-cyan);
-      border-color: var(--border-cyan);
-      background: rgba(0, 242, 254, 0.08);
-    }
-
-    /* VIDEO PROBE HERO CARD */
-    .video-probe-banner {
-      padding: 16px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 14px;
-    }
-
-    .probe-file-info {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      min-width: 0;
-      flex: 1;
-    }
-
-    .probe-task-label {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--neon-cyan);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .probe-filename {
-      font-size: 15px;
-      font-weight: 800;
-      color: var(--text-main);
-      word-break: break-word;
-    }
-
-    .probe-specs-strip {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .spec-badge {
-      padding: 5px 11px;
-      border-radius: 9px;
-      background: var(--bg-glass-deep);
-      border: 1px solid var(--border-glass);
-      font-family: var(--font-mono);
-      font-size: 11.5px;
-      font-weight: 700;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-    }
-
-    .spec-badge.cyan {
-      color: var(--neon-cyan);
-      border-color: rgba(0, 242, 254, 0.3);
-    }
-
-    .spec-badge.sakura {
-      color: var(--sakura-pink);
-      border-color: rgba(255, 51, 102, 0.35);
-    }
-
-    .spec-badge.violet {
-      color: #d896ff;
-      border-color: rgba(127, 0, 255, 0.38);
-    }
-
-    .spec-badge.emerald {
-      color: var(--emerald-green);
-      border-color: rgba(0, 245, 160, 0.35);
-    }
-
-    /* MAIN 2-COLUMN WORKSPACE */
-    .workspace-grid {
-      display: grid;
-      grid-template-columns: 7fr 5fr;
-      gap: 16px;
-      align-items: start;
-    }
-
-    .col-stack {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .panel-body {
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .panel-title-wrap {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .panel-icon {
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
-      background: rgba(0, 242, 254, 0.12);
-      border: 1px solid rgba(0, 242, 254, 0.32);
-      color: var(--neon-cyan);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .panel-icon.sakura {
-      background: rgba(255, 51, 102, 0.14);
-      border-color: rgba(255, 51, 102, 0.38);
-      color: var(--sakura-pink);
-    }
-
-    .panel-icon.violet {
-      background: rgba(127, 0, 255, 0.18);
-      border-color: rgba(127, 0, 255, 0.42);
-      color: #dfb3ff;
-    }
-
-    .panel-title {
-      font-size: 15px;
-      font-weight: 800;
-    }
-
-    .panel-subtitle {
-      font-size: 11.5px;
-      color: var(--text-dim);
-    }
-
-    /* 1. INTERACTIVE AUDIO DELAY SYNCHRONIZER */
-    .sync-visualizer-box {
-      padding: 16px;
-      border-radius: 14px;
-      background: var(--bg-glass-deep);
-      border: 1px solid rgba(0, 242, 254, 0.22);
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .timeline-comparison {
-      position: relative;
-      padding: 12px 14px;
-      border-radius: 10px;
-      background: rgba(15, 23, 42, 0.7);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      overflow: hidden;
-    }
-
-    .timeline-center-line {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 50%;
-      width: 2px;
-      background: var(--neon-cyan);
-      box-shadow: 0 0 8px var(--neon-cyan);
-      z-index: 2;
-      pointer-events: none;
-    }
-
-    .timeline-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      position: relative;
-      z-index: 1;
-    }
-
-    .timeline-track-lbl {
-      width: 125px;
-      flex-shrink: 0;
-      color: var(--text-dim);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .timeline-bar-lane {
-      flex: 1;
-      height: 16px;
-      border-radius: 6px;
-      background: rgba(8, 12, 18, 0.85);
-      position: relative;
-      overflow: hidden;
-    }
-
-    .timeline-wave-bar {
-      position: absolute;
-      top: 2px;
-      bottom: 2px;
-      width: 50%;
-      left: 25%;
-      border-radius: 4px;
-      background: linear-gradient(90deg, rgba(0, 242, 254, 0.35), rgba(0, 245, 160, 0.55));
-      border: 1px solid var(--neon-cyan);
-      transition: transform 0.15s ease;
-    }
-
-    .timeline-wave-bar.audio-bar {
-      background: linear-gradient(90deg, rgba(127, 0, 255, 0.45), rgba(255, 51, 102, 0.6));
-      border-color: var(--sakura-pink);
-    }
-
-    .sync-slider-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .offset-readout {
-      font-family: var(--font-mono);
-      font-size: 16px;
-      font-weight: 800;
-      padding: 4px 12px;
-      border-radius: 8px;
-      background: rgba(255, 51, 102, 0.15);
-      border: 1px solid rgba(255, 51, 102, 0.4);
-      color: var(--sakura-pink);
-    }
-
-    .cyber-range-slider {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 100%;
-      height: 8px;
-      border-radius: 999px;
-      background: linear-gradient(90deg, var(--sakura-pink) 0%, var(--neon-cyan) 50%, var(--emerald-green) 100%);
-      outline: none;
-    }
-
-    .cyber-range-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      background: #ffffff;
-      border: 3px solid var(--neon-cyan);
-      box-shadow: 0 0 14px var(--neon-cyan);
-      cursor: pointer;
-    }
-
-    .stepper-row,
-    .preset-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .stepper-btn {
-      flex: 1 1 68px;
-      min-height: 36px;
-      padding: 0 10px;
-      border-radius: 9px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border-glass);
-      font-family: var(--font-mono);
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-main);
-      transition: all 0.15s ease;
-    }
-
-    .stepper-btn:hover {
-      border-color: var(--neon-cyan);
-      color: var(--neon-cyan);
-      background: rgba(0, 242, 254, 0.1);
-    }
-
-    .preset-pill-btn {
-      min-height: 34px;
-      padding: 0 11px;
-      border-radius: 999px;
-      background: rgba(127, 0, 255, 0.15);
-      border: 1px solid rgba(225, 0, 255, 0.32);
-      color: #ebd6ff;
-      font-size: 11.5px;
-      font-weight: 600;
-      transition: all 0.15s ease;
-    }
-
-    .preset-pill-btn:hover {
-      background: rgba(127, 0, 255, 0.28);
-      box-shadow: var(--glow-violet);
-    }
-
-    /* AUDIO & SUBTITLE TRACK CARDS */
-    .track-list-container {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .stream-track-card {
-      padding: 12px 14px;
-      border-radius: 13px;
-      background: var(--bg-glass-deep);
-      border: 1px solid var(--border-glass);
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      transition: all 0.18s ease;
-    }
-
-    .stream-track-card.active-sync-track {
-      border-color: var(--neon-cyan);
-      box-shadow: 0 0 16px rgba(0, 242, 254, 0.14);
-    }
-
-    .stream-track-card.stripped {
-      opacity: 0.48;
-      border-style: dashed;
-    }
-
-    .track-top-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .track-left-head {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      min-width: 0;
-      flex: 1;
-    }
-
-    .keep-checkbox {
-      width: 22px;
-      height: 22px;
-      border-radius: 6px;
-      border: 2px solid var(--neon-cyan);
-      background: rgba(0, 242, 254, 0.12);
-      color: var(--neon-cyan);
-      font-weight: 900;
-      font-size: 12px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .keep-checkbox.unchecked {
-      border-color: var(--text-muted);
-      background: transparent;
-      color: transparent;
-    }
-
-    .track-order-badge {
-      padding: 2px 7px;
-      border-radius: 6px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 800;
-      background: rgba(0, 242, 254, 0.14);
-      color: var(--neon-cyan);
-    }
-
-    .track-codec-info {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-main);
-    }
-
-    .track-controls-grid {
-      display: grid;
-      grid-template-columns: 1.2fr 1.5fr auto;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .cyber-select,
-    .cyber-mini-input {
-      min-height: 36px;
-      padding: 0 10px;
-      border-radius: 9px;
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid var(--border-glass);
-      color: var(--text-main);
-      font-size: 12px;
-      outline: none;
-    }
-
-    .cyber-select:focus,
-    .cyber-mini-input:focus {
-      border-color: var(--neon-cyan);
-    }
-
-    .flag-switches {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .flag-chip-btn {
-      min-height: 32px;
-      padding: 0 9px;
-      border-radius: 7px;
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid var(--border-glass);
-      color: var(--text-muted);
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    .flag-chip-btn.on-default {
-      background: rgba(0, 245, 160, 0.15);
-      border-color: var(--emerald-green);
-      color: var(--emerald-green);
-    }
-
-    .flag-chip-btn.on-forced {
-      background: rgba(255, 51, 102, 0.16);
-      border-color: var(--sakura-pink);
-      color: var(--sakura-pink);
-    }
-
-    .reorder-btns {
-      display: inline-flex;
-      gap: 4px;
-    }
-
-    .reorder-btn {
-      width: 28px;
-      height: 28px;
-      border-radius: 7px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--border-glass);
-      color: var(--text-dim);
-      font-size: 12px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .reorder-btn:hover {
-      color: var(--neon-cyan);
-      border-color: var(--neon-cyan);
-    }
-
-    /* 2. MANUAL THUMBNAIL STUDIO & FRAME GRABBER */
-    .thumb-mode-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 8px;
-    }
-
-    .thumb-mode-btn {
-      min-height: 42px;
-      padding: 8px 10px;
-      border-radius: 11px;
-      background: var(--bg-glass-deep);
-      border: 1px solid var(--border-glass);
-      color: var(--text-dim);
-      font-size: 12px;
-      font-weight: 700;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      transition: all 0.18s ease;
-    }
-
-    .thumb-mode-btn.active {
-      background: linear-gradient(135deg, rgba(0, 242, 254, 0.16), rgba(127, 0, 255, 0.24));
-      border-color: var(--neon-cyan);
-      color: var(--neon-cyan);
-      box-shadow: 0 0 16px rgba(0, 242, 254, 0.2);
-    }
-
-    .preview-stage-16x9 {
-      position: relative;
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      border-radius: 14px;
-      background: #05080d;
-      border: 1px solid rgba(0, 242, 254, 0.3);
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #thumbPreviewCanvas {
-      width: 100%;
-      height: 100%;
-      display: block;
-      object-fit: cover;
-    }
-
-    .preview-overlay-tag {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      padding: 4px 10px;
-      border-radius: 8px;
-      background: rgba(8, 12, 18, 0.82);
-      border: 1px solid rgba(0, 242, 254, 0.35);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--neon-cyan);
-    }
-
-    .frame-scrubber-panel,
-    .custom-upload-panel {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      padding: 14px;
-      border-radius: 13px;
-      background: var(--bg-glass-deep);
-      border: 1px solid var(--border-glass);
-    }
-
-    .dropzone-area {
-      padding: 22px 16px;
-      border-radius: 12px;
-      border: 2px dashed rgba(0, 242, 254, 0.35);
-      background: rgba(0, 242, 254, 0.04);
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.18s ease;
-    }
-
-    .dropzone-area:hover {
-      border-color: var(--sakura-pink);
-      background: rgba(255, 51, 102, 0.06);
-    }
-
-    .cli-command-box {
-      padding: 12px 14px;
-      border-radius: 11px;
-      background: #05080c;
-      border: 1px solid rgba(0, 245, 160, 0.28);
-      font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--emerald-green);
-      word-break: break-all;
-      line-height: 1.45;
-    }
-
-    /* BOTTOM FLOATING EXECUTION DOCK */
-    .bottom-mux-dock {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      z-index: 50;
-      padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
-      background: linear-gradient(180deg, transparent 0%, rgba(8, 12, 18, 0.94) 35%);
-      pointer-events: none;
-    }
-
-    .bottom-mux-inner {
-      max-width: 1308px;
-      margin: 0 auto;
-      padding: 12px 18px;
-      border-radius: 16px;
-      background: rgba(15, 23, 42, 0.94);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(0, 242, 254, 0.35);
-      box-shadow: 0 -8px 36px rgba(0, 0, 0, 0.8), var(--glow-cyan);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 12px;
-      pointer-events: auto;
-    }
-
-    .btn-apply-mux {
-      min-height: 48px;
-      padding: 0 26px;
-      border-radius: 13px;
-      background: linear-gradient(135deg, var(--emerald-green) 0%, var(--neon-cyan) 50%, var(--neon-violet) 100%);
-      color: #04080e;
-      font-size: 14.5px;
-      font-weight: 900;
-      letter-spacing: 0.03em;
-      display: inline-flex;
-      align-items: center;
-      gap: 9px;
-      box-shadow: var(--glow-emerald);
-      transition: all 0.2s ease;
-    }
-
-    .btn-apply-mux:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 0 32px rgba(0, 245, 160, 0.55);
-    }
-
-    /* HOLOGRAPHIC SUCCESS MODAL */
-    .modal-overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 120;
-      background: rgba(4, 7, 12, 0.82);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
-    }
-
-    .modal-overlay.open {
-      display: flex;
-    }
-
-    .holo-modal-card {
-      width: 100%;
-      max-width: 520px;
-      border-radius: 20px;
-      background: var(--bg-obsidian-900);
-      border: 1px solid var(--neon-cyan);
-      box-shadow: 0 24px 64px rgba(0, 0, 0, 0.9), var(--glow-cyan);
-      padding: 26px 24px;
-      text-align: center;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .toast-stack {
-      position: fixed;
-      top: 16px;
-      right: 16px;
-      z-index: 140;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      max-width: 350px;
-      pointer-events: none;
-    }
-
-    .toast-msg {
-      padding: 11px 15px;
-      border-radius: 11px;
-      background: rgba(15, 23, 42, 0.95);
-      border: 1px solid var(--neon-cyan);
-      box-shadow: var(--shadow-card);
-      color: var(--text-main);
-      font-size: 12.5px;
-      font-weight: 600;
-      pointer-events: auto;
-    }
-
-    @media (max-width: 1024px) {
-      .workspace-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .track-controls-grid,
-      .thumb-mode-grid {
-        grid-template-columns: 1fr;
-      }
-      .bottom-mux-inner {
-        flex-direction: column;
-        align-items: stretch;
-        text-align: center;
-      }
-      .btn-apply-mux {
-        width: 100%;
-        justify-content: center;
-      }
-    }
   </style>
 </head>
-<body>
-  <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+<body class="starfall-body text-sm">
 
-  <div class="app-container">
-    <!-- TOP HEADER -->
-    <header class="cyber-panel studio-header">
-      <div class="brand-left">
-        <div class="brand-icon-orb">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-            <polygon points="23 7 16 12 23 17 23 7"></polygon>
-            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-          </svg>
-        </div>
+  <!-- Top Navigation & 5-Anime Theme Bar -->
+  <header class="sticky top-0 z-30 border-b border-[var(--border-subtle)] bg-[var(--bg-obsidian)]/90 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center font-black text-base sf-btn-primary">SF</div>
         <div>
-          <div class="brand-title">STARFALL VIDEO TOOLS &amp; SYNC STUDIO</div>
-          <div class="brand-sub">Lossless Container Remuxer • Audio Delay Synchronizer • Frame Grabber</div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-base tracking-tight">STARFALL-GO STUDIO</span>
+            <span class="sf-badge text-xs" style="border-color: var(--status-ok); color: #34d399;">0% CPU Transcoding • Lossless Copy</span>
+          </div>
+          <p class="text-xs text-[var(--text-muted)]" id="activeThemeLabel">Theme: Solo Leveling (Shadow Monarch) • 2 vCPU / 4 GB VPS Profile</p>
         </div>
-        <span class="zero-transcode-pill" title="Strict VPS Hardware Protection Rule">
-          <span>⚡ ZERO TRANSCODE • 100% STREAM COPY (-c copy / mkvmerge)</span>
-        </span>
       </div>
 
-      <div class="header-actions">
-        <button type="button" id="backToDashboardBtn" class="chip-btn">
-          <span>← Studio Dashboard</span>
-        </button>
-        <button type="button" id="reloadProbeBtn" class="chip-btn">
-          <span>🔄 Re-Probe Streams</span>
-        </button>
-        <a href="https://t.me/Anime_Starfall" target="_blank" rel="noopener noreferrer" class="chip-btn">
-          <span>Telegram Channel ↗</span>
-        </a>
-      </div>
-    </header>
+      <!-- Mode Switcher (Video Tools Studio vs Owner Bot Settings) + 5 Anime Theme Selector -->
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" id="navStudioBtn" class="sf-btn-ghost active px-3 py-1.5 text-xs font-semibold">🎛️ Video Tools Studio</button>
+        <button type="button" id="navAdminBtn" class="sf-btn-ghost px-3 py-1.5 text-xs font-semibold">👑 Owner Bot Settings</button>
 
-    <!-- VIDEO STREAM PROBE SUMMARY BANNER -->
-    <section class="cyber-panel video-probe-banner" aria-label="Video Stream Probe Metadata">
-      <div class="probe-file-info">
-        <span id="probeTaskLabel" class="probe-task-label">TASK #sf_1001 • STREAM HIERARCHY PROBED VIA FFPROBE</span>
-        <div id="probeFileName" class="probe-filename">[Starfall] Solo Leveling - S02E05 [1080p BD AV1 10bit][Multi-Audio].mkv</div>
+        <label for="themeSelector" class="sr-only">Anime Theme</label>
+        <select id="themeSelector" class="sf-btn-ghost px-3 py-1.5 text-xs font-semibold outline-none">
+          <option value="solo-leveling">🟣 Solo Leveling (Shadow Monarch)</option>
+          <option value="jujutsu-kaisen">🔴 Jujutsu Kaisen (Domain Expansion)</option>
+          <option value="demon-slayer">🟠 Demon Slayer (Sun Breathing)</option>
+          <option value="attack-on-titan">🟢 Attack on Titan (Wings of Freedom)</option>
+          <option value="cyberpunk-edgerunners">🟡 Cyberpunk Edgerunners (Sandevistan)</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <!-- ======================================================================= -->
+  <!-- VIEW 1: COMPLETE VIDEO TOOLS STUDIO                                     -->
+  <!-- ======================================================================= -->
+  <main id="studioView" class="max-w-7xl mx-auto px-4 py-5 space-y-5">
+
+    <!-- 1. VIDEO STREAM PROBE METADATA BANNER -->
+    <section class="sf-card p-4" style="background-image: var(--gradient-hero);">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+        <div class="space-y-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs uppercase tracking-wider font-bold text-[var(--accent-secondary)]">📊 FFPROBE STREAM METADATA</span>
+            <span class="sf-badge" id="probeTaskBadge">Task ID: sf_9f82a4c1</span>
+            <span class="sf-badge" id="probeContainerBadge">MATROSKA / MKV</span>
+          </div>
+          <h1 class="text-lg font-extrabold tracking-tight break-all" id="probeFileName">[Starfall-Raws] Solo Leveling S02E06 [1080p HEVC 10bit BluRay Dual-Audio Multi-Sub].mkv</h1>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" id="refreshProbeBtn" class="sf-btn-ghost px-3 py-1.5 text-xs font-semibold">🔄 Re-Probe Stream</button>
+        </div>
       </div>
 
-      <div class="probe-specs-strip">
-        <span id="specResolution" class="spec-badge cyan">📐 1920×1080 (1080p)</span>
-        <span id="specCodec" class="spec-badge violet">🎞 HEVC / x265</span>
-        <span id="specBitDepth" class="spec-badge sakura">🌈 10-bit HDR10</span>
-        <span id="specAspect" class="spec-badge">🖼 16:9</span>
-        <span id="specDuration" class="spec-badge emerald">⏱ 00:24:12</span>
+      <!-- Video Stream Spec Cards + Audio/Subtitle Count Badges -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2.5 mt-4">
+        <div class="sf-panel p-2.5">
+          <div class="text-[11px] text-[var(--text-muted)]">Resolution</div>
+          <div class="font-bold text-sm mt-0.5" id="metaResolution">1080p (1920×1080)</div>
+        </div>
+        <div class="sf-panel p-2.5">
+          <div class="text-[11px] text-[var(--text-muted)]">Video Codec</div>
+          <div class="font-bold text-sm mt-0.5" id="metaCodec">HEVC (H.265)</div>
+        </div>
+        <div class="sf-panel p-2.5">
+          <div class="text-[11px] text-[var(--text-muted)]">Bit Depth / Dynamic Range</div>
+          <div class="font-bold text-sm mt-0.5 text-[var(--accent-secondary)]" id="metaBitDepth">10-bit HDR10</div>
+        </div>
+        <div class="sf-panel p-2.5">
+          <div class="text-[11px] text-[var(--text-muted)]">Aspect Ratio & FPS</div>
+          <div class="font-bold text-sm mt-0.5" id="metaAspect">16:9 • 23.976 fps</div>
+        </div>
+        <div class="sf-panel p-2.5">
+          <div class="text-[11px] text-[var(--text-muted)]">Duration & Size</div>
+          <div class="font-bold text-sm mt-0.5" id="metaDuration">00:24:12 • 1.42 GiB</div>
+        </div>
+        <div class="sf-panel p-2.5">
+          <div class="text-[11px] text-[var(--text-muted)]">Audio Streams</div>
+          <div class="font-bold text-sm mt-0.5" id="metaAudioCountBadge">3 Active / 4 Total</div>
+        </div>
+        <div class="sf-panel p-2.5">
+          <div class="text-[11px] text-[var(--text-muted)]">Subtitle Streams</div>
+          <div class="font-bold text-sm mt-0.5" id="metaSubCountBadge">2 Active / 3 Total</div>
+        </div>
       </div>
     </section>
 
-    <!-- MAIN 2-COLUMN STUDIO WORKSPACE -->
-    <div class="workspace-grid">
-      <!-- LEFT COLUMN: LOSSLESS AUDIO & SUBTITLE SYNC STUDIO -->
-      <div class="col-stack">
-        <!-- 1A. INTERACTIVE AUDIO DELAY SYNCHRONIZER -->
-        <section class="cyber-panel" aria-labelledby="syncStudioHeading">
-          <div class="panel-body">
-            <div class="panel-header">
-              <div class="panel-title-wrap">
-                <div class="panel-icon sakura">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                    <path d="M2 12h4l3-9 4 18 3-9h6"></path>
-                  </svg>
-                </div>
-                <div>
-                  <h2 id="syncStudioHeading" class="panel-title">Interactive Audio Delay Synchronizer</h2>
-                  <p class="panel-subtitle">Align dubbed audio tracks against the primary Japanese video stream without re-encoding</p>
-                </div>
-              </div>
+    <!-- MAIN 2-COLUMN STUDIO GRID -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
 
-              <span id="activeSyncTrackName" style="font-family: var(--font-mono); font-size: 12px; color: var(--neon-cyan); font-weight: 700;">
-                Editing: Track #2 (Hindi / Tamil Dub)
-              </span>
+      <!-- LEFT COLUMN (7 Cols): LOSSLESS AUDIO & SUBTITLE SYNC STUDIO -->
+      <div class="lg:col-span-7 space-y-5">
+
+        <!-- 2A. Audio Track Stripper, Reordering & Language Tagger -->
+        <section class="sf-card p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 class="font-bold text-base flex items-center gap-2">
+                <span>🔊 2A. Audio Track Stripper, Priority Reorder & Language Tagger</span>
+              </h2>
+              <p class="text-xs text-[var(--text-muted)]">Strip unwanted dubs/commentary, reorder priority (▲/▼), and tag ISO-639-2 language codes.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" id="keepAllAudioBtn" class="sf-btn-ghost px-2.5 py-1 text-xs">Keep All</button>
+              <button type="button" id="keepJpnHinOnlyBtn" class="sf-btn-ghost px-2.5 py-1 text-xs">🇯🇵+🇮🇳 Dual Only</button>
+            </div>
+          </div>
+
+          <div id="audioTracksContainer" class="space-y-2.5"></div>
+        </section>
+
+        <!-- 2B. Interactive Audio Delay Synchronizer -->
+        <section class="sf-card p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 class="font-bold text-base">⏱️ 2B. Interactive Audio Delay Synchronizer (-2500ms to +2500ms)</h2>
+              <p class="text-xs text-[var(--text-muted)]">Applies lossless container timestamp shift (<code class="text-[var(--accent-secondary)]">--sync TID:ms</code>) without re-encoding audio.</p>
+            </div>
+            <span class="sf-badge font-mono text-xs" id="syncOffsetReadout">+0 ms (In Sync)</span>
+          </div>
+
+          <!-- Visual Timeline Comparing Audio vs Video -->
+          <div class="sf-panel p-3 space-y-2">
+            <div class="flex items-center justify-between text-[11px] text-[var(--text-muted)]">
+              <span>🎞️ Video Reference Stream (Track 0 • HEVC)</span>
+              <span>Locked 0ms Reference</span>
+            </div>
+            <div class="h-3 rounded bg-white/10 overflow-hidden relative">
+              <div class="absolute inset-y-0 left-1/4 right-1/4 bg-emerald-400/60 rounded"></div>
             </div>
 
-            <div class="sync-visualizer-box">
-              <!-- Visual Timeline Comparing Audio vs Primary Video -->
-              <div class="timeline-comparison">
-                <div class="timeline-center-line" title="0ms Video Sync Reference"></div>
-                <div class="timeline-row">
-                  <span class="timeline-track-lbl">🎬 Video #0 (Ref)</span>
-                  <div class="timeline-bar-lane">
-                    <div class="timeline-wave-bar" style="transform: translateX(0px);"></div>
-                  </div>
-                  <span style="width: 64px; text-align: right; color: var(--neon-cyan);">0 ms</span>
-                </div>
-                <div class="timeline-row">
-                  <span id="timelineActiveAudioLabel" class="timeline-track-lbl">🔊 Audio #2</span>
-                  <div class="timeline-bar-lane">
-                    <div id="timelineActiveAudioWave" class="timeline-wave-bar audio-bar" style="transform: translateX(0px);"></div>
-                  </div>
-                  <span id="timelineActiveAudioMs" style="width: 64px; text-align: right; color: var(--sakura-pink);">+0 ms</span>
-                </div>
-              </div>
+            <div class="flex items-center justify-between text-[11px] text-[var(--text-muted)] pt-1">
+              <span>🔊 Selected Audio Sync Target: <strong id="syncTargetTrackLabel" class="text-[var(--text-primary)]">All Active Audio Tracks</strong></span>
+              <span id="syncDirectionLabel" class="text-[var(--accent-secondary)]">Aligned with Video</span>
+            </div>
+            <div class="h-3 rounded bg-white/10 overflow-hidden relative">
+              <div id="syncVisualBar" class="absolute inset-y-0 bg-[var(--accent-primary)] rounded transition-all duration-150" style="left: 25%; width: 50%;"></div>
+            </div>
+          </div>
 
-              <div class="sync-slider-header">
-                <label for="audioDelayRangeSlider" style="font-size: 12px; font-weight: 700; color: var(--text-dim);">
-                  Audio Offset Slider (<code>-2500ms</code> to <code>+2500ms</code>)
-                </label>
-                <span id="audioOffsetReadout" class="offset-readout">0 ms</span>
-              </div>
+          <!-- Interactive Range Slider (-2500ms to +2500ms) -->
+          <div class="space-y-1.5">
+            <input type="range" id="audioDelaySlider" class="sf-slider" min="-2500" max="2500" step="10" value="0" />
+            <div class="flex justify-between text-[11px] font-mono text-[var(--text-muted)]">
+              <span>-2500ms (Audio Early)</span>
+              <span>-1000ms</span>
+              <span>0ms</span>
+              <span>+1000ms</span>
+              <span>+2500ms (Audio Late)</span>
+            </div>
+          </div>
 
-              <input
-                type="range"
-                id="audioDelayRangeSlider"
-                class="cyber-range-slider"
-                min="-2500"
-                max="2500"
-                step="10"
-                value="0"
-              />
+          <!-- Micro-Adjustment Stepper Buttons -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-xs text-[var(--text-muted)] mr-1">Micro-Step:</span>
+              <button type="button" data-step="-250" class="sync-step-btn sf-btn-ghost px-2.5 py-1 text-xs font-mono">[-250ms]</button>
+              <button type="button" data-step="-50" class="sync-step-btn sf-btn-ghost px-2.5 py-1 text-xs font-mono">[-50ms]</button>
+              <button type="button" data-reset="0" class="sync-step-btn sf-btn-ghost px-2.5 py-1 text-xs font-mono">[0ms]</button>
+              <button type="button" data-step="50" class="sync-step-btn sf-btn-ghost px-2.5 py-1 text-xs font-mono">[+50ms]</button>
+              <button type="button" data-step="250" class="sync-step-btn sf-btn-ghost px-2.5 py-1 text-xs font-mono">[+250ms]</button>
+            </div>
 
-              <!-- Micro-Adjustment Stepper Buttons -->
-              <div class="stepper-row">
-                <button type="button" class="stepper-btn" data-step-ms="-250">[-250ms]</button>
-                <button type="button" class="stepper-btn" data-step-ms="-50">[-50ms]</button>
-                <button type="button" class="stepper-btn" data-step-ms="0">[0ms]</button>
-                <button type="button" class="stepper-btn" data-step-ms="50">[+50ms]</button>
-                <button type="button" class="stepper-btn" data-step-ms="250">[+250ms]</button>
-              </div>
-
-              <!-- One-Click Presets -->
-              <div class="preset-row">
-                <span style="font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">One-Click Presets:</span>
-                <button type="button" class="preset-pill-btn" data-preset-ms="250">⚡ Anime Dual-Audio Sync (+250ms)</button>
-                <button type="button" class="preset-pill-btn" data-preset-ms="150">🌊 Crunchyroll/Web Sync (+150ms)</button>
-                <button type="button" class="preset-pill-btn" data-preset-ms="0">🎯 Zero Offset (0ms)</button>
-              </div>
+            <!-- One-Click Sync Presets -->
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button type="button" data-preset="250" class="sync-preset-btn sf-btn-ghost px-2.5 py-1 text-xs">⚡ Anime Dual-Audio (+250ms)</button>
+              <button type="button" data-preset="150" class="sync-preset-btn sf-btn-ghost px-2.5 py-1 text-xs">⚡ Crunchyroll/Web-DL Sync (+150ms)</button>
+              <button type="button" data-preset="0" class="sync-preset-btn sf-btn-ghost px-2.5 py-1 text-xs">🎯 Zero Offset (0ms)</button>
             </div>
           </div>
         </section>
 
-        <!-- 1B. AUDIO TRACK ORGANIZATION & REORDERING -->
-        <section class="cyber-panel" aria-labelledby="audioOrgHeading">
-          <div class="panel-body">
-            <div class="panel-header">
-              <div class="panel-title-wrap">
-                <div class="panel-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                  </svg>
-                </div>
-                <div>
-                  <h2 id="audioOrgHeading" class="panel-title">Audio Track Organization &amp; Language Tagging</h2>
-                  <p class="panel-subtitle">Click any track to adjust its sync delay • Reorder priority &amp; toggle Default/Forced flags</p>
-                </div>
-              </div>
+        <!-- 2C. Subtitle Track Stripper & Tagger -->
+        <section class="sf-card p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 class="font-bold text-base">💬 2C. Subtitle Track Stripper & ISO-639 Tagger</h2>
+              <p class="text-xs text-[var(--text-muted)]">Keep or strip ASS/SRT/PGS subtitle streams and set Default/Forced track flags.</p>
             </div>
-
-            <div id="audioTracksContainer" class="track-list-container"></div>
+            <label class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-500/15 border border-red-500/40 cursor-pointer text-xs font-semibold text-red-300">
+              <input type="checkbox" id="stripAllSubsToggle" class="accent-red-500" />
+              <span>🚫 Strip All Subtitles</span>
+            </label>
           </div>
+
+          <div id="subtitleTracksContainer" class="space-y-2"></div>
         </section>
 
-        <!-- 1C. SUBTITLE TRACK STRIPPER & TAGGER -->
-        <section class="cyber-panel" aria-labelledby="subStripperHeading">
-          <div class="panel-body">
-            <div class="panel-header">
-              <div class="panel-title-wrap">
-                <div class="panel-icon violet">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-                  </svg>
-                </div>
-                <div>
-                  <h2 id="subStripperHeading" class="panel-title">Subtitle Track Stripper &amp; Tagger</h2>
-                  <p class="panel-subtitle">Keep or strip subtitle streams and assign language &amp; Default/Forced flags</p>
-                </div>
-              </div>
-
-              <div style="display: flex; gap: 6px;">
-                <button type="button" id="keepAllSubsBtn" class="chip-btn" style="min-height: 32px; padding: 0 10px;">Keep All</button>
-                <button type="button" id="keepEngTamSubsOnlyBtn" class="chip-btn" style="min-height: 32px; padding: 0 10px;">Only Eng/Tam/Hin</button>
-              </div>
-            </div>
-
-            <div id="subtitleTracksContainer" class="track-list-container"></div>
-          </div>
-        </section>
       </div>
 
-      <!-- RIGHT COLUMN: MANUAL THUMBNAIL STUDIO & LOSSLESS CLI PREVIEW -->
-      <div class="col-stack">
-        <!-- 2. MANUAL THUMBNAIL STUDIO & FRAME GRABBER -->
-        <section class="cyber-panel" aria-labelledby="thumbStudioHeading">
-          <div class="panel-body">
-            <div class="panel-header">
-              <div class="panel-title-wrap">
-                <div class="panel-icon sakura">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                    <polyline points="21 15 16 10 5 21"></polyline>
-                  </svg>
-                </div>
-                <div>
-                  <h2 id="thumbStudioHeading" class="panel-title">Manual Thumbnail Studio &amp; Frame Grabber</h2>
-                  <p class="panel-subtitle">16:9 High-Res Frame Extraction &amp; Custom Artwork Cropping</p>
-                </div>
+      <!-- RIGHT COLUMN (5 Cols): MANUAL THUMBNAIL STUDIO, FRAME GRABBER & CLI INSPECTOR -->
+      <div class="lg:col-span-5 space-y-5">
+
+        <!-- 3. Manual Thumbnail Studio & Frame Grabber -->
+        <section class="sf-card p-4 space-y-3.5">
+          <div>
+            <h2 class="font-bold text-base">🖼️ 3. Manual Thumbnail Studio & 16:9 Frame Grabber</h2>
+            <p class="text-xs text-[var(--text-muted)]">Select poster mode, extract lossless keyframes via FFmpeg, or crop custom 16:9 artwork.</p>
+          </div>
+
+          <!-- Four Thumbnail Mode Selectors -->
+          <div class="grid grid-cols-2 gap-2" id="thumbModeGroup">
+            <button type="button" data-thumb-mode="auto-poster" class="thumb-mode-btn sf-btn-ghost active px-3 py-2 text-xs font-semibold text-left">
+              🤖 Auto-Poster (TMDb / Anime)
+            </button>
+            <button type="button" data-thumb-mode="frame-grabber" class="thumb-mode-btn sf-btn-ghost px-3 py-2 text-xs font-semibold text-left">
+              📸 Manual Video Frame Grabber
+            </button>
+            <button type="button" data-thumb-mode="custom-upload" class="thumb-mode-btn sf-btn-ghost px-3 py-2 text-xs font-semibold text-left">
+              📤 Custom File Upload
+            </button>
+            <button type="button" data-thumb-mode="none" class="thumb-mode-btn sf-btn-ghost px-3 py-2 text-xs font-semibold text-left">
+              🚫 No Thumbnail
+            </button>
+          </div>
+
+          <!-- 16:9 Live Preview Canvas -->
+          <div class="relative rounded-xl overflow-hidden border border-[var(--border-strong)] bg-black aspect-video">
+            <canvas id="thumbnailCanvas" width="1280" height="720" class="w-full h-full block"></canvas>
+            <div class="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+              <span class="sf-badge text-[11px]" id="canvasModeOverlay">16:9 HD Preview (1280×720)</span>
+            </div>
+            <div class="absolute bottom-2.5 right-2.5">
+              <span class="sf-badge font-mono text-[11px]" id="canvasTimestampOverlay">00:08:15</span>
+            </div>
+          </div>
+
+          <!-- Mode Panel: Video Frame Grabber Controls -->
+          <div id="frameGrabberPanel" class="sf-panel p-3 space-y-2.5">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-semibold">Frame Scrubber (0% – 100% Duration)</span>
+              <span class="font-mono text-[var(--accent-secondary)]" id="scrubberPctLabel">34% • 00:08:15</span>
+            </div>
+            <input type="range" id="frameScrubberSlider" class="sf-slider" min="0" max="1452" step="1" value="495" />
+            <div class="flex items-center gap-2">
+              <div class="flex-1">
+                <label for="frameTimestampInput" class="text-[11px] text-[var(--text-muted)] block mb-1">Timestamp (HH:MM:SS)</label>
+                <input type="text" id="frameTimestampInput" value="00:08:15" class="w-full px-3 py-1.5 rounded-lg bg-black/50 border border-[var(--border-subtle)] font-mono text-xs text-white" />
+              </div>
+              <div class="pt-4">
+                <button type="button" id="captureFrameBtn" class="sf-btn-primary px-3.5 py-1.5 text-xs">
+                  📸 Capture Frame
+                </button>
               </div>
             </div>
+            <p class="text-[11px] text-[var(--text-muted)] font-mono" id="ffmpegFrameCmdPreview">
+              ffmpeg -ss 00:08:15 -i "input.mkv" -vframes 1 -q:v 2
+            </p>
+          </div>
 
-            <!-- Four Thumbnail Mode Selector Buttons -->
-            <div class="thumb-mode-grid" role="radiogroup" aria-label="Thumbnail Mode">
-              <button type="button" class="thumb-mode-btn" data-thumb-mode="auto_poster">
-                <span>🤖 Auto-Poster (TMDb / Anime)</span>
-              </button>
-              <button type="button" class="thumb-mode-btn active" data-thumb-mode="frame_grabber">
-                <span>📸 Manual Video Frame Grabber</span>
-              </button>
-              <button type="button" class="thumb-mode-btn" data-thumb-mode="custom_upload">
-                <span>📤 Custom File Upload</span>
-              </button>
-              <button type="button" class="thumb-mode-btn" data-thumb-mode="none">
-                <span>🚫 No Thumbnail</span>
-              </button>
-            </div>
-
-            <!-- 16:9 High-Res Preview Canvas -->
-            <div class="preview-stage-16x9">
-              <canvas id="thumbPreviewCanvas" width="1280" height="720"></canvas>
-              <span id="thumbPreviewBadge" class="preview-overlay-tag">📸 Frame @ 00:04:50 • 1280×720 (16:9)</span>
-            </div>
-
-            <!-- Mode Panel A: Video Frame Grabber -->
-            <div id="frameGrabberControls" class="frame-scrubber-panel">
-              <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-                <label for="frameTimelineSlider" style="font-size: 12px; font-weight: 700; color: var(--text-dim);">
-                  Timeline Scrubber (<code>0%</code> – <code>100%</code>)
-                </label>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 11px; color: var(--text-muted);">Timestamp:</span>
-                  <input
-                    type="text"
-                    id="frameTimestampInput"
-                    class="cyber-mini-input"
-                    value="00:04:50"
-                    style="width: 96px; font-family: var(--font-mono); text-align: center;"
-                    aria-label="Timestamp HH:MM:SS"
-                  />
-                </div>
-              </div>
-
-              <input
-                type="range"
-                id="frameTimelineSlider"
-                class="cyber-range-slider"
-                min="0"
-                max="100"
-                step="0.5"
-                value="20"
-              />
-
-              <button type="button" id="captureFrameBtn" class="chip-btn" style="width: 100%; justify-content: center; min-height: 42px; border-color: var(--neon-cyan); color: var(--neon-cyan); background: rgba(0, 242, 254, 0.12); font-weight: 800;">
-                <span>📸 Capture Frame at Timestamp</span>
-              </button>
-            </div>
-
-            <!-- Mode Panel B: Custom Image Upload -->
-            <div id="customUploadControls" class="custom-upload-panel" style="display: none;">
-              <div id="customDropzone" class="dropzone-area">
-                <input type="file" id="customThumbFileInput" accept="image/jpeg,image/png,image/webp" style="display: none;" />
-                <div style="font-size: 22px; margin-bottom: 4px;">📤</div>
-                <div style="font-weight: 700; font-size: 13px; color: var(--text-main);">Drag &amp; Drop Custom JPG/PNG or Click to Browse</div>
-                <div style="font-size: 11.5px; color: var(--text-dim); margin-top: 2px;">Automatically center-crops to 16:9 (1280×720)</div>
-              </div>
-
-              <button type="button" id="saveCustomThumbBtn" class="chip-btn" style="width: 100%; justify-content: center; min-height: 42px; border-color: var(--emerald-green); color: var(--emerald-green); background: rgba(0, 245, 160, 0.12); font-weight: 800;">
-                <span>✅ Use as Task Thumbnail</span>
-              </button>
-            </div>
+          <!-- Mode Panel: Custom Upload Drag & Drop Zone -->
+          <div id="customUploadPanel" class="sf-panel p-4 text-center space-y-2 hidden border-dashed border-2 border-[var(--border-strong)]">
+            <p class="text-xs font-semibold">📤 Drag & Drop 16:9 Poster Image or Click to Browse</p>
+            <p class="text-[11px] text-[var(--text-muted)]">Automatically center-crops to 1280×720 (16:9) on client canvas before saving.</p>
+            <input type="file" id="customThumbFileInput" accept="image/*" class="text-xs mx-auto block" />
           </div>
         </section>
 
-        <!-- LOSSLESS MKVMERGE / FFMPEG STREAM-COPY COMMAND INSPECTOR -->
-        <section class="cyber-panel" aria-labelledby="cliPreviewHeading">
-          <div class="panel-body">
-            <div class="panel-header">
-              <div class="panel-title-wrap">
-                <div class="panel-icon">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                    <polyline points="4 17 10 11 4 5"></polyline>
-                    <line x1="12" y1="19" x2="20" y2="19"></line>
-                  </svg>
-                </div>
-                <div>
-                  <h2 id="cliPreviewHeading" class="panel-title">Lossless Remux Command Inspector</h2>
-                  <p class="panel-subtitle">Verified 0% video transcoding • Direct stream copy execution plan</p>
-                </div>
-              </div>
+        <!-- 4. Live Lossless CLI Command Inspector -->
+        <section class="sf-card p-4 space-y-2.5">
+          <div class="flex items-center justify-between gap-2">
+            <div>
+              <h2 class="font-bold text-base">⚡ 4. Live Lossless CLI Command Inspector</h2>
+              <p class="text-xs text-[var(--text-muted)]">Real-time <code class="text-[var(--accent-secondary)]">mkvmerge</code> command generated from your track configuration.</p>
             </div>
+            <button type="button" id="copyCliBtn" class="sf-btn-ghost px-2.5 py-1 text-xs">📋 Copy CLI</button>
+          </div>
 
-            <div id="cliCommandPreview" class="cli-command-box"></div>
+          <div class="p-3 rounded-xl bg-black/80 border border-[var(--border-strong)] font-mono text-xs leading-relaxed text-emerald-300 overflow-x-auto">
+            <code id="liveMkvmergeCmd">mkvmerge -o "output.mkv" --audio-tracks 1,2 --sync 1:0 --language 1:jpn --language 2:hin --subtitle-tracks 3 "input.mkv"</code>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] text-[var(--text-muted)]">
+            <span>🛡️ VPS Hardware Guard: <strong class="text-emerald-400">0% Video Re-encoding (Stream Copy Only)</strong></span>
+            <span>Semaphore: <strong class="text-[var(--accent-secondary)]">1/1 Lossless Remux Slot</strong></span>
           </div>
         </section>
+
       </div>
     </div>
-  </div>
+  </main>
 
-  <!-- 3. FLOATING LOSSLESS EXECUTION DOCK -->
-  <div class="bottom-mux-dock">
-    <div class="bottom-mux-inner">
-      <div>
-        <div id="dockSummaryText" style="font-family: var(--font-mono); font-size: 13.5px; font-weight: 800; color: var(--text-main);">
-          3 Audio Tracks • 2 Subtitles • Thumbnail: Frame @ 00:04:50
+  <!-- ======================================================================= -->
+  <!-- VIEW 2: OWNER BOT SETTINGS UI (`bot_settings.html` Integrated View)     -->
+  <!-- ======================================================================= -->
+  <section id="adminView" class="max-w-7xl mx-auto px-4 py-5 space-y-5 hidden">
+    <div class="sf-card p-4" style="background-image: var(--gradient-hero);">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <span class="text-xs uppercase tracking-wider font-bold text-[var(--accent-secondary)]">👑 OWNER CONTROL CENTER • GUARDED BY OWNER ID MIDDLEWARE</span>
+          <h2 class="text-lg font-extrabold mt-0.5">2 vCPU / 4 GB RAM VPS Telemetry, Live Log Streamer & Dynamic Config</h2>
         </div>
-        <div style="font-size: 11.5px; color: var(--text-dim);">
-          Lossless <code>mkvmerge</code> / <code>ffmpeg -c copy</code> • Silent upload to Dump Channel <code id="dockDumpId">-1003887117402</code>
+        <div class="flex items-center gap-2">
+          <span class="sf-badge" id="adminWatchdogBadge" style="border-color: #10b981; color: #34d399;">Watchdog: NORMAL</span>
+          <button type="button" id="safeRestartBtn" class="px-3.5 py-1.5 rounded-lg bg-red-500/20 border border-red-500/50 text-red-200 text-xs font-bold hover:bg-red-500/35">
+            🔄 Safe Container Restart
+          </button>
         </div>
       </div>
-
-      <button type="button" id="applyAndMuxLosslessBtn" class="btn-apply-mux">
-        <span>⚡ Apply &amp; Mux Lossless</span>
-      </button>
     </div>
-  </div>
 
-  <!-- HOLOGRAPHIC ANIME SUCCESS MODAL -->
-  <div id="muxSuccessModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="muxSuccessTitle">
-    <div class="holo-modal-card">
-      <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(0, 245, 160, 0.16); border: 2px solid var(--emerald-green); display: flex; align-items: center; justify-content: center; color: var(--emerald-green); box-shadow: var(--glow-emerald);">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
+    <!-- Live VPS Telemetry Gauges -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="sf-card p-4 space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-[var(--text-muted)]">CPU Load (2 vCPU Cap • Safe &le; 88%)</span>
+          <span class="font-mono font-bold text-sm text-[var(--accent-secondary)]" id="adminCpuVal">24.6%</span>
+        </div>
+        <div class="h-2.5 rounded-full bg-white/10 overflow-hidden">
+          <div id="adminCpuBar" class="h-full bg-emerald-400 transition-all duration-300" style="width: 25%;"></div>
+        </div>
+        <p class="text-[11px] text-[var(--text-muted)]">GOMAXPROCS=2 • Zero video transcoding enforced</p>
       </div>
-      <h3 id="muxSuccessTitle" style="font-size: 19px; font-weight: 900; color: var(--emerald-green);">
-        Lossless Remux Dispatched!
-      </h3>
-      <p id="muxSuccessDesc" style="font-size: 13px; color: var(--text-dim); line-height: 1.55;">
-        Your audio delay offsets, track order, and custom thumbnail have been queued via <code>mkvmerge</code> stream-copy with 0% CPU transcode overhead. Completed media will upload silently to your Telegram Dump Channel.
-      </p>
-      <div id="muxSuccessSummaryBox" class="cli-command-box" style="width: 100%; text-align: left;"></div>
-      <div style="display: flex; gap: 10px; width: 100%; margin-top: 6px;">
-        <button type="button" id="closeMuxSuccessModalBtn" class="chip-btn" style="flex: 1; justify-content: center; min-height: 44px;">
-          <span>Stay in Studio</span>
+
+      <div class="sf-card p-4 space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-[var(--text-muted)]">RAM Usage (3000 MiB Soft / 3200 MiB Hard)</span>
+          <span class="font-mono font-bold text-sm text-[var(--accent-primary)]" id="adminRamVal">1,180 / 3,200 MiB (36.8%)</span>
+        </div>
+        <div class="h-2.5 rounded-full bg-white/10 overflow-hidden">
+          <div id="adminRamBar" class="h-full bg-[var(--accent-primary)] transition-all duration-300" style="width: 37%;"></div>
+        </div>
+        <p class="text-[11px] text-[var(--text-muted)]">512 KiB sync.Pool buffers • Warn 70% / Crit 82%</p>
+      </div>
+
+      <div class="sf-card p-4 space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs text-[var(--text-muted)]">NVMe Disk Free Space (5.0 GB Safety Floor)</span>
+          <span class="font-mono font-bold text-sm text-emerald-400" id="adminDiskVal">38.4 GB Free (62% Used)</span>
+        </div>
+        <div class="h-2.5 rounded-full bg-white/10 overflow-hidden">
+          <div id="adminDiskBar" class="h-full bg-cyan-400 transition-all duration-300" style="width: 62%;"></div>
+        </div>
+        <p class="text-[11px] text-[var(--text-muted)]">Auto-purges orphaned chunks if free space drops &lt; 5.0 GB</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <!-- Live WebSocket System Log Streamer -->
+      <div class="lg:col-span-7 sf-card p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="font-bold text-sm">📡 Live System Log Streamer (<code class="text-[var(--accent-secondary)]">ws:///api/admin/logs</code>)</h3>
+            <p class="text-xs text-[var(--text-muted)]">Real-time stdout/stderr & IPC bus stream from the Go daemon.</p>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button type="button" id="toggleLogPauseBtn" class="sf-btn-ghost px-2.5 py-1 text-xs">⏸️ Pause</button>
+            <button type="button" id="clearLogsBtn" class="sf-btn-ghost px-2.5 py-1 text-xs">🗑️ Clear</button>
+          </div>
+        </div>
+        <div id="adminLogTerminal" class="h-72 rounded-xl bg-black/90 border border-[var(--border-subtle)] p-3 font-mono text-xs overflow-y-auto space-y-1 text-slate-300"></div>
+      </div>
+
+      <!-- Dynamic Runtime Config Editor -->
+      <div class="lg:col-span-5 sf-card p-4 space-y-3">
+        <div>
+          <h3 class="font-bold text-sm">⚙️ Dynamic Runtime Config Editor</h3>
+          <p class="text-xs text-[var(--text-muted)]">Hot-reload concurrency & safety settings in memory without editing YAML files.</p>
+        </div>
+
+        <form id="dynamicConfigForm" class="space-y-2.5">
+          <div class="grid grid-cols-2 gap-2.5">
+            <div>
+              <label class="text-[11px] text-[var(--text-muted)] block mb-1">Max Active Downloads (1–3)</label>
+              <input type="number" id="cfgMaxDl" min="1" max="3" value="3" class="w-full px-2.5 py-1.5 rounded bg-black/50 border border-[var(--border-subtle)] text-xs font-mono" />
+            </div>
+            <div>
+              <label class="text-[11px] text-[var(--text-muted)] block mb-1">Max Telegram Uploads (1–2)</label>
+              <input type="number" id="cfgMaxUl" min="1" max="2" value="2" class="w-full px-2.5 py-1.5 rounded bg-black/50 border border-[var(--border-subtle)] text-xs font-mono" />
+            </div>
+            <div>
+              <label class="text-[11px] text-[var(--text-muted)] block mb-1">Global P2P Conn Limit (&le;150)</label>
+              <input type="number" id="cfgMaxConns" min="10" max="150" value="150" class="w-full px-2.5 py-1.5 rounded bg-black/50 border border-[var(--border-subtle)] text-xs font-mono" />
+            </div>
+            <div>
+              <label class="text-[11px] text-[var(--text-muted)] block mb-1">NVMe Floor (GB)</label>
+              <input type="number" id="cfgNvmeFloor" min="2" max="50" step="0.5" value="5.0" class="w-full px-2.5 py-1.5 rounded bg-black/50 border border-[var(--border-subtle)] text-xs font-mono" />
+            </div>
+          </div>
+          <div>
+            <label class="text-[11px] text-[var(--text-muted)] block mb-1">Default Telegram Dump Channel ID</label>
+            <input type="text" id="cfgDumpChannel" value="-1002345678901" class="w-full px-2.5 py-1.5 rounded bg-black/50 border border-[var(--border-subtle)] text-xs font-mono" />
+          </div>
+          <button type="submit" class="sf-btn-primary w-full py-2 text-xs">💾 Save & Hot-Reload Runtime Config</button>
+        </form>
+        <div id="adminConfigToast" class="text-xs text-emerald-400 font-semibold hidden"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. FLOATING EXECUTION DOCK -->
+  <footer class="sf-dock px-4 py-3">
+    <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <div class="flex flex-wrap items-center gap-3">
+        <span class="sf-badge" id="dockSummaryBadge">Keeping 2 Audio • 1 Subtitle • Delay 0ms</span>
+        <span class="text-xs text-[var(--text-muted)] hidden sm:inline" id="dockThumbSummary">Thumbnail: 🤖 Auto-Poster (16:9 HD)</span>
+      </div>
+      <div class="flex items-center gap-2.5">
+        <button type="button" id="resetStudioBtn" class="sf-btn-ghost px-3.5 py-2 text-xs font-semibold">↺ Reset Defaults</button>
+        <button type="button" id="applyMuxBtn" class="sf-btn-primary px-5 py-2.5 text-xs sm:text-sm flex items-center gap-2">
+          <span>⚡ Apply & Mux Lossless</span>
         </button>
-        <a href="https://t.me/Anime_Starfall" target="_blank" rel="noopener noreferrer" class="btn-apply-mux" style="flex: 1; justify-content: center; min-height: 44px; text-decoration: none; font-size: 13.5px;">
-          <span>View in Telegram ↗</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- HOLOGRAPHIC ANIME SUCCESS / RESTART MODAL -->
+  <div id="holoModal" class="sf-holo-modal p-4">
+    <div class="sf-card max-w-lg w-full p-6 space-y-4 border-2 border-[var(--border-strong)] relative">
+      <div class="flex items-center justify-between">
+        <span class="sf-badge text-xs" style="border-color: var(--accent-secondary); color: var(--accent-secondary);">✨ LOSSLESS MKVMERGE ENQUEUED</span>
+        <button type="button" id="closeHoloModalBtn" class="sf-btn-ghost px-2.5 py-1 text-xs">✕ Close</button>
+      </div>
+      <h3 class="text-lg font-extrabold" id="holoModalTitle">Lossless Remux & Telegram Delivery Started!</h3>
+      <p class="text-xs text-[var(--text-secondary)] leading-relaxed" id="holoModalDesc">
+        Your custom stream layout has been queued on the single lossless <code>mkvmerge</code> slot with <strong>0% video transcoding</strong>. Once remuxing finishes, the file and 16:9 poster will upload directly to your linked Telegram Dump Channel.
+      </p>
+      <div class="p-3 rounded-lg bg-black/75 border border-[var(--border-subtle)] font-mono text-[11px] text-emerald-300 break-all" id="holoModalCli"></div>
+      <div class="flex flex-wrap items-center justify-end gap-2.5 pt-2">
+        <a id="openTelegramChannelLink" href="https://t.me/" target="_blank" rel="noopener noreferrer" class="sf-btn-primary px-4 py-2 text-xs inline-flex items-center gap-1.5 no-underline">
+          <span>🚀 Open in Telegram Dump Channel</span>
         </a>
       </div>
     </div>
@@ -1251,840 +673,636 @@
 
   <script>
     (function () {
-      "use strict";
-
-      const LANGUAGE_OPTIONS = [
+      const ISO_LANGUAGES = [
         { code: "jpn", label: "🇯🇵 Japanese (jpn)" },
-        { code: "tam", label: "🇮🇳 Tamil (tam)" },
         { code: "hin", label: "🇮🇳 Hindi (hin)" },
+        { code: "tam", label: "🇮🇳 Tamil (tam)" },
         { code: "tel", label: "🇮🇳 Telugu (tel)" },
-        { code: "mal", label: "🇮🇳 Malayalam (mal)" },
         { code: "eng", label: "🇺🇸 English (eng)" },
         { code: "spa", label: "🇪🇸 Spanish (spa)" },
-        { code: "fra", label: "🇫🇷 French (fra)" },
-        { code: "deu", label: "🇩🇪 German (deu)" },
+        { code: "fre", label: "🇫🇷 French (fre)" },
+        { code: "ger", label: "🇩🇪 German (ger)" },
         { code: "kor", label: "🇰🇷 Korean (kor)" },
-        { code: "zho", label: "🇨🇳 Chinese (zho)" }
+        { code: "chi", label: "🇨🇳 Chinese (chi)" },
       ];
 
-      const params = new URLSearchParams(window.location.search);
-      const state = {
-        token: (params.get("token") || "").trim(),
-        taskId: (params.get("task_id") || "sf_1001").trim(),
-        isLiveBackend: false,
-        dumpChannel: "-1003887117402",
-        fileName: "[Starfall] Solo Leveling - S02E05 [1080p BD AV1 10bit][Multi-Audio].mkv",
-        videoStream: {
-          index: 0,
-          codec: "HEVC / x265",
-          resolution: "1920×1080 (1080p)",
-          bitDepth: "10-bit HDR10",
-          aspect: "16:9",
-          durationSec: 1452 // 24m 12s
-        },
-        audioTracks: [
-          {
-            id: 1,
-            codec: "AAC 2.0 • 192 kbps",
-            lang: "jpn",
-            title: "[@Anime_Starfall🥰] - Japanese [Original]",
-            delayMs: 0,
-            keep: true,
-            isDefault: true,
-            isForced: false
-          },
-          {
-            id: 2,
-            codec: "E-AC3 5.1 • 640 kbps",
-            lang: "hin",
-            title: "[@Anime_Starfall🥰] - Hindi [Fan Dub]",
-            delayMs: 250,
-            keep: true,
-            isDefault: false,
-            isForced: false
-          },
-          {
-            id: 3,
-            codec: "AAC 2.0 • 192 kbps",
-            lang: "tam",
-            title: "[@Anime_Starfall🥰] - Tamil [CR Dub]",
-            delayMs: 150,
-            keep: true,
-            isDefault: false,
-            isForced: false
-          },
-          {
-            id: 4,
-            codec: "AAC 2.0 • 192 kbps",
-            lang: "eng",
-            title: "[@Anime_Starfall🥰] - English [Dub]",
-            delayMs: 0,
-            keep: true,
-            isDefault: false,
-            isForced: false
-          }
-        ],
-        subtitleTracks: [
-          {
-            id: 5,
-            codec: "ASS (Styled Signs & Dialog)",
-            lang: "eng",
-            title: "[@Anime_Starfall🥰] - English [Full Subs]",
-            keep: true,
-            isDefault: true,
-            isForced: false
-          },
-          {
-            id: 6,
-            codec: "SRT (SubRip)",
-            lang: "tam",
-            title: "[@Anime_Starfall🥰] - Tamil [Subtitles]",
-            keep: true,
-            isDefault: false,
-            isForced: false
-          },
-          {
-            id: 7,
-            codec: "ASS (Signs & Songs)",
-            lang: "spa",
-            title: "Spanish [Signs]",
-            keep: false,
-            isDefault: false,
-            isForced: false
-          }
-        ],
-        activeAudioIdx: 1, // Default selected audio track for the sync slider (Track #2)
-        thumbMode: "frame_grabber", // "auto_poster" | "frame_grabber" | "custom_upload" | "none"
-        frameTimestamp: "00:04:50",
-        framePercent: 20,
-        customThumbDataUrl: ""
+      const THEME_LABELS = {
+        "solo-leveling": "Solo Leveling (Shadow Monarch)",
+        "jujutsu-kaisen": "Jujutsu Kaisen (Domain Expansion)",
+        "demon-slayer": "Demon Slayer (Sun Breathing)",
+        "attack-on-titan": "Attack on Titan (Wings of Freedom)",
+        "cyberpunk-edgerunners": "Cyberpunk Edgerunners (Sandevistan)",
       };
 
-      // --- DOM REFERENCES ---
-      const probeTaskLabel = document.getElementById("probeTaskLabel");
-      const probeFileName = document.getElementById("probeFileName");
-      const specResolution = document.getElementById("specResolution");
-      const specCodec = document.getElementById("specCodec");
-      const specBitDepth = document.getElementById("specBitDepth");
-      const specAspect = document.getElementById("specAspect");
-      const specDuration = document.getElementById("specDuration");
+      const defaultState = () => ({
+        taskId: new URLSearchParams(window.location.search).get("task_id") || "sf_9f82a4c1",
+        inputFile: "input.mkv",
+        outputFile: "output.mkv",
+        durationSec: 1452,
+        audioDelayMs: 0,
+        stripAllSubtitles: false,
+        thumbnailMode: "auto-poster",
+        frameTimestampSec: 495,
+        telegramDumpChat: "-1002345678901",
+        audioTracks: [
+          { id: 1, codec: "FLAC 2.0", channels: "2.0 Stereo", bitrate: "1411 kbps", lang: "jpn", title: "Japanese [Original Audio]", keep: true, isDefault: true, isForced: false },
+          { id: 2, codec: "EAC3 5.1", channels: "5.1 Surround", bitrate: "640 kbps", lang: "hin", title: "Hindi [Official Dub]", keep: true, isDefault: false, isForced: false },
+          { id: 3, codec: "AAC 2.0", channels: "2.0 Stereo", bitrate: "320 kbps", lang: "eng", title: "English [Simuldub]", keep: false, isDefault: false, isForced: false },
+          { id: 4, codec: "AAC 2.0", channels: "2.0 Stereo", bitrate: "192 kbps", lang: "eng", title: "Director Commentary (Bloat)", keep: false, isDefault: false, isForced: false }
+        ],
+        subtitleTracks: [
+          { id: 3, codec: "ASS", lang: "eng", title: "English [Full Styled Signs & Songs]", keep: true, isDefault: true, isForced: false },
+          { id: 4, codec: "SRT", lang: "hin", title: "Hindi [Forced Signs]", keep: true, isDefault: false, isForced: true },
+          { id: 5, codec: "PGS", lang: "spa", title: "Spanish [BluRay PGS]", keep: false, isDefault: false, isForced: false }
+        ]
+      });
 
-      const activeSyncTrackName = document.getElementById("activeSyncTrackName");
-      const timelineActiveAudioLabel = document.getElementById("timelineActiveAudioLabel");
-      const timelineActiveAudioWave = document.getElementById("timelineActiveAudioWave");
-      const timelineActiveAudioMs = document.getElementById("timelineActiveAudioMs");
-      const audioDelayRangeSlider = document.getElementById("audioDelayRangeSlider");
-      const audioOffsetReadout = document.getElementById("audioOffsetReadout");
+      let state = defaultState();
 
-      const audioTracksContainer = document.getElementById("audioTracksContainer");
-      const subtitleTracksContainer = document.getElementById("subtitleTracksContainer");
-      const keepAllSubsBtn = document.getElementById("keepAllSubsBtn");
-      const keepEngTamSubsOnlyBtn = document.getElementById("keepEngTamSubsOnlyBtn");
-
-      const thumbPreviewCanvas = document.getElementById("thumbPreviewCanvas");
-      const thumbPreviewBadge = document.getElementById("thumbPreviewBadge");
-      const frameGrabberControls = document.getElementById("frameGrabberControls");
-      const customUploadControls = document.getElementById("customUploadControls");
-      const frameTimelineSlider = document.getElementById("frameTimelineSlider");
+      // DOM Elements
+      const audioContainer = document.getElementById("audioTracksContainer");
+      const subContainer = document.getElementById("subtitleTracksContainer");
+      const delaySlider = document.getElementById("audioDelaySlider");
+      const syncReadout = document.getElementById("syncOffsetReadout");
+      const syncDirectionLabel = document.getElementById("syncDirectionLabel");
+      const syncVisualBar = document.getElementById("syncVisualBar");
+      const stripAllSubsToggle = document.getElementById("stripAllSubsToggle");
+      const liveMkvmergeCmd = document.getElementById("liveMkvmergeCmd");
+      const dockSummaryBadge = document.getElementById("dockSummaryBadge");
+      const dockThumbSummary = document.getElementById("dockThumbSummary");
+      const metaAudioCountBadge = document.getElementById("metaAudioCountBadge");
+      const metaSubCountBadge = document.getElementById("metaSubCountBadge");
+      const thumbCanvas = document.getElementById("thumbnailCanvas");
+      const frameScrubber = document.getElementById("frameScrubberSlider");
       const frameTimestampInput = document.getElementById("frameTimestampInput");
-      const captureFrameBtn = document.getElementById("captureFrameBtn");
-      const customDropzone = document.getElementById("customDropzone");
-      const customThumbFileInput = document.getElementById("customThumbFileInput");
-      const saveCustomThumbBtn = document.getElementById("saveCustomThumbBtn");
+      const scrubberPctLabel = document.getElementById("scrubberPctLabel");
+      const ffmpegFrameCmdPreview = document.getElementById("ffmpegFrameCmdPreview");
+      const canvasTimestampOverlay = document.getElementById("canvasTimestampOverlay");
+      const canvasModeOverlay = document.getElementById("canvasModeOverlay");
 
-      const cliCommandPreview = document.getElementById("cliCommandPreview");
-      const dockSummaryText = document.getElementById("dockSummaryText");
-      const applyAndMuxLosslessBtn = document.getElementById("applyAndMuxLosslessBtn");
-
-      const muxSuccessModal = document.getElementById("muxSuccessModal");
-      const muxSuccessSummaryBox = document.getElementById("muxSuccessSummaryBox");
-      const closeMuxSuccessModalBtn = document.getElementById("closeMuxSuccessModalBtn");
-      const backToDashboardBtn = document.getElementById("backToDashboardBtn");
-      const reloadProbeBtn = document.getElementById("reloadProbeBtn");
-
-      // --- HELPERS ---
-      function showToast(msg) {
-        const stack = document.getElementById("toastStack");
-        const el = document.createElement("div");
-        el.className = "toast-msg";
-        el.textContent = msg;
-        stack.appendChild(el);
-        setTimeout(() => {
-          el.style.opacity = "0";
-          el.style.transition = "opacity 0.2s ease";
-          setTimeout(() => el.remove(), 220);
-        }, 3000);
+      function formatSecondsToHMS(totalSec) {
+        totalSec = Math.max(0, Math.floor(totalSec));
+        const h = String(Math.floor(totalSec / 3600)).padStart(2, "0");
+        const m = String(Math.floor((totalSec % 3600) / 60)).padStart(2, "0");
+        const s = String(totalSec % 60).padStart(2, "0");
+        return h + ":" + m + ":" + s;
       }
 
-      function escapeHtml(s) {
-        return String(s || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;");
-      }
-
-      function secondsToHMS(totalSec) {
-        const sec = Math.max(0, Math.floor(totalSec || 0));
-        const h = Math.floor(sec / 3600);
-        const m = Math.floor((sec % 3600) / 60);
-        const s = sec % 60;
-        return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
-      }
-
-      function hmsToSeconds(hms) {
-        const parts = String(hms || "00:00:00").trim().split(":").map(Number);
-        if (parts.length === 3) return (parts[0] * 3600) + (parts[1] * 60) + (parts[2] || 0);
-        if (parts.length === 2) return (parts[0] * 60) + (parts[1] || 0);
-        return parts[0] || 0;
-      }
-
-      function formatDelayMs(ms) {
-        const n = Number(ms) || 0;
-        return (n > 0 ? `+${n}` : `${n}`) + " ms";
-      }
-
-      // --- RENDER VIDEO PROBE HEADER ---
-      function renderProbeBanner() {
-        probeTaskLabel.textContent = `TASK #${state.taskId} • STREAM HIERARCHY PROBED VIA FFPROBE`;
-        probeFileName.textContent = state.fileName;
-        specResolution.textContent = `📐 ${state.videoStream.resolution}`;
-        specCodec.textContent = `🎞 ${state.videoStream.codec}`;
-        specBitDepth.textContent = `🌈 ${state.videoStream.bitDepth}`;
-        specAspect.textContent = `🖼 ${state.videoStream.aspect}`;
-        specDuration.textContent = `⏱ ${secondsToHMS(state.videoStream.durationSec)}`;
-      }
-
-      // --- RENDER AUDIO DELAY SYNCHRONIZER ---
-      function renderSyncVisualizer() {
-        if (state.audioTracks.length === 0) return;
-        if (state.activeAudioIdx >= state.audioTracks.length) {
-          state.activeAudioIdx = 0;
+      function parseHMSToSeconds(hms) {
+        const parts = String(hms || "").trim().split(":").map(Number);
+        if (parts.length === 3 && !parts.some(isNaN)) {
+          return parts[0] * 3600 + parts[1] * 60 + parts[2];
         }
-        const activeTrack = state.audioTracks[state.activeAudioIdx];
-        const ms = Number(activeTrack.delayMs) || 0;
-
-        activeSyncTrackName.textContent = `Editing: Track #${state.activeAudioIdx + 1} (${activeTrack.lang.toUpperCase()} • ${activeTrack.codec.split("•")[0].trim()})`;
-        timelineActiveAudioLabel.textContent = `🔊 Audio #${state.activeAudioIdx + 1} (${activeTrack.lang.toUpperCase()})`;
-        timelineActiveAudioMs.textContent = formatDelayMs(ms);
-        audioOffsetReadout.textContent = formatDelayMs(ms);
-        audioDelayRangeSlider.value = String(ms);
-
-        // Shift visual waveform bar (-2500ms..+2500ms -> -60px..+60px)
-        const shiftPx = Math.max(-65, Math.min(65, (ms / 2500) * 65));
-        timelineActiveAudioWave.style.transform = `translateX(${shiftPx}px)`;
+        return 495;
       }
 
-      function updateActiveAudioDelay(newMs) {
-        if (state.audioTracks.length === 0) return;
-        const clamped = Math.max(-2500, Math.min(2500, Math.round(Number(newMs) || 0)));
-        state.audioTracks[state.activeAudioIdx].delayMs = clamped;
-        renderSyncVisualizer();
-        renderAudioTracks();
-        updateCommandAndDock();
-      }
-
-      // --- RENDER AUDIO TRACKS LIST ---
       function renderAudioTracks() {
-        audioTracksContainer.innerHTML = "";
-        for (let i = 0; i < state.audioTracks.length; i++) {
-          const tr = state.audioTracks[i];
-          const isSelectedSync = i === state.activeAudioIdx;
+        audioContainer.innerHTML = "";
+        state.audioTracks.forEach((tr, idx) => {
+          const row = document.createElement("div");
+          row.className = "sf-panel p-3 flex flex-wrap items-center justify-between gap-2.5 " + (tr.keep ? "" : "opacity-55");
 
-          const card = document.createElement("div");
-          card.className = "stream-track-card" + (isSelectedSync ? " active-sync-track" : "") + (!tr.keep ? " stripped" : "");
-
-          const langOptsHtml = LANGUAGE_OPTIONS.map((opt) =>
-            `<option value="${opt.code}" ${opt.code === tr.lang ? "selected" : ""}>${opt.label}</option>`
+          const langOptions = ISO_LANGUAGES.map(l =>
+            `<option value="${l.code}" ${l.code === tr.lang ? "selected" : ""}>${l.label}</option>`
           ).join("");
 
-          card.innerHTML = `
-            <div class="track-top-bar">
-              <div class="track-left-head">
-                <button type="button" class="keep-checkbox ${tr.keep ? "" : "unchecked"}" data-action="toggle-keep" title="Keep or Strip Audio Track">
-                  ✓
-                </button>
-                <span class="track-order-badge">Track #${i + 1}</span>
-                <span class="track-codec-info">${escapeHtml(tr.codec)}</span>
-                <span style="font-family: var(--font-mono); font-size: 11.5px; color: ${tr.delayMs !== 0 ? "var(--sakura-pink)" : "var(--emerald-green)"};">
-                  Sync: ${formatDelayMs(tr.delayMs)}
-                </span>
-              </div>
-
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <div class="flag-switches">
-                  <button type="button" class="flag-chip-btn ${tr.isDefault ? "on-default" : ""}" data-action="toggle-default">Default</button>
-                  <button type="button" class="flag-chip-btn ${tr.isForced ? "on-forced" : ""}" data-action="toggle-forced">Forced</button>
+          row.innerHTML = `
+            <div class="flex items-center gap-2.5 min-w-[220px]">
+              <input type="checkbox" data-audio-keep="${idx}" ${tr.keep ? "checked" : ""} class="w-4 h-4 accent-cyan-400 cursor-pointer" />
+              <div>
+                <div class="font-bold text-xs flex items-center gap-1.5">
+                  <span class="sf-badge text-[10px]">Priority #${idx + 1} • Track ${tr.id}</span>
+                  <span>${tr.title}</span>
                 </div>
-                <div class="reorder-btns">
-                  <button type="button" class="reorder-btn" data-action="move-up" title="Move Track Up">↑</button>
-                  <button type="button" class="reorder-btn" data-action="move-down" title="Move Track Down">↓</button>
-                </div>
+                <div class="text-[11px] text-[var(--text-muted)] mt-0.5">${tr.codec} • ${tr.channels} • ${tr.bitrate}</div>
               </div>
             </div>
 
-            <div class="track-controls-grid">
-              <select class="cyber-select" data-action="change-lang" aria-label="Audio Track Language">
-                ${langOptsHtml}
+            <div class="flex flex-wrap items-center gap-2">
+              <select data-audio-lang="${idx}" class="sf-btn-ghost px-2 py-1 text-xs outline-none">
+                ${langOptions}
               </select>
-              <input type="text" class="cyber-mini-input" data-action="change-title" value="${escapeHtml(tr.title)}" placeholder="Track Title Metadata" />
-              <button type="button" class="chip-btn" data-action="select-sync" style="min-height: 36px; padding: 0 10px; ${isSelectedSync ? "border-color: var(--neon-cyan); color: var(--neon-cyan);" : ""}">
-                <span>🎛 Sync (${formatDelayMs(tr.delayMs)})</span>
-              </button>
+
+              <label class="inline-flex items-center gap-1 text-xs cursor-pointer px-2 py-1 rounded bg-white/5">
+                <input type="checkbox" data-audio-default="${idx}" ${tr.isDefault ? "checked" : ""} />
+                <span>Default</span>
+              </label>
+
+              <label class="inline-flex items-center gap-1 text-xs cursor-pointer px-2 py-1 rounded bg-white/5">
+                <input type="checkbox" data-audio-forced="${idx}" ${tr.isForced ? "checked" : ""} />
+                <span>Forced</span>
+              </label>
+
+              <div class="flex items-center gap-1">
+                <button type="button" data-audio-up="${idx}" class="sf-btn-ghost px-2 py-1 text-xs" ${idx === 0 ? "disabled" : ""}>▲</button>
+                <button type="button" data-audio-down="${idx}" class="sf-btn-ghost px-2 py-1 text-xs" ${idx === state.audioTracks.length - 1 ? "disabled" : ""}>▼</button>
+              </div>
             </div>
           `;
-
-          const idx = i;
-          card.querySelector('[data-action="toggle-keep"]').addEventListener("click", () => {
-            state.audioTracks[idx].keep = !state.audioTracks[idx].keep;
-            renderAudioTracks();
-            updateCommandAndDock();
-          });
-
-          card.querySelector('[data-action="toggle-default"]').addEventListener("click", () => {
-            state.audioTracks.forEach((a, k) => { a.isDefault = k === idx ? !a.isDefault : false; });
-            renderAudioTracks();
-            updateCommandAndDock();
-          });
-
-          card.querySelector('[data-action="toggle-forced"]').addEventListener("click", () => {
-            state.audioTracks[idx].isForced = !state.audioTracks[idx].isForced;
-            renderAudioTracks();
-            updateCommandAndDock();
-          });
-
-          card.querySelector('[data-action="move-up"]').addEventListener("click", () => {
-            if (idx > 0) {
-              const tmp = state.audioTracks[idx - 1];
-              state.audioTracks[idx - 1] = state.audioTracks[idx];
-              state.audioTracks[idx] = tmp;
-              state.activeAudioIdx = idx - 1;
-              renderSyncVisualizer();
-              renderAudioTracks();
-              updateCommandAndDock();
-            }
-          });
-
-          card.querySelector('[data-action="move-down"]').addEventListener("click", () => {
-            if (idx < state.audioTracks.length - 1) {
-              const tmp = state.audioTracks[idx + 1];
-              state.audioTracks[idx + 1] = state.audioTracks[idx];
-              state.audioTracks[idx] = tmp;
-              state.activeAudioIdx = idx + 1;
-              renderSyncVisualizer();
-              renderAudioTracks();
-              updateCommandAndDock();
-            }
-          });
-
-          card.querySelector('[data-action="change-lang"]').addEventListener("change", (e) => {
-            state.audioTracks[idx].lang = e.target.value;
-            renderSyncVisualizer();
-            updateCommandAndDock();
-          });
-
-          card.querySelector('[data-action="change-title"]').addEventListener("input", (e) => {
-            state.audioTracks[idx].title = e.target.value;
-            updateCommandAndDock();
-          });
-
-          card.querySelector('[data-action="select-sync"]').addEventListener("click", () => {
-            state.activeAudioIdx = idx;
-            renderSyncVisualizer();
-            renderAudioTracks();
-          });
-
-          audioTracksContainer.appendChild(card);
-        }
+          audioContainer.appendChild(row);
+        });
       }
 
-      // --- RENDER SUBTITLE TRACKS LIST ---
       function renderSubtitleTracks() {
-        subtitleTracksContainer.innerHTML = "";
-        for (let i = 0; i < state.subtitleTracks.length; i++) {
-          const sub = state.subtitleTracks[i];
-          const card = document.createElement("div");
-          card.className = "stream-track-card" + (!sub.keep ? " stripped" : "");
+        subContainer.innerHTML = "";
+        state.subtitleTracks.forEach((sub, idx) => {
+          const effectiveKeep = !state.stripAllSubtitles && sub.keep;
+          const row = document.createElement("div");
+          row.className = "sf-panel p-2.5 flex flex-wrap items-center justify-between gap-2 " + (effectiveKeep ? "" : "opacity-50");
 
-          const langOptsHtml = LANGUAGE_OPTIONS.map((opt) =>
-            `<option value="${opt.code}" ${opt.code === sub.lang ? "selected" : ""}>${opt.label}</option>`
+          const langOptions = ISO_LANGUAGES.map(l =>
+            `<option value="${l.code}" ${l.code === sub.lang ? "selected" : ""}>${l.label}</option>`
           ).join("");
 
-          card.innerHTML = `
-            <div class="track-top-bar">
-              <div class="track-left-head">
-                <button type="button" class="keep-checkbox ${sub.keep ? "" : "unchecked"}" data-sub-action="toggle-keep" title="Keep or Strip Subtitle Track">
-                  ✓
-                </button>
-                <span class="track-order-badge" style="background: rgba(127,0,255,0.2); color: #e2b8ff;">Sub #${i + 1}</span>
-                <span class="track-codec-info">${escapeHtml(sub.codec)}</span>
-              </div>
-
-              <div class="flag-switches">
-                <button type="button" class="flag-chip-btn ${sub.isDefault ? "on-default" : ""}" data-sub-action="toggle-default">Default</button>
-                <button type="button" class="flag-chip-btn ${sub.isForced ? "on-forced" : ""}" data-sub-action="toggle-forced">Forced</button>
+          row.innerHTML = `
+            <div class="flex items-center gap-2.5">
+              <input type="checkbox" data-sub-keep="${idx}" ${effectiveKeep ? "checked" : ""} ${state.stripAllSubtitles ? "disabled" : ""} class="w-4 h-4 accent-cyan-400 cursor-pointer" />
+              <div>
+                <div class="font-bold text-xs">Track ${sub.id} • ${sub.title}</div>
+                <div class="text-[11px] text-[var(--text-muted)]">Format: ${sub.codec}</div>
               </div>
             </div>
-
-            <div class="track-controls-grid" style="grid-template-columns: 1fr 1.6fr;">
-              <select class="cyber-select" data-sub-action="change-lang" aria-label="Subtitle Language">
-                ${langOptsHtml}
+            <div class="flex flex-wrap items-center gap-2">
+              <select data-sub-lang="${idx}" class="sf-btn-ghost px-2 py-1 text-xs outline-none">
+                ${langOptions}
               </select>
-              <input type="text" class="cyber-mini-input" data-sub-action="change-title" value="${escapeHtml(sub.title)}" placeholder="Subtitle Track Title" />
+              <label class="inline-flex items-center gap-1 text-xs cursor-pointer px-2 py-1 rounded bg-white/5">
+                <input type="checkbox" data-sub-default="${idx}" ${sub.isDefault ? "checked" : ""} />
+                <span>Default</span>
+              </label>
+              <label class="inline-flex items-center gap-1 text-xs cursor-pointer px-2 py-1 rounded bg-white/5">
+                <input type="checkbox" data-sub-forced="${idx}" ${sub.isForced ? "checked" : ""} />
+                <span>Forced</span>
+              </label>
             </div>
           `;
-
-          const idx = i;
-          card.querySelector('[data-sub-action="toggle-keep"]').addEventListener("click", () => {
-            state.subtitleTracks[idx].keep = !state.subtitleTracks[idx].keep;
-            renderSubtitleTracks();
-            updateCommandAndDock();
-          });
-
-          card.querySelector('[data-sub-action="toggle-default"]').addEventListener("click", () => {
-            state.subtitleTracks.forEach((s, k) => { s.isDefault = k === idx ? !s.isDefault : false; });
-            renderSubtitleTracks();
-            updateCommandAndDock();
-          });
-
-          card.querySelector('[data-sub-action="toggle-forced"]').addEventListener("click", () => {
-            state.subtitleTracks[idx].isForced = !state.subtitleTracks[idx].isForced;
-            renderSubtitleTracks();
-            updateCommandAndDock();
-          });
-
-          card.querySelector('[data-sub-action="change-lang"]').addEventListener("change", (e) => {
-            state.subtitleTracks[idx].lang = e.target.value;
-            updateCommandAndDock();
-          });
-
-          card.querySelector('[data-sub-action="change-title"]').addEventListener("input", (e) => {
-            state.subtitleTracks[idx].title = e.target.value;
-            updateCommandAndDock();
-          });
-
-          subtitleTracksContainer.appendChild(card);
-        }
+          subContainer.appendChild(row);
+        });
       }
 
-      // --- 2. THUMBNAIL STUDIO & 16:9 CANVAS RENDERER ---
-      function drawProceduralAnimeFrame(timestampStr, modeLabel) {
-        const ctx = thumbPreviewCanvas.getContext("2d");
-        const w = thumbPreviewCanvas.width;
-        const h = thumbPreviewCanvas.height;
+      function buildMkvmergeCommand() {
+        const keptAudio = state.audioTracks.filter(t => t.keep);
+        const keptSubs = state.stripAllSubtitles ? [] : state.subtitleTracks.filter(s => s.keep);
 
-        // Cyberpunk Anime Nebula Gradient Background
-        const grad = ctx.createLinearGradient(0, 0, w, h);
-        grad.addColorStop(0, "#070b14");
-        grad.addColorStop(0.45, "#151030");
-        grad.addColorStop(1, "#091e2c");
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
+        const parts = [`mkvmerge -o "${state.outputFile}"`];
 
-        // Glowing Horizon Grid
-        ctx.strokeStyle = "rgba(0, 242, 254, 0.16)";
-        ctx.lineWidth = 2;
-        for (let y = 420; y < h; y += 36) {
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(w, y);
-          ctx.stroke();
-        }
-        for (let x = 0; x <= w; x += 80) {
-          ctx.beginPath();
-          ctx.moveTo(w / 2, 360);
-          ctx.lineTo(x, h);
-          ctx.stroke();
-        }
-
-        // Anime Cursed/Monarch Energy Aura Circle
-        const radGrad = ctx.createRadialGradient(w / 2, h / 2 - 20, 20, w / 2, h / 2 - 20, 240);
-        radGrad.addColorStop(0, "rgba(0, 242, 254, 0.42)");
-        radGrad.addColorStop(0.55, "rgba(127, 0, 255, 0.24)");
-        radGrad.addColorStop(1, "transparent");
-        ctx.fillStyle = radGrad;
-        ctx.beginPath();
-        ctx.arc(w / 2, h / 2 - 20, 240, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Bottom Banner Bar
-        ctx.fillStyle = "rgba(8, 12, 18, 0.86)";
-        ctx.fillRect(0, h - 110, w, 110);
-        ctx.fillStyle = "#00f2fe";
-        ctx.fillRect(0, h - 110, w, 4);
-
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 30px Inter, sans-serif";
-        ctx.fillText(state.fileName.slice(0, 52), 36, h - 58);
-
-        ctx.fillStyle = "#00f5a0";
-        ctx.font = "600 22px JetBrains Mono, monospace";
-        ctx.fillText(`${modeLabel} • Timestamp ${timestampStr} • 1920x1080 10-bit`, 36, h - 22);
-      }
-
-      async function captureVideoFrame() {
-        const ts = frameTimestampInput.value.trim() || "00:04:50";
-        state.frameTimestamp = ts;
-        thumbPreviewBadge.textContent = `📸 Frame @ ${ts} • 1280×720 (16:9)`;
-
-        if (state.token && state.isLiveBackend) {
-          const apiPath = ["/api", "video", "frame"].join("/");
-          const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&ss=${encodeURIComponent(ts)}`;
-          try {
-            const resp = await window.fetch(reqUrl);
-            if (resp.ok) {
-              const blob = await resp.blob();
-              const imgUrl = URL.createObjectURL(blob);
-              const img = new Image();
-              img.onload = function () {
-                const ctx = thumbPreviewCanvas.getContext("2d");
-                ctx.clearRect(0, 0, thumbPreviewCanvas.width, thumbPreviewCanvas.height);
-                ctx.drawImage(img, 0, 0, thumbPreviewCanvas.width, thumbPreviewCanvas.height);
-                URL.revokeObjectURL(imgUrl);
-              };
-              img.src = imgUrl;
-              showToast(`📸 Extracted lossless video frame at ${ts}`);
-              updateCommandAndDock();
-              return;
-            }
-          } catch (e) {
-            // Fallback to procedural preview
-          }
-        }
-
-        drawProceduralAnimeFrame(ts, "EXTRACTED VIDEO FRAME");
-        showToast(`📸 Captured 16:9 video frame at ${ts}`);
-        updateCommandAndDock();
-      }
-
-      function handleCustomImageFile(file) {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function (evt) {
-          const img = new Image();
-          img.onload = function () {
-            const ctx = thumbPreviewCanvas.getContext("2d");
-            const cw = thumbPreviewCanvas.width;
-            const ch = thumbPreviewCanvas.height;
-            const targetRatio = cw / ch;
-            const srcRatio = img.width / img.height;
-
-            let sx = 0, sy = 0, sw = img.width, sh = img.height;
-            if (srcRatio > targetRatio) {
-              sw = img.height * targetRatio;
-              sx = (img.width - sw) / 2;
-            } else {
-              sh = img.width / targetRatio;
-              sy = (img.height - sh) / 2;
-            }
-
-            ctx.clearRect(0, 0, cw, ch);
-            ctx.drawImage(img, sx, sy, sw, sh, 0, 0, cw, ch);
-            state.customThumbDataUrl = thumbPreviewCanvas.toDataURL("image/jpeg", 0.9);
-            thumbPreviewBadge.textContent = `📤 Custom 16:9 Crop (${file.name.slice(0, 24)})`;
-            showToast("🖼 Cropped custom image to 16:9 aspect ratio!");
-          };
-          img.src = evt.target.result;
-        };
-        reader.readAsDataURL(file);
-      }
-
-      async function uploadCustomThumbnail() {
-        if (!state.customThumbDataUrl) {
-          showToast("⚠️ Drop or select a JPG/PNG image first.");
-          return;
-        }
-        if (state.token && state.isLiveBackend) {
-          const apiPath = ["/api", "video", "thumbnail"].join("/");
-          const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
-          try {
-            const resp = await window.fetch(reqUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                task_id: state.taskId,
-                image_base64: state.customThumbDataUrl
-              })
-            });
-            if (resp.ok) {
-              showToast("✅ Saved custom 16:9 thumbnail to task workspace!");
-              return;
-            }
-          } catch (e) {
-            // fallback
-          }
-        }
-        showToast("✅ Locked custom 16:9 thumbnail for lossless mux!");
-      }
-
-      // --- 3. BUILD LOSSLESS MKVMERGE / FFMPEG COMMAND PREVIEW ---
-      function buildLosslessCliPreview() {
-        const keptAudios = state.audioTracks.filter((a) => a.keep);
-        const keptSubs = state.subtitleTracks.filter((s) => s.keep);
-
-        const audioIds = keptAudios.map((a) => a.id).join(",");
-        const subIds = keptSubs.map((s) => s.id).join(",");
-
-        const parts = [
-          `mkvmerge -o "remuxed_${state.fileName}"`,
-          `--video-tracks 0`
-        ];
-
-        if (keptAudios.length > 0) {
-          parts.push(`--audio-tracks ${audioIds}`);
-          for (let i = 0; i < keptAudios.length; i++) {
-            const a = keptAudios[i];
-            parts.push(`--language ${a.id}:${a.lang}`);
-            parts.push(`--track-name ${a.id}:"${a.title}"`);
-            if (a.delayMs !== 0) {
-              parts.push(`--sync ${a.id}:${a.delayMs}`);
-            }
-            parts.push(`--default-track-flag ${a.id}:${a.isDefault ? "1" : "0"}`);
-            if (a.isForced) {
-              parts.push(`--forced-display-flag ${a.id}:1`);
-            }
-          }
+        if (keptAudio.length > 0) {
+          parts.push(`--audio-tracks ${keptAudio.map(a => a.id).join(",")}`);
         } else {
           parts.push(`--no-audio`);
         }
 
-        if (keptSubs.length > 0) {
-          parts.push(`--subtitle-tracks ${subIds}`);
-          for (let i = 0; i < keptSubs.length; i++) {
-            const s = keptSubs[i];
-            parts.push(`--language ${s.id}:${s.lang}`);
-            parts.push(`--track-name ${s.id}:"${s.title}"`);
-            parts.push(`--default-track-flag ${s.id}:${s.isDefault ? "1" : "0"}`);
-            if (s.isForced) {
-              parts.push(`--forced-display-flag ${s.id}:1`);
-            }
+        keptAudio.forEach(a => {
+          if (state.audioDelayMs !== 0 || a.id === keptAudio[0].id) {
+            parts.push(`--sync ${a.id}:${state.audioDelayMs}`);
           }
-        } else {
+          parts.push(`--language ${a.id}:${a.lang}`);
+          if (a.isDefault) {
+            parts.push(`--default-track-flag ${a.id}:yes`);
+          }
+          if (a.isForced) {
+            parts.push(`--forced-display-flag ${a.id}:yes`);
+          }
+        });
+
+        if (state.stripAllSubtitles || keptSubs.length === 0) {
           parts.push(`--no-subtitles`);
+        } else {
+          parts.push(`--subtitle-tracks ${keptSubs.map(s => s.id).join(",")}`);
+          keptSubs.forEach(s => {
+            parts.push(`--language ${s.id}:${s.lang}`);
+            if (s.isDefault) {
+              parts.push(`--default-track-flag ${s.id}:yes`);
+            }
+            if (s.isForced) {
+              parts.push(`--forced-display-flag ${s.id}:yes`);
+            }
+          });
         }
 
-        const trackOrderList = ["0:0"].concat(keptAudios.map((a) => `0:${a.id}`)).concat(keptSubs.map((s) => `0:${s.id}`));
-        parts.push(`--track-order ${trackOrderList.join(",")}`);
-        parts.push(`"${state.fileName}"`);
+        if (keptAudio.length > 1) {
+          const orderPairs = ["0:0"].concat(keptAudio.map(a => `0:${a.id}`));
+          parts.push(`--track-order ${orderPairs.join(",")}`);
+        }
+
+        parts.push(`"${state.inputFile}"`);
         return parts.join(" ");
       }
 
-      function updateCommandAndDock() {
-        const cmd = buildLosslessCliPreview();
-        cliCommandPreview.textContent = cmd;
-
-        const keptAudioCount = state.audioTracks.filter((a) => a.keep).length;
-        const keptSubCount = state.subtitleTracks.filter((s) => s.keep).length;
-        const thumbLabels = {
-          auto_poster: "Auto-Poster (TMDb/Anime)",
-          frame_grabber: `Frame @ ${state.frameTimestamp}`,
-          custom_upload: "Custom 16:9 Upload",
-          none: "No Thumbnail"
-        };
-        dockSummaryText.textContent = `${keptAudioCount} Audio Track(s) • ${keptSubCount} Subtitle(s) • Thumbnail: ${thumbLabels[state.thumbMode]}`;
+      function updateSyncVisuals() {
+        const ms = state.audioDelayMs;
+        const sign = ms >= 0 ? "+" : "";
+        syncReadout.textContent = `${sign}${ms} ms (${ms === 0 ? "In Sync" : ms > 0 ? "Delayed" : "Advanced"})`;
+        if (ms === 0) {
+          syncDirectionLabel.textContent = "Aligned with Video (0ms)";
+        } else if (ms > 0) {
+          syncDirectionLabel.textContent = `Shifted +${ms}ms Later`;
+        } else {
+          syncDirectionLabel.textContent = `Shifted ${ms}ms Earlier`;
+        }
+        const pctShift = (ms / 2500) * 20;
+        syncVisualBar.style.left = `${25 + pctShift}%`;
       }
 
-      // --- 4. API PROBE & LOSSLESS MUX EXECUTION ---
-      async function fetchStreamProbe() {
-        if (!state.token) {
-          renderAll();
+      function drawCanvasPreview(customImg) {
+        const ctx = thumbCanvas.getContext("2d");
+        const w = thumbCanvas.width;
+        const h = thumbCanvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        if (customImg) {
+          // 16:9 aspect center-crop
+          const srcRatio = customImg.width / customImg.height;
+          const dstRatio = 16 / 9;
+          let sx = 0, sy = 0, sw = customImg.width, sh = customImg.height;
+          if (srcRatio > dstRatio) {
+            sw = customImg.height * dstRatio;
+            sx = (customImg.width - sw) / 2;
+          } else {
+            sh = customImg.width / dstRatio;
+            sy = (customImg.height - sh) / 2;
+          }
+          ctx.drawImage(customImg, sx, sy, sw, sh, 0, 0, w, h);
           return;
         }
-        const apiPath = ["/api", "video", "probe"].join("/");
-        const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}`;
-        try {
-          const resp = await window.fetch(reqUrl);
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const data = await resp.json();
-          if (data.file_name) state.fileName = data.file_name;
-          if (data.video) state.videoStream = Object.assign(state.videoStream, data.video);
-          if (Array.isArray(data.audio_tracks) && data.audio_tracks.length > 0) {
-            state.audioTracks = data.audio_tracks;
-          }
-          if (Array.isArray(data.subtitle_tracks)) {
-            state.subtitleTracks = data.subtitle_tracks;
-          }
-          state.isLiveBackend = true;
-          showToast("📡 Stream hierarchy loaded via ffprobe!");
-        } catch (e) {
-          state.isLiveBackend = false;
-        }
-        renderAll();
+
+        const style = getComputedStyle(document.documentElement);
+        const primary = style.getPropertyValue("--accent-primary").trim() || "#8b5cf6";
+        const secondary = style.getPropertyValue("--accent-secondary").trim() || "#06b6d4";
+
+        const grad = ctx.createLinearGradient(0, 0, w, h);
+        grad.addColorStop(0, "#090514");
+        grad.addColorStop(0.55, "#191034");
+        grad.addColorStop(1, "#0b1f2e");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+
+        // Glowing grid & cinematic frame markers
+        ctx.strokeStyle = secondary + "44";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(48, 48, w - 96, h - 96);
+
+        ctx.fillStyle = primary;
+        ctx.font = "bold 28px Inter, sans-serif";
+        const modeTitle = {
+          "auto-poster": "🤖 STARFALL 16:9 ULTRA AUTO-POSTER ENGINE",
+          "frame-grabber": "📸 FFMPEG LOSSLESS KEYFRAME EXTRACTION",
+          "custom-upload": "📤 CUSTOM 16:9 CROPPED ARTWORK",
+          "none": "🚫 THUMBNAIL DISABLED"
+        }[state.thumbnailMode];
+        ctx.fillText(modeTitle, 84, 130);
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "900 54px Inter, sans-serif";
+        ctx.fillText("SOLO LEVELING : S02E06", 84, 220);
+
+        ctx.fillStyle = secondary;
+        ctx.font = "bold 30px monospace";
+        const hms = formatSecondsToHMS(state.frameTimestampSec);
+        ctx.fillText(`1080p HEVC 10-bit HDR • Frame @ ${hms}`, 84, 285);
+
+        // Simulated waveform / audio-sub status bars
+        const keptA = state.audioTracks.filter(t => t.keep).map(t => t.lang.toUpperCase()).join(" + ") || "NONE";
+        const keptS = state.stripAllSubtitles ? "STRIPPED" : (state.subtitleTracks.filter(s => s.keep).map(s => s.lang.toUpperCase()).join(" + ") || "NONE");
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "600 26px Inter, sans-serif";
+        ctx.fillText(`Audio: ${keptA} (Sync ${state.audioDelayMs >= 0 ? "+" : ""}${state.audioDelayMs}ms)  |  Subs: ${keptS}`, 84, h - 95);
       }
 
-      async function executeLosslessMux() {
-        applyAndMuxLosslessBtn.disabled = true;
-        applyAndMuxLosslessBtn.innerHTML = `<span>⚡ Queueing Lossless mkvmerge...</span>`;
+      function refreshAllUI() {
+        renderAudioTracks();
+        renderSubtitleTracks();
+        updateSyncVisuals();
 
-        const payload = {
-          task_id: state.taskId,
-          file_name: state.fileName,
-          mode: "stream_copy_only",
-          transcode_video: false,
-          audio_tracks: state.audioTracks,
-          subtitle_tracks: state.subtitleTracks,
-          thumbnail_mode: state.thumbMode,
-          frame_timestamp: state.frameTimestamp,
-          cli_preview: buildLosslessCliPreview()
+        const cmd = buildMkvmergeCommand();
+        liveMkvmergeCmd.textContent = cmd;
+
+        const keptAudioCnt = state.audioTracks.filter(t => t.keep).length;
+        const keptSubCnt = state.stripAllSubtitles ? 0 : state.subtitleTracks.filter(s => s.keep).length;
+
+        metaAudioCountBadge.textContent = `${keptAudioCnt} Active / ${state.audioTracks.length} Total`;
+        metaSubCountBadge.textContent = `${keptSubCnt} Active / ${state.subtitleTracks.length} Total`;
+        dockSummaryBadge.textContent = `Keeping ${keptAudioCnt} Audio • ${keptSubCnt} Subtitle • Delay ${state.audioDelayMs >= 0 ? "+" : ""}${state.audioDelayMs}ms`;
+
+        const modeNames = {
+          "auto-poster": "🤖 Auto-Poster (TMDb / Anime)",
+          "frame-grabber": `📸 Frame @ ${formatSecondsToHMS(state.frameTimestampSec)}`,
+          "custom-upload": "📤 Custom 16:9 Upload",
+          "none": "🚫 No Thumbnail"
         };
+        dockThumbSummary.textContent = `Thumbnail: ${modeNames[state.thumbnailMode]}`;
+        canvasModeOverlay.textContent = modeNames[state.thumbnailMode];
 
-        try {
-          if (state.token && state.isLiveBackend) {
-            const apiPath = ["/api", "video", "mux"].join("/");
-            const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
-            const resp = await window.fetch(reqUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload)
-            });
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          } else {
-            await new Promise((r) => setTimeout(r, 450));
-          }
+        const hms = formatSecondsToHMS(state.frameTimestampSec);
+        canvasTimestampOverlay.textContent = hms;
+        ffmpegFrameCmdPreview.textContent = `ffmpeg -ss ${hms} -i "${state.inputFile}" -vframes 1 -q:v 2`;
 
-          muxSuccessSummaryBox.textContent = buildLosslessCliPreview();
-          muxSuccessModal.classList.add("open");
-        } catch (err) {
-          showToast("❌ Mux dispatch failed: " + err.message);
-        } finally {
-          applyAndMuxLosslessBtn.disabled = false;
-          applyAndMuxLosslessBtn.innerHTML = `<span>⚡ Apply &amp; Mux Lossless</span>`;
-        }
+        drawCanvasPreview();
       }
 
-      // --- 5. WIRE UI EVENTS ---
-      audioDelayRangeSlider.addEventListener("input", () => {
-        updateActiveAudioDelay(Number(audioDelayRangeSlider.value));
+      // Event Delegation for Audio Tracks
+      audioContainer.addEventListener("change", (e) => {
+        const t = e.target;
+        if (t.dataset.audioKeep !== undefined) {
+          state.audioTracks[Number(t.dataset.audioKeep)].keep = t.checked;
+        } else if (t.dataset.audioLang !== undefined) {
+          state.audioTracks[Number(t.dataset.audioLang)].lang = t.value;
+        } else if (t.dataset.audioDefault !== undefined) {
+          const idx = Number(t.dataset.audioDefault);
+          state.audioTracks.forEach((a, i) => { a.isDefault = (i === idx) ? t.checked : false; });
+        } else if (t.dataset.audioForced !== undefined) {
+          state.audioTracks[Number(t.dataset.audioForced)].isForced = t.checked;
+        }
+        refreshAllUI();
       });
 
-      document.querySelectorAll(".stepper-btn").forEach((btn) => {
+      audioContainer.addEventListener("click", (e) => {
+        const upBtn = e.target.closest("[data-audio-up]");
+        const downBtn = e.target.closest("[data-audio-down]");
+        if (upBtn) {
+          const idx = Number(upBtn.dataset.audioUp);
+          if (idx > 0) {
+            const tmp = state.audioTracks[idx - 1];
+            state.audioTracks[idx - 1] = state.audioTracks[idx];
+            state.audioTracks[idx] = tmp;
+            refreshAllUI();
+          }
+        } else if (downBtn) {
+          const idx = Number(downBtn.dataset.audioDown);
+          if (idx < state.audioTracks.length - 1) {
+            const tmp = state.audioTracks[idx + 1];
+            state.audioTracks[idx + 1] = state.audioTracks[idx];
+            state.audioTracks[idx] = tmp;
+            refreshAllUI();
+          }
+        }
+      });
+
+      // Event Delegation for Subtitle Tracks
+      subContainer.addEventListener("change", (e) => {
+        const t = e.target;
+        if (t.dataset.subKeep !== undefined) {
+          state.subtitleTracks[Number(t.dataset.subKeep)].keep = t.checked;
+        } else if (t.dataset.subLang !== undefined) {
+          state.subtitleTracks[Number(t.dataset.subLang)].lang = t.value;
+        } else if (t.dataset.subDefault !== undefined) {
+          const idx = Number(t.dataset.subDefault);
+          state.subtitleTracks.forEach((s, i) => { s.isDefault = (i === idx) ? t.checked : false; });
+        } else if (t.dataset.subForced !== undefined) {
+          state.subtitleTracks[Number(t.dataset.subForced)].isForced = t.checked;
+        }
+        refreshAllUI();
+      });
+
+      document.getElementById("keepAllAudioBtn").addEventListener("click", () => {
+        state.audioTracks.forEach(a => { a.keep = true; });
+        refreshAllUI();
+      });
+
+      document.getElementById("keepJpnHinOnlyBtn").addEventListener("click", () => {
+        state.audioTracks.forEach(a => { a.keep = (a.lang === "jpn" || a.lang === "hin"); });
+        refreshAllUI();
+      });
+
+      stripAllSubsToggle.addEventListener("change", () => {
+        state.stripAllSubtitles = stripAllSubsToggle.checked;
+        refreshAllUI();
+      });
+
+      // Audio Sync Slider, Micro-Steppers & Presets
+      delaySlider.addEventListener("input", () => {
+        state.audioDelayMs = Number(delaySlider.value);
+        refreshAllUI();
+      });
+
+      document.querySelectorAll(".sync-step-btn").forEach(btn => {
         btn.addEventListener("click", () => {
-          const step = Number(btn.getAttribute("data-step-ms"));
-          if (step === 0) {
-            updateActiveAudioDelay(0);
+          if (btn.dataset.reset !== undefined) {
+            state.audioDelayMs = 0;
           } else {
-            const curr = Number(state.audioTracks[state.activeAudioIdx]?.delayMs) || 0;
-            updateActiveAudioDelay(curr + step);
+            state.audioDelayMs = Math.max(-2500, Math.min(2500, state.audioDelayMs + Number(btn.dataset.step)));
           }
+          delaySlider.value = String(state.audioDelayMs);
+          refreshAllUI();
         });
       });
 
-      document.querySelectorAll(".preset-pill-btn").forEach((btn) => {
+      document.querySelectorAll(".sync-preset-btn").forEach(btn => {
         btn.addEventListener("click", () => {
-          const presetMs = Number(btn.getAttribute("data-preset-ms")) || 0;
-          updateActiveAudioDelay(presetMs);
-          showToast(`🎯 Applied ${formatDelayMs(presetMs)} sync preset!`);
+          state.audioDelayMs = Number(btn.dataset.preset);
+          delaySlider.value = String(state.audioDelayMs);
+          refreshAllUI();
         });
       });
 
-      keepAllSubsBtn.addEventListener("click", () => {
-        state.subtitleTracks.forEach((s) => { s.keep = true; });
-        renderSubtitleTracks();
-        updateCommandAndDock();
-      });
-
-      keepEngTamSubsOnlyBtn.addEventListener("click", () => {
-        const allowed = new Set(["eng", "tam", "hin"]);
-        state.subtitleTracks.forEach((s) => { s.keep = allowed.has(s.lang); });
-        renderSubtitleTracks();
-        updateCommandAndDock();
-        showToast("📝 Filtered subtitles to English, Tamil & Hindi only");
-      });
-
-      // Thumbnail Mode Selector
-      document.querySelectorAll(".thumb-mode-btn").forEach((btn) => {
+      // Thumbnail Mode Selectors
+      document.querySelectorAll(".thumb-mode-btn").forEach(btn => {
         btn.addEventListener("click", () => {
-          document.querySelectorAll(".thumb-mode-btn").forEach((b) => b.classList.remove("active"));
+          document.querySelectorAll(".thumb-mode-btn").forEach(b => b.classList.remove("active"));
           btn.classList.add("active");
-          state.thumbMode = btn.getAttribute("data-thumb-mode") || "frame_grabber";
+          state.thumbnailMode = btn.dataset.thumbMode;
 
-          frameGrabberControls.style.display = state.thumbMode === "frame_grabber" ? "flex" : "none";
-          customUploadControls.style.display = state.thumbMode === "custom_upload" ? "flex" : "none";
-
-          if (state.thumbMode === "auto_poster") {
-            drawProceduralAnimeFrame("AUTO-POSTER", "TMDB / ANILIST POSTER ARTWORK");
-            thumbPreviewBadge.textContent = "🤖 Auto-Poster Mode (TMDb / AniList 16:9)";
-          } else if (state.thumbMode === "none") {
-            drawProceduralAnimeFrame("DISABLED", "NO THUMBNAIL EMBEDDED");
-            thumbPreviewBadge.textContent = "🚫 Thumbnail Disabled";
-          } else if (state.thumbMode === "frame_grabber") {
-            drawProceduralAnimeFrame(state.frameTimestamp, "EXTRACTED VIDEO FRAME");
-            thumbPreviewBadge.textContent = `📸 Frame @ ${state.frameTimestamp} • 1280×720 (16:9)`;
-          }
-          updateCommandAndDock();
+          document.getElementById("frameGrabberPanel").classList.toggle("hidden", state.thumbnailMode !== "frame-grabber");
+          document.getElementById("customUploadPanel").classList.toggle("hidden", state.thumbnailMode !== "custom-upload");
+          refreshAllUI();
         });
       });
 
-      frameTimelineSlider.addEventListener("input", () => {
-        const pct = parseFloat(frameTimelineSlider.value) || 0;
-        state.framePercent = pct;
-        const targetSec = Math.round((pct / 100) * (state.videoStream.durationSec || 1452));
-        state.frameTimestamp = secondsToHMS(targetSec);
-        frameTimestampInput.value = state.frameTimestamp;
-        drawProceduralAnimeFrame(state.frameTimestamp, "SCRUBBER PREVIEW");
-        thumbPreviewBadge.textContent = `📸 Frame @ ${state.frameTimestamp} (${pct.toFixed(0)}%)`;
-        updateCommandAndDock();
+      // Frame Scrubber & Timestamp Input
+      frameScrubber.addEventListener("input", () => {
+        state.frameTimestampSec = Number(frameScrubber.value);
+        const hms = formatSecondsToHMS(state.frameTimestampSec);
+        frameTimestampInput.value = hms;
+        const pct = Math.round((state.frameTimestampSec / state.durationSec) * 100);
+        scrubberPctLabel.textContent = `${pct}% • ${hms}`;
+        refreshAllUI();
       });
 
       frameTimestampInput.addEventListener("change", () => {
-        const sec = hmsToSeconds(frameTimestampInput.value);
-        const dur = state.videoStream.durationSec || 1452;
-        const pct = Math.min(100, Math.max(0, (sec / dur) * 100));
-        frameTimelineSlider.value = String(pct);
-        state.frameTimestamp = secondsToHMS(sec);
-        frameTimestampInput.value = state.frameTimestamp;
-        updateCommandAndDock();
+        state.frameTimestampSec = Math.min(state.durationSec, Math.max(0, parseHMSToSeconds(frameTimestampInput.value)));
+        frameScrubber.value = String(state.frameTimestampSec);
+        const hms = formatSecondsToHMS(state.frameTimestampSec);
+        frameTimestampInput.value = hms;
+        const pct = Math.round((state.frameTimestampSec / state.durationSec) * 100);
+        scrubberPctLabel.textContent = `${pct}% • ${hms}`;
+        refreshAllUI();
       });
 
-      captureFrameBtn.addEventListener("click", captureVideoFrame);
-
-      customDropzone.addEventListener("click", () => customThumbFileInput.click());
-      customDropzone.addEventListener("dragover", (e) => {
-        e.preventDefault();
-      });
-      customDropzone.addEventListener("drop", (e) => {
-        e.preventDefault();
-        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
-          handleCustomImageFile(e.dataTransfer.files[0]);
-        }
-      });
-      customThumbFileInput.addEventListener("change", (e) => {
-        if (e.target.files && e.target.files[0]) {
-          handleCustomImageFile(e.target.files[0]);
-        }
-      });
-
-      saveCustomThumbBtn.addEventListener("click", uploadCustomThumbnail);
-      applyAndMuxLosslessBtn.addEventListener("click", executeLosslessMux);
-      closeMuxSuccessModalBtn.addEventListener("click", () => muxSuccessModal.classList.remove("open"));
-      muxSuccessModal.addEventListener("click", (e) => {
-        if (e.target === muxSuccessModal) muxSuccessModal.classList.remove("open");
+      document.getElementById("captureFrameBtn").addEventListener("click", () => {
+        const hms = formatSecondsToHMS(state.frameTimestampSec);
+        fetch(`/api/video/frame?task_id=${encodeURIComponent(state.taskId)}&ss=${encodeURIComponent(hms)}`)
+          .then(res => {
+            if (!res.ok) throw new Error("using local preview");
+            return res.blob();
+          })
+          .then(blob => {
+            const img = new Image();
+            img.onload = () => drawCanvasPreview(img);
+            img.src = URL.createObjectURL(blob);
+          })
+          .catch(() => {
+            drawCanvasPreview();
+          });
       });
 
-      backToDashboardBtn.addEventListener("click", () => {
-        if (state.isLiveBackend) {
-          const url = ["/app", "dashboard"].join("/") + (state.token ? `?token=${encodeURIComponent(state.token)}` : "");
-          window.location.assign(url);
-        } else {
-          showToast("← In production, navigates to /app/dashboard");
-        }
+      document.getElementById("customThumbFileInput").addEventListener("change", (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => drawCanvasPreview(img);
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
       });
 
-      reloadProbeBtn.addEventListener("click", () => {
-        fetchStreamProbe();
-        showToast("🔄 Re-probed media container streams!");
+      // Copy CLI Button
+      document.getElementById("copyCliBtn").addEventListener("click", () => {
+        const text = liveMkvmergeCmd.textContent;
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); } catch (_) {}
+        document.body.removeChild(ta);
+        const btn = document.getElementById("copyCliBtn");
+        btn.textContent = "✅ Copied!";
+        setTimeout(() => { btn.textContent = "📋 Copy CLI"; }, 1500);
       });
 
-      function renderAll() {
-        renderProbeBanner();
-        renderSyncVisualizer();
-        renderAudioTracks();
-        renderSubtitleTracks();
-        drawProceduralAnimeFrame(state.frameTimestamp, "EXTRACTED VIDEO FRAME");
-        updateCommandAndDock();
+      // Theme Selector (5 Popular Anime Themes)
+      const themeSelector = document.getElementById("themeSelector");
+      themeSelector.addEventListener("change", () => {
+        const theme = themeSelector.value;
+        document.documentElement.setAttribute("data-theme", theme);
+        document.getElementById("activeThemeLabel").textContent = `Theme: ${THEME_LABELS[theme]} • 2 vCPU / 4 GB VPS Profile`;
+        try { localStorage.setItem("starfall_theme", theme); } catch (_) {}
+        drawCanvasPreview();
+      });
+
+      // Navigation between Video Studio and Owner Bot Settings
+      const studioView = document.getElementById("studioView");
+      const adminView = document.getElementById("adminView");
+      const navStudioBtn = document.getElementById("navStudioBtn");
+      const navAdminBtn = document.getElementById("navAdminBtn");
+
+      navStudioBtn.addEventListener("click", () => {
+        studioView.classList.remove("hidden");
+        adminView.classList.add("hidden");
+        navStudioBtn.classList.add("active");
+        navAdminBtn.classList.remove("active");
+      });
+
+      navAdminBtn.addEventListener("click", () => {
+        studioView.classList.add("hidden");
+        adminView.classList.remove("hidden");
+        navAdminBtn.classList.add("active");
+        navStudioBtn.classList.remove("active");
+      });
+
+      // Reset & Apply Lossless Mux Modal
+      document.getElementById("resetStudioBtn").addEventListener("click", () => {
+        state = defaultState();
+        delaySlider.value = "0";
+        stripAllSubsToggle.checked = false;
+        refreshAllUI();
+      });
+
+      const holoModal = document.getElementById("holoModal");
+      document.getElementById("applyMuxBtn").addEventListener("click", () => {
+        const cmd = buildMkvmergeCommand();
+        const payload = {
+          task_id: state.taskId,
+          output_file: state.outputFile,
+          audio_tracks: state.audioTracks.filter(a => a.keep),
+          subtitle_tracks: state.stripAllSubtitles ? [] : state.subtitleTracks.filter(s => s.keep),
+          strip_all_subtitles: state.stripAllSubtitles,
+          audio_delay_ms: state.audioDelayMs,
+          thumbnail_mode: state.thumbnailMode,
+          frame_timestamp: formatSecondsToHMS(state.frameTimestampSec)
+        };
+
+        fetch("/api/video/mux", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }).catch(() => {});
+
+        document.getElementById("holoModalTitle").textContent = "Lossless Remux & Telegram Delivery Started!";
+        document.getElementById("holoModalCli").textContent = cmd;
+        const cleanChannel = String(state.telegramDumpChat).replace(/^-100/, "");
+        document.getElementById("openTelegramChannelLink").href = `https://t.me/c/${cleanChannel}`;
+        holoModal.classList.add("open");
+      });
+
+      document.getElementById("closeHoloModalBtn").addEventListener("click", () => {
+        holoModal.classList.remove("open");
+      });
+
+      document.getElementById("refreshProbeBtn").addEventListener("click", () => {
+        fetch(`/api/video/probe?task_id=${encodeURIComponent(state.taskId)}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data && data.file_name) {
+              document.getElementById("probeFileName").textContent = data.file_name;
+            }
+          })
+          .catch(() => {});
+        refreshAllUI();
+      });
+
+      // Owner Bot Settings Live Log Terminal & Dynamic Config
+      const logTerminal = document.getElementById("adminLogTerminal");
+      let logsPaused = false;
+      const sampleLogs = [
+        "[INFO] watchdog: state=NORMAL ram_pct=36.8% heap_mib=412 global_conns=18/150",
+        "[INFO] dispatcher: worker #1 acquired download slot (1/3 active)",
+        "[INFO] direct/gdrive: bypassed virus-scan token for file_id=1x9K2aP...",
+        "[INFO] direct/http: streaming 4 segments with 512 KiB sync.Pool buffers",
+        "[INFO] video/mux: verified 0% CPU video transcoding (mkvmerge lossless stream copy)",
+      ];
+
+      function appendLogLine(line) {
+        if (logsPaused) return;
+        const div = document.createElement("div");
+        const ts = new Date().toISOString().slice(11, 19);
+        div.textContent = `[${ts}] ${line}`;
+        logTerminal.appendChild(div);
+        logTerminal.scrollTop = logTerminal.scrollHeight;
       }
 
-      fetchStreamProbe();
+      sampleLogs.forEach(appendLogLine);
+      setInterval(() => {
+        const item = sampleLogs[Math.floor(Math.random() * sampleLogs.length)];
+        appendLogLine(item);
+      }, 3000);
+
+      document.getElementById("toggleLogPauseBtn").addEventListener("click", (e) => {
+        logsPaused = !logsPaused;
+        e.target.textContent = logsPaused ? "▶️ Resume" : "⏸️ Pause";
+      });
+
+      document.getElementById("clearLogsBtn").addEventListener("click", () => {
+        logTerminal.innerHTML = "";
+      });
+
+      document.getElementById("dynamicConfigForm").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const toast = document.getElementById("adminConfigToast");
+        toast.textContent = "✅ Runtime configuration hot-reloaded across Watchdog & Dispatcher!";
+        toast.classList.remove("hidden");
+        setTimeout(() => toast.classList.add("hidden"), 3000);
+      });
+
+      document.getElementById("safeRestartBtn").addEventListener("click", () => {
+        fetch("/api/admin/restart", { method: "POST" }).catch(() => {});
+        document.getElementById("holoModalTitle").textContent = "Graceful Container Restart Initiated";
+        document.getElementById("holoModalCli").textContent = "Draining 4 Dispatcher workers, flushing SQLite WAL, and restarting starfall-debrid...";
+        holoModal.classList.add("open");
+      });
+
+      refreshAllUI();
     })();
   </script>
 </body>

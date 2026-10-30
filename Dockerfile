@@ -1,112 +1,80 @@
-FROM python:3.12-slim-bookworm AS nllb-builder
+# ==============================================================================
+# Starfall-Go Debrid — Multi-Stage Ultra-Light Production Image
+# Target Hardware: 2 vCPU, 4 GB RAM VPS (Ubuntu 24.04 LTS / Debian 12)
+# Hard Memory Ceiling: 3000 MiB Go Runtime / 3400 MiB Docker Cgroups Shield
+# ==============================================================================
 
-RUN python -m pip install --no-cache-dir \
-        --index-url https://download.pytorch.org/whl/cpu \
-        "torch==2.12.1" \
-    && python -m pip install --no-cache-dir \
-        "ctranslate2==4.8.1" \
-        "transformers<5" \
-        sentencepiece \
-    && ct2-transformers-converter \
-        --model facebook/nllb-200-distilled-600M \
-        --output_dir /opt/models/nllb-200-distilled-600M-int8 \
-        --quantization int8 \
-        --copy_files tokenizer.json tokenizer_config.json sentencepiece.bpe.model special_tokens_map.json
+# ------------------------------------------------------------------------------
+# Stage 1: Builder (golang:1.23-alpine)
+# ------------------------------------------------------------------------------
+FROM golang:1.23-alpine AS builder
 
-FROM python:3.12-slim-bookworm
+RUN apk add --no-cache git gcc musl-dev ca-certificates tzdata
 
-ENV DEBIAN_FRONTEND=noninteractive \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy \
-    VIRTUAL_ENV=/wzvenv \
-    PATH="/wzvenv/bin:${PATH}"
+WORKDIR /src
 
-WORKDIR /usr/src/app
+# Cache Go module dependencies first
+COPY go.mod go.sum ./
+RUN go mod download
 
-RUN sed -i 's/Components: main/Components: main contrib non-free/g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-        aria2 \
-        bash \
-        build-essential \
-        ca-certificates \
-        coreutils \
-        cpulimit \
-        curl \
-        ffmpeg \
-        fontconfig \
-        fonts-dejavu-core \
-        git \
-        imagemagick \
-        jq \
-        libc-ares2 \
-        libcurl4 \
-        libffi-dev \
-        libicu72 \
-        libmagic1 \
-        libsqlite3-0 \
-        libsodium23 \
-        libssl-dev \
-        libxml2-dev \
-        libxslt1-dev \
-        mediainfo \
-        megatools \
-        mktorrent \
-        mkvtoolnix \
-        netcat-openbsd \
-        nodejs \
-        p7zip-full \
-        par2 \
-        pkg-config \
-        procps \
-        qbittorrent-nox \
-        rclone \
-        sabnzbdplus \
-        tini \
-        tzdata \
-        unrar-free \
-        unzip \
-        util-linux \
-        zlib1g-dev \
-        zip \
-    && rm -rf /var/lib/apt/lists/*
-
-# yt-dlp's current YouTube challenge solver requires a supported JavaScript
-# runtime. Debian's Node.js 18 is intentionally kept for other tooling, while
-# Deno provides a supported runtime for yt-dlp-ejs.
-RUN curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh -s -- -y \
-    && deno --version \
-    && curl -fsSL -o /usr/local/bin/qbittorrent-nox https://github.com/userdocs/qbittorrent-nox-static/releases/download/release-5.2.4_v2.0.15/x86_64-qbittorrent-nox \
-    && chmod +x /usr/local/bin/qbittorrent-nox \
-    && cp /usr/local/bin/qbittorrent-nox /usr/bin/qbittorrent-nox \
-    && qbittorrent-nox --version \
-    && curl -fsSL https://rclone.org/install.sh | bash
-
-RUN python -m venv /wzvenv \
-    && python -m pip install --no-cache-dir --upgrade pip uv setuptools wheel
-
-COPY requirements.txt .
-RUN uv pip install --python /wzvenv/bin/python --no-cache -r requirements.txt \
-    && apt-get purge -y --auto-remove \
-        build-essential \
-        libffi-dev \
-        libssl-dev \
-        libxml2-dev \
-        libxslt1-dev \
-        pkg-config \
-        zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/* /root/.cache
-
-COPY --from=nllb-builder /opt/models/nllb-200-distilled-600M-int8 /opt/models/nllb-200-distilled-600M-int8
-RUN test -s /opt/models/nllb-200-distilled-600M-int8/model.bin \
-    && test -s /opt/models/nllb-200-distilled-600M-int8/config.json \
-    && test -s /opt/models/nllb-200-distilled-600M-int8/tokenizer_config.json
-
+# Copy complete source tree including embedded web templates and static assets
 COPY . .
-RUN chmod +x start.sh setpkgs.sh
+
+# Compile single static binary with debug symbols stripped (-s -w)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -trimpath \
+    -ldflags="-s -w" \
+    -o /starfall-debrid \
+    cmd/starfall/main.go
+
+# ------------------------------------------------------------------------------
+# Stage 2: Final Distro (alpine:3.20)
+# ------------------------------------------------------------------------------
+FROM alpine:3.20
+
+LABEL org.opencontainers.image.title="starfall-debrid" \
+      org.opencontainers.image.description="High-performance, resource-safe private Debrid & Telegram Cloud Vault engine for 2 vCPU / 4GB RAM VPS" \
+      org.opencontainers.image.version="1.2.0"
+
+# Install lightweight runtime media & stream utilities (0% transcoding policy)
+RUN apk add --no-cache \
+    ca-certificates \
+    tzdata \
+    tini \
+    curl \
+    ffmpeg \
+    mkvtoolnix \
+    aria2 \
+    yt-dlp \
+    && addgroup -g 10001 -S starfall \
+    && adduser -u 10001 -S -G starfall -h /app starfall \
+    && mkdir -p /app/data /app/downloads /app/downloads/thumbnails /app/scripts \
+    && chown -R starfall:starfall /app
+
+WORKDIR /app
+
+# Copy compiled static binary and verification script
+COPY --from=builder /starfall-debrid /starfall-debrid
+COPY scripts/verify.sh /app/scripts/verify.sh
+RUN chmod +x /starfall-debrid /app/scripts/verify.sh
+
+# Enforce Go runtime soft memory limit (3000 MiB) and aggressive GC (50%)
+ENV GOMEMLIMIT=3000MiB \
+    GOGC=50 \
+    GOMAXPROCS=2 \
+    STARFALL_APP_LISTEN_ADDR="0.0.0.0:8080" \
+    STARFALL_APP_DOWNLOAD_DIR="/app/downloads" \
+    STARFALL_DATABASE_SQLITE_PATH="/app/data/starfall_users.db" \
+    TZ=UTC
+
+VOLUME ["/app/data", "/app/downloads"]
 
 EXPOSE 8080
 
-ENTRYPOINT ["/usr/bin/tini", "--", "bash", "start.sh"]
+USER starfall
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8080/healthz || exit 1
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["/starfall-debrid"]

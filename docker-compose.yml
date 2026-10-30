@@ -1,110 +1,78 @@
+# ==============================================================================
+# Starfall-Go Debrid — Production Docker Compose with Cgroups v2 Hardware Shield
+# Target VPS: 2 vCPU, 4 GB RAM (Ubuntu 24.04 LTS / Debian 12)
+# Guarantees >= 600 MiB physical RAM always remains free for Linux kernel & sshd
+# ==============================================================================
+
+name: starfall-go
+
 services:
-  app:
+  starfall-debrid:
     build:
       context: .
       dockerfile: Dockerfile
+    image: starfall-debrid:1.2.0
+    container_name: starfall-debrid
     restart: unless-stopped
-    env_file:
-      - path: ./secrets/happyfappy.env
-        required: false
-    environment:
-      TZ: Asia/Kolkata
-      PYTHONUNBUFFERED: "1"
-      PYTHONWARNINGS: "ignore::SyntaxWarning"
-      PORT: "8080"
-    volumes:
-      - ./config.py:/usr/src/app/config.py:ro
-      - ./accounts:/usr/src/app/accounts
-      - ./downloads:/usr/src/app/downloads
-      - ./logs:/usr/src/app/logs
-      - ./configs:/usr/src/app/configs
-      - ./rclone:/usr/src/app/rclone
-      - ./thumbnails:/usr/src/app/thumbnails
-      - ./torrents:/usr/src/app/torrents
-      - ./secrets:/usr/src/app/secrets:ro
-      - tunnel_data:/data:ro
+
+    # Strict Cgroups v2 & Compose resource shield (3400 MiB hard ceiling, 1.9 vCPU)
+    deploy:
+      resources:
+        limits:
+          memory: 3400M
+          cpus: '1.9'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    mem_limit: 3400m
+    memswap_limit: 3800m
+    cpus: 1.9
+    pids_limit: 512
+    oom_score_adj: 200
+
+    # File descriptor ceiling (65535) to prevent socket exhaustion during 1Gbps transfers
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+
     ports:
       - "8080:8080"
-      - "15026:15026"
-    expose:
-      - "8080"
-    stop_grace_period: 45s
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/ >/dev/null || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 90s
 
-  tunnel:
-    build:
-      context: .
-      dockerfile: tunnel.Dockerfile
-    restart: unless-stopped
-    network_mode: "service:app"
-    volumes:
-      - tunnel_data:/data
-
-  flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
-    restart: unless-stopped
     environment:
-      - LOG_LEVEL=info
-      - TZ=Asia/Kolkata
+      - GOMEMLIMIT=3000MiB
+      - GOGC=50
+      - GOMAXPROCS=2
+      - STARFALL_APP_LISTEN_ADDR=0.0.0.0:8080
+      - STARFALL_APP_DOWNLOAD_DIR=/app/downloads
+      - STARFALL_DATABASE_SQLITE_PATH=/app/data/starfall_users.db
+      - STARFALL_MEMORY_SOFT_LIMIT_MIB=3000
+      - STARFALL_MEMORY_HARD_CEILING_MIB=3200
+      - STARFALL_MEMORY_WARN_PERCENT=70.0
+      - STARFALL_MEMORY_CRITICAL_PERCENT=82.0
+      - STARFALL_NETWORK_MAX_GLOBAL_CONNS=150
+      - STARFALL_NETWORK_MAX_CONNS_PER_TASK=30
+      - STARFALL_ENGINE_MAX_CONCURRENT_WORKERS=4
+      - STARFALL_ENGINE_MAX_ACTIVE_DOWNLOADS=3
+      - STARFALL_ENGINE_MAX_TELEGRAM_UPLOADS=2
+      - STARFALL_ENGINE_MAX_LOSSLESS_REMUX=1
+      - STARFALL_AUTH_GOOGLE_CLIENT_ID=${STARFALL_AUTH_GOOGLE_CLIENT_ID:-}
+      - STARFALL_AUTH_GOOGLE_CLIENT_SECRET=${STARFALL_AUTH_GOOGLE_CLIENT_SECRET:-}
+      - STARFALL_AUTH_GOOGLE_REDIRECT_URL=${STARFALL_AUTH_GOOGLE_REDIRECT_URL:-http://localhost:8080/auth/google/callback}
+      - STARFALL_AUTH_JWT_SECRET=${STARFALL_AUTH_JWT_SECRET:-change_this_to_a_64_char_random_hex_secret_for_production_use}
+      - STARFALL_TELEGRAM_API_ID=${STARFALL_TELEGRAM_API_ID:-0}
+      - STARFALL_TELEGRAM_API_HASH=${STARFALL_TELEGRAM_API_HASH:-}
+      - STARFALL_TELEGRAM_BOT_TOKEN=${STARFALL_TELEGRAM_BOT_TOKEN:-}
+
     volumes:
-      - ./scripts/haz_solver.py:/app/haz_solver.py:ro
-      - ./scripts/flaresolverr_entrypoint.sh:/entrypoint.sh:ro
-    entrypoint: ["/bin/bash", "/entrypoint.sh"]
-    expose:
-      - "8191"
-      - "8192"
-    ports:
-      - "127.0.0.1:8191:8191"
-      - "127.0.0.1:8192:8192"
+      - ./data:/app/data
+      - ./downloads:/app/downloads
 
-  # Second instance example:
-  # app2:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   restart: unless-stopped
-  #   environment:
-  #     TZ: Asia/Kolkata
-  #     PYTHONUNBUFFERED: "1"
-  #     PORT: "8080"
-  #     TUNNEL_URL_FILE: /data/tunnel2_url.txt
-  #   volumes:
-  #     - ./config2.py:/usr/src/app/config.py:ro
-  #     - ./app2.accounts:/usr/src/app/accounts
-  #     - ./app2.downloads:/usr/src/app/downloads
-  #     - ./app2.logs:/usr/src/app/logs
-  #     - ./app2.rclone:/usr/src/app/rclone
-  #     - ./app2.thumbnails:/usr/src/app/thumbnails
-  #     - tunnel_data:/data:ro
-  #   expose:
-  #     - "8080"
-  #
-  # tunnel2:
-  #   build:
-  #     context: .
-  #     dockerfile: tunnel.Dockerfile
-  #   restart: unless-stopped
-  #   network_mode: "service:app2"
-  #   environment:
-  #     TUNNEL_URL_FILE: /data/tunnel2_url.txt
-  #   volumes:
-  #     - tunnel_data:/data
-  #
-  # Optional named Cloudflare tunnel:
-  # 1. Go to https://dash.cloudflare.com/ -> Networking -> Tunnels -> Create a tunnel.
-  # 2. Choose the Cloudflared connector type, name your tunnel, and save.
-  # 3. Under Connectors, copy the token from the install command.
-  # 4. Under Public Hostname, route your domain to HTTP localhost:8080.
-  # tunnel:
-  #   image: cloudflare/cloudflared:latest
-  #   restart: unless-stopped
-  #   command: tunnel --no-autoupdate run --token <YOUR_TOKEN>
-  #   network_mode: "service:app"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
 
-volumes:
-  tunnel_data:
+    security_opt:
+      - no-new-privileges:true

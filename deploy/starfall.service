@@ -1,0 +1,54 @@
+# ==============================================================================
+# Starfall-Go Debrid — Bare-Metal Systemd Unit with Cgroups v2 Memory Shield
+# Install:
+#   sudo cp deploy/starfall.service /etc/systemd/system/starfall.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now starfall
+# ==============================================================================
+[Unit]
+Description=Starfall-Go Debrid Engine & Silent Telegram Cloud Vault (2vCPU/4GB Profile)
+Documentation=https://github.com/starfall-org/starfall-go
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=starfall
+Group=starfall
+WorkingDirectory=/opt/starfall-go
+ExecStart=/opt/starfall-go/starfall-debrid
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=25s
+
+# Go Runtime Memory & Concurrency Guardrails
+Environment="GOMEMLIMIT=3000MiB"
+Environment="GOGC=50"
+Environment="GOMAXPROCS=2"
+Environment="STARFALL_APP_LISTEN_ADDR=0.0.0.0:8080"
+Environment="STARFALL_APP_DOWNLOAD_DIR=/opt/starfall-go/downloads"
+Environment="STARFALL_DATABASE_SQLITE_PATH=/opt/starfall-go/data/starfall_users.db"
+EnvironmentFile=-/opt/starfall-go/.env
+
+# Systemd Cgroups v2 Hardware Protection (Retains >= 600 MiB for Linux Kernel & SSH)
+MemoryAccounting=true
+MemoryHigh=3000M
+MemoryMax=3400M
+MemorySwapMax=400M
+CPUAccounting=true
+CPUQuota=190%
+IOAccounting=true
+IOWeight=80
+TasksMax=512
+OOMScoreAdjust=200
+
+# File Descriptor Ceiling (65535) for 1Gbps Multi-Stream Transfers
+LimitNOFILE=65535
+
+# Hardened Sandboxing
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/starfall-go/data /opt/starfall-go/downloads
+
+[Install]
+WantedBy=multi-user.target

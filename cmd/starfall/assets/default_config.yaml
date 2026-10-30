@@ -1,0 +1,32 @@
+# Starfall-Go Debrid Default Embedded Configuration
+# Tuned for 2 vCPU / 4 GB RAM VPS (Ubuntu 24.04 LTS / Debian 12)
+app:
+  name: "starfall-debrid"
+  environment: "production"
+  listen_addr: "0.0.0.0:8080"
+  download_dir: "/usr/src/app/downloads"
+  max_procs: 2
+
+memory:
+  soft_limit_mib: 3000
+  hard_ceiling_mib: 3200
+  warn_percent: 70.0
+  critical_percent: 82.0
+  heap_safety_ratio: 0.80
+  watchdog_interval_ms: 1000
+
+network:
+  max_global_conns: 150
+  max_conns_per_task: 30
+  max_download_bps: 0
+  max_upload_bps: 0
+  dial_timeout_sec: 15
+
+engine:
+  max_concurrent_workers: 4
+  max_active_downloads: 3
+  max_telegram_uploads: 2
+  max_lossless_remux: 1
+  queue_buffer_size: 128
+  nvme_min_free_gb: 5.0
+  max_disk_write_mbps: 120
