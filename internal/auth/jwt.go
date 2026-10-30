@@ -188,8 +188,8 @@ func (m *JWTManager) ClearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// ExtractFromRequest reads the JWT from the `starfall_session` cookie (preferred)
-// or falls back to an `Authorization: Bearer <token>` header, and verifies its signature.
+// ExtractFromRequest reads the JWT from the `starfall_session` cookie (preferred),
+// falls back to an `Authorization: Bearer <token>` header, or a `?token=<token>` query parameter.
 func (m *JWTManager) ExtractFromRequest(r *http.Request) (*SessionClaims, error) {
 	if cookie, err := r.Cookie(SessionCookieName); err == nil && strings.TrimSpace(cookie.Value) != "" {
 		return m.VerifyToken(cookie.Value)
@@ -201,6 +201,10 @@ func (m *JWTManager) ExtractFromRequest(r *http.Request) (*SessionClaims, error)
 		if rawToken != "" {
 			return m.VerifyToken(rawToken)
 		}
+	}
+
+	if qToken := strings.TrimSpace(r.URL.Query().Get("token")); qToken != "" {
+		return m.VerifyToken(qToken)
 	}
 
 	return nil, ErrMissingSessionCookie

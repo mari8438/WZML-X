@@ -18,10 +18,13 @@ import (
 
 	"github.com/starfall-org/starfall-go/internal/auth"
 	"github.com/starfall-org/starfall-go/internal/config"
+	"github.com/starfall-org/starfall-go/internal/downloader"
 	"github.com/starfall-org/starfall-go/internal/engine"
 	"github.com/starfall-org/starfall-go/internal/ipc"
 	"github.com/starfall-org/starfall-go/internal/safety"
 	"github.com/starfall-org/starfall-go/internal/user"
+	webhandlers "github.com/starfall-org/starfall-go/internal/web"
+	webassets "github.com/starfall-org/starfall-go/web"
 )
 
 const (
@@ -154,7 +157,21 @@ func main() {
 	watchdog.Start(rootCtx)
 	dispatcher.Start(rootCtx)
 
-	// 4. Start HTTP Server with Google OAuth 2.0, Protected User APIs, and Health Telemetry.
+	// 4. Initialize Unified Direct Leech Manager (GDrive, Mega, Terabox, DDL, yt-dlp).
+	dlManager := downloader.NewManager(
+		downloader.ManagerConfig{
+			DownloadDir:         cfg.App.DownloadDir,
+			RequireTelegramDump: false,
+		},
+		dispatcher,
+		registry,
+		watchdog,
+		rateLimiter,
+		bus,
+		logger,
+	)
+
+	// 5. Start HTTP Server with Web Studio, Video Tools, Owner Admin Deck, and Google OAuth 2.0.
 	httpServer := startHTTPServer(
 		cfg,
 		jwtManager,
@@ -164,6 +181,8 @@ func main() {
 		rateLimiter,
 		registry,
 		dispatcher,
+		dlManager,
+		bus,
 		logger,
 	)
 
@@ -208,6 +227,8 @@ func startHTTPServer(
 	rl *safety.RateLimiter,
 	reg *engine.TaskRegistry,
 	disp *engine.Dispatcher,
+	dlManager *downloader.Manager,
+	bus *ipc.Bus,
 	logger *slog.Logger,
 ) *http.Server {
 	mux := http.NewServeMux()
@@ -239,6 +260,43 @@ func startHTTPServer(
 			http.Redirect(w, r, "/", http.StatusSeeOther)
 		})
 	}
+
+	// Register Cyberpunk Anime Web Studio Dashboard & Leech API routes
+	dashboardHandler := webhandlers.NewDashboardHandler(
+		webassets.Assets,
+		dlManager,
+		reg,
+		userService,
+		jwtManager,
+		cfg.App.DownloadDir,
+		logger,
+	)
+	dashboardHandler.RegisterRoutes(mux, authMiddleware)
+
+	// Register Lossless Video Tools Studio routes (probe, frame grabber, mkvmerge remux)
+	videoHandler := webhandlers.NewVideoStudioHandler(
+		webassets.Assets,
+		reg,
+		disp,
+		wd,
+		cfg.App.DownloadDir,
+		logger,
+	)
+	videoHandler.RegisterRoutes(mux, authMiddleware)
+
+	// Register Owner Bot Settings UI & Admin routes
+	adminHandler := webhandlers.NewAdminHandler(
+		webassets.Assets,
+		fmt.Sprintf("%d", cfg.Telegram.OwnerID),
+		cfg,
+		wd,
+		rl,
+		disp,
+		reg,
+		bus,
+		logger,
+	)
+	adminHandler.RegisterRoutes(mux, authMiddleware)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		snap := wd.Snapshot()
