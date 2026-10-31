@@ -3,7 +3,6 @@ package publisher
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -98,16 +97,5 @@ func (p *HappyFappyPublisher) persistState(ctx context.Context, state *Transacti
 		return
 	}
 	detailsJSON, _ := json.Marshal(state)
-	query := `
-	INSERT INTO happyfappy_transactions (tx_id, amount, status, details_json, created_at, updated_at, updated_at_ns)
-	VALUES (?, 0, ?, ?, ?, ?, ?)
-	ON CONFLICT(tx_id) DO UPDATE SET
-		status = excluded.status,
-		details_json = excluded.details_json,
-		updated_at = excluded.updated_at,
-		updated_at_ns = excluded.updated_at_ns;
-	`
-	now := time.Now().UTC()
-	_, _ = p.db.SetBotSetting(ctx, "hf_tx_"+state.TxID, string(detailsJSON))
-	_ = query
+	_ = p.db.SetBotSetting(ctx, "hf_tx_"+state.TxID, string(detailsJSON))
 }
