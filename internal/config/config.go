@@ -222,21 +222,31 @@ func Load(embeddedYAML []byte) (*Config, error) {
 	return &cfg, nil
 }
 
-// applyLegacyEnvFallbacks maps classic StarfallX `config.env` variables when `STARFALL_*` is unset.
+// applyLegacyEnvFallbacks maps classic StarfallX `config.env` and `STARFALL_*` variables when unset.
 func applyLegacyEnvFallbacks(cfg *Config) {
 	if cfg.Telegram.BotToken == "" {
-		cfg.Telegram.BotToken = strings.TrimSpace(os.Getenv("BOT_TOKEN"))
+		cfg.Telegram.BotToken = strings.TrimSpace(os.Getenv("STARFALL_TELEGRAM_BOT_TOKEN"))
+		if cfg.Telegram.BotToken == "" {
+			cfg.Telegram.BotToken = strings.TrimSpace(os.Getenv("BOT_TOKEN"))
+		}
 	}
 	if cfg.Telegram.APIID == 0 {
-		if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("TELEGRAM_API"))); err == nil && v > 0 {
+		if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("STARFALL_TELEGRAM_API_ID"))); err == nil && v > 0 {
+			cfg.Telegram.APIID = v
+		} else if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv("TELEGRAM_API"))); err == nil && v > 0 {
 			cfg.Telegram.APIID = v
 		}
 	}
 	if cfg.Telegram.APIHash == "" {
-		cfg.Telegram.APIHash = strings.TrimSpace(os.Getenv("TELEGRAM_HASH"))
+		cfg.Telegram.APIHash = strings.TrimSpace(os.Getenv("STARFALL_TELEGRAM_API_HASH"))
+		if cfg.Telegram.APIHash == "" {
+			cfg.Telegram.APIHash = strings.TrimSpace(os.Getenv("TELEGRAM_HASH"))
+		}
 	}
 	if cfg.Telegram.OwnerID == 0 {
-		if v, err := strconv.ParseInt(strings.TrimSpace(os.Getenv("OWNER_ID")), 10, 64); err == nil && v > 0 {
+		if v, err := strconv.ParseInt(strings.TrimSpace(os.Getenv("STARFALL_TELEGRAM_OWNER_ID")), 10, 64); err == nil && v > 0 {
+			cfg.Telegram.OwnerID = v
+		} else if v, err := strconv.ParseInt(strings.TrimSpace(os.Getenv("OWNER_ID")), 10, 64); err == nil && v > 0 {
 			cfg.Telegram.OwnerID = v
 		}
 	}
@@ -245,7 +255,10 @@ func applyLegacyEnvFallbacks(cfg *Config) {
 		cfg.Telegram.OwnerID = 8814651149
 	}
 	if cfg.Telegram.DumpChatID == 0 {
-		rawDump := strings.TrimSpace(os.Getenv("LEECH_DUMP_CHAT"))
+		rawDump := strings.TrimSpace(os.Getenv("STARFALL_TELEGRAM_DUMP_CHAT_ID"))
+		if rawDump == "" {
+			rawDump = strings.TrimSpace(os.Getenv("LEECH_DUMP_CHAT"))
+		}
 		if idx := strings.Index(rawDump, "|"); idx != -1 {
 			rawDump = rawDump[:idx]
 		}
@@ -254,28 +267,52 @@ func applyLegacyEnvFallbacks(cfg *Config) {
 		}
 	}
 	if cfg.Telegram.SessionString == "" {
-		cfg.Telegram.SessionString = strings.TrimSpace(os.Getenv("USER_SESSION_STRING"))
+		cfg.Telegram.SessionString = strings.TrimSpace(os.Getenv("STARFALL_TELEGRAM_SESSION_STRING"))
+		if cfg.Telegram.SessionString == "" {
+			cfg.Telegram.SessionString = strings.TrimSpace(os.Getenv("USER_SESSION_STRING"))
+		}
 	}
 	if cfg.Telegram.HelperTokens == "" {
-		cfg.Telegram.HelperTokens = strings.TrimSpace(os.Getenv("HELPER_TOKENS"))
+		cfg.Telegram.HelperTokens = strings.TrimSpace(os.Getenv("STARFALL_TELEGRAM_HELPER_TOKENS"))
+		if cfg.Telegram.HelperTokens == "" {
+			cfg.Telegram.HelperTokens = strings.TrimSpace(os.Getenv("HELPER_TOKENS"))
+		}
 	}
 	if cfg.Telegram.SudoUsers == "" {
-		cfg.Telegram.SudoUsers = strings.TrimSpace(os.Getenv("SUDO_USERS"))
+		cfg.Telegram.SudoUsers = strings.TrimSpace(os.Getenv("STARFALL_TELEGRAM_SUDO_USERS"))
+		if cfg.Telegram.SudoUsers == "" {
+			cfg.Telegram.SudoUsers = strings.TrimSpace(os.Getenv("SUDO_USERS"))
+		}
 	}
 	if cfg.Telegram.AuthorizedChats == "" {
-		cfg.Telegram.AuthorizedChats = strings.TrimSpace(os.Getenv("AUTHORIZED_CHATS"))
+		cfg.Telegram.AuthorizedChats = strings.TrimSpace(os.Getenv("STARFALL_TELEGRAM_AUTHORIZED_CHATS"))
+		if cfg.Telegram.AuthorizedChats == "" {
+			cfg.Telegram.AuthorizedChats = strings.TrimSpace(os.Getenv("AUTHORIZED_CHATS"))
+		}
 	}
 	if cfg.Engine.TMDBAPIKey == "" {
-		cfg.Engine.TMDBAPIKey = strings.TrimSpace(os.Getenv("TMDB_API_KEY"))
+		cfg.Engine.TMDBAPIKey = strings.TrimSpace(os.Getenv("STARFALL_ENGINE_TMDB_API_KEY"))
+		if cfg.Engine.TMDBAPIKey == "" {
+			cfg.Engine.TMDBAPIKey = strings.TrimSpace(os.Getenv("TMDB_API_KEY"))
+		}
 	}
 	if cfg.Auth.GoogleClientID == "" {
-		cfg.Auth.GoogleClientID = strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID"))
+		cfg.Auth.GoogleClientID = strings.TrimSpace(os.Getenv("STARFALL_AUTH_GOOGLE_CLIENT_ID"))
+		if cfg.Auth.GoogleClientID == "" {
+			cfg.Auth.GoogleClientID = strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID"))
+		}
 	}
 	if cfg.Auth.GoogleClientSecret == "" {
-		cfg.Auth.GoogleClientSecret = strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET"))
+		cfg.Auth.GoogleClientSecret = strings.TrimSpace(os.Getenv("STARFALL_AUTH_GOOGLE_CLIENT_SECRET"))
+		if cfg.Auth.GoogleClientSecret == "" {
+			cfg.Auth.GoogleClientSecret = strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET"))
+		}
 	}
 	if cfg.App.PublicBaseURL == "" {
-		cfg.App.PublicBaseURL = strings.TrimSpace(os.Getenv("BASE_URL"))
+		cfg.App.PublicBaseURL = strings.TrimSpace(os.Getenv("STARFALL_APP_PUBLIC_BASE_URL"))
+		if cfg.App.PublicBaseURL == "" {
+			cfg.App.PublicBaseURL = strings.TrimSpace(os.Getenv("BASE_URL"))
+		}
 	}
 }
 
