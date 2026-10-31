@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"

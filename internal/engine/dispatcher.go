@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
