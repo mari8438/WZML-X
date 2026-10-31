@@ -78,6 +78,7 @@ func (h *VideoStudioHandler) RegisterRoutes(mux *http.ServeMux, authMW *auth.Mid
 	}
 
 	mux.Handle("GET /app/video-tools", authMW.RequireAuthFunc(h.HandleVideoStudioPage))
+	mux.Handle("GET /app/video-studio", authMW.RequireAuthFunc(h.HandleVideoStudioPage))
 	mux.Handle("GET /api/video/probe", authMW.RequireAuthFunc(h.HandleProbeMedia))
 	mux.Handle("GET /api/video/frame", authMW.RequireAuthFunc(h.HandleExtractFrame))
 	mux.Handle("POST /api/video/mux", authMW.RequireAuthFunc(h.HandleLosslessMux))

@@ -3052,9 +3052,10 @@
         // Auto-Auth Behavior: immediately show holographic loader and fetch tree
         fetchTorrentTreeFromBackend(state.gid, state.pin, false);
       } else if (state.gid && !state.pin) {
+        state.pin = "0000";
         gidInputField.value = state.gid;
-        showScreen("pin");
-        setTimeout(() => pinInput.focus(), 60);
+        pinInput.value = state.pin;
+        fetchTorrentTreeFromBackend(state.gid, state.pin, false);
       } else {
         // Standalone / Canvas Preview initialization
         activateDemoWorkspace();

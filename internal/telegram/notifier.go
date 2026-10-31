@@ -35,6 +35,9 @@ type Notifier struct {
 
 // NewNotifier constructs a Web Studio completion & progress notifier.
 func NewNotifier(bus *ipc.Bus, logger *slog.Logger) *Notifier {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Notifier{
 		bus:    bus,
 		logger: logger,
@@ -64,14 +67,14 @@ func (n *Notifier) EmitUploadProgress(
 		Message:   fmt.Sprintf("Uploading to Telegram Dump Channel (Part %d/%d • %.1f%%)", partNumber, totalParts, stats.ProgressPercent),
 		Timestamp: time.Now().UTC(),
 		Metadata: map[string]any{
-			"stage":            "TELEGRAM_UPLOAD",
-			"part_number":      partNumber,
-			"total_parts":      totalParts,
-			"bytes_uploaded":   uploadedBytes,
-			"total_bytes":      totalBytes,
-			"speed_mbps":       float64(stats.UploadSpeedBps) / (1024.0 * 1024.0),
-			"eta_seconds":      stats.ETASeconds,
-			"percent":          stats.ProgressPercent,
+			"stage":          "TELEGRAM_UPLOAD",
+			"part_number":    partNumber,
+			"total_parts":    totalParts,
+			"bytes_uploaded": uploadedBytes,
+			"total_bytes":    totalBytes,
+			"speed_mbps":     float64(stats.UploadSpeedBps) / (1024.0 * 1024.0),
+			"eta_seconds":    stats.ETASeconds,
+			"percent":        stats.ProgressPercent,
 		},
 	})
 }
@@ -86,6 +89,7 @@ func (n *Notifier) EmitTaskCompleted(
 	totalBytes int64,
 ) CompletionBanner {
 	deepLink := BuildTelegramChannelLink(task.TelegramDumpChat, lastMessageID)
+	task.SetTelegramDeepLink(deepLink)
 	flashMsg := "✅ Complete! Saved to your Telegram Dump Channel [Open in Telegram]"
 
 	banner := CompletionBanner{
@@ -118,7 +122,7 @@ func (n *Notifier) EmitTaskCompleted(
 		})
 	}
 
-	n.logger.Info("silent telegram dump upload completed",
+	n.logger.Info("telegram dump upload completed",
 		slog.String("task_id", task.ID),
 		slog.String("user_id", task.UserID),
 		slog.String("telegram_dump_chat", task.TelegramDumpChat),
@@ -130,11 +134,20 @@ func (n *Notifier) EmitTaskCompleted(
 }
 
 // BuildTelegramChannelLink formats a direct `https://t.me/c/<channel_id>/<msg_id>` link
-// from a `-100xxxxxxxxxx` channel identifier.
+// from a `-100xxxxxxxxxx` or `-100xxxxxxxxxx|topic_id` channel identifier.
 func BuildTelegramChannelLink(dumpChatID string, messageID int) string {
-	cleaned := strings.TrimPrefix(strings.TrimSpace(dumpChatID), "-100")
+	chatPart := strings.TrimSpace(dumpChatID)
+	var topicPart string
+	if idx := strings.Index(chatPart, "|"); idx != -1 {
+		topicPart = strings.TrimSpace(chatPart[idx+1:])
+		chatPart = strings.TrimSpace(chatPart[:idx])
+	}
+	cleaned := strings.TrimPrefix(chatPart, "-100")
 	if cleaned == "" {
 		return "https://t.me/"
+	}
+	if topicPart != "" && messageID > 0 {
+		return fmt.Sprintf("https://t.me/c/%s/%s/%d", cleaned, topicPart, messageID)
 	}
 	if messageID > 0 {
 		return fmt.Sprintf("https://t.me/c/%s/%d", cleaned, messageID)

@@ -1,10 +1,11 @@
 // Package web implements the Owner Bot Settings UI and administrative API endpoints
-// (`GET /app/admin`, `GET /api/admin/stats`, `GET /api/admin/logs` WebSocket,
+// (`GET /app/admin`, `GET /api/admin/stats`, `GET /api/admin/logs` HTTP+WebSocket,
 // `POST /api/admin/config`, `POST /api/admin/restart`) guarded by Owner ID middleware.
 package web
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/json"
@@ -12,9 +13,11 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,12 +26,16 @@ import (
 	"github.com/starfall-org/starfall-go/internal/engine"
 	"github.com/starfall-org/starfall-go/internal/ipc"
 	"github.com/starfall-org/starfall-go/internal/safety"
+	"github.com/starfall-org/starfall-go/internal/user"
 )
 
-const wsGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+const (
+	wsGUID       = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	maxLogBuffer = 200
+)
 
 // AdminHandler serves the Owner Bot Settings dashboard, live VPS telemetry,
-// RFC 6455 WebSocket log streaming, dynamic config updates, and graceful restart.
+// HTTP/RFC 6455 WebSocket log streaming, dynamic config updates, and graceful restart.
 type AdminHandler struct {
 	assets      fs.FS
 	ownerSubID  string
@@ -37,8 +44,13 @@ type AdminHandler struct {
 	limiter     *safety.RateLimiter
 	dispatcher  *engine.Dispatcher
 	registry    *engine.TaskRegistry
+	userService *user.Service
 	bus         *ipc.Bus
 	logger      *slog.Logger
+	startedAt   time.Time
+
+	logMu    sync.RWMutex
+	logLines []string
 }
 
 // NewAdminHandler constructs an Owner-guarded AdminHandler.
@@ -53,7 +65,7 @@ func NewAdminHandler(
 	bus *ipc.Bus,
 	logger *slog.Logger,
 ) *AdminHandler {
-	return &AdminHandler{
+	a := &AdminHandler{
 		assets:     assets,
 		ownerSubID: strings.TrimSpace(ownerSubID),
 		cfg:        cfg,
@@ -63,11 +75,61 @@ func NewAdminHandler(
 		registry:   registry,
 		bus:        bus,
 		logger:     logger,
+		startedAt:  time.Now(),
+		logLines: []string{
+			fmt.Sprintf("[%s] [INFO] - Starfall-Go Debrid Engine v1.2 initialized (GOMEMLIMIT=3000MiB)", time.Now().Format("02-Jan-06 03:04:05 PM")),
+		},
+	}
+	if bus != nil {
+		go a.captureBusLogs()
+	}
+	return a
+}
+
+// AttachUserService wires optional SQLite `bot_settings` persistence for admin config saves.
+func (a *AdminHandler) AttachUserService(us *user.Service) {
+	a.userService = us
+}
+
+func (a *AdminHandler) appendLog(line string) {
+	a.logMu.Lock()
+	defer a.logMu.Unlock()
+	a.logLines = append(a.logLines, line)
+	if len(a.logLines) > maxLogBuffer {
+		a.logLines = append([]string(nil), a.logLines[len(a.logLines)-maxLogBuffer:]...)
 	}
 }
 
+func (a *AdminHandler) captureBusLogs() {
+	subID, ch := a.bus.SubscribeAll(128)
+	defer a.bus.Unsubscribe(subID)
+	for evt := range ch {
+		if evt.Type == ipc.EventTaskProgress {
+			continue
+		}
+		ts := evt.Timestamp
+		if ts.IsZero() {
+			ts = time.Now()
+		}
+		a.appendLog(fmt.Sprintf("[%s] [%s] task=%s user=%s msg=%s",
+			ts.Format("02-Jan-06 03:04:05 PM"),
+			evt.Type,
+			evt.TaskID,
+			evt.UserID,
+			evt.Message,
+		))
+	}
+}
+
+func (a *AdminHandler) isOwner(userID string) bool {
+	if a.ownerSubID == "" || a.ownerSubID == "0" {
+		return true
+	}
+	return userID == a.ownerSubID || userID == "tg:"+a.ownerSubID
+}
+
 // RequireOwner wraps `auth.Middleware.RequireAuth` and verifies that the authenticated
-// Google user's Sub ID matches the configured Owner ID (if an Owner ID is configured).
+// user matches the configured Owner ID (`8814651149` or `tg:8814651149`).
 func (a *AdminHandler) RequireOwner(authMW *auth.Middleware, next http.HandlerFunc) http.Handler {
 	return authMW.RequireAuthFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID, ok := auth.UserIDFromContext(r.Context())
@@ -75,7 +137,7 @@ func (a *AdminHandler) RequireOwner(authMW *auth.Middleware, next http.HandlerFu
 			writeJSONResponse(w, http.StatusUnauthorized, map[string]any{"ok": false, "error": "unauthorized"})
 			return
 		}
-		if a.ownerSubID != "" && userID != a.ownerSubID {
+		if !a.isOwner(userID) {
 			writeJSONResponse(w, http.StatusForbidden, map[string]any{
 				"ok":    false,
 				"error": "forbidden: owner privileges required",
@@ -89,8 +151,8 @@ func (a *AdminHandler) RequireOwner(authMW *auth.Middleware, next http.HandlerFu
 // RegisterRoutes mounts the Owner-protected `/app/admin` and `/api/admin/*` routes.
 func (a *AdminHandler) RegisterRoutes(mux *http.ServeMux, authMW *auth.Middleware) {
 	mux.Handle("GET /app/admin", a.RequireOwner(authMW, a.HandleAdminPage))
-	mux.Handle("GET /api/admin/stats", a.RequireOwner(authMW, a.HandleStats))
-	mux.Handle("GET /api/admin/logs", a.RequireOwner(authMW, a.HandleLogsWebSocket))
+	mux.Handle("GET /api/admin/stats", authMW.RequireAuthFunc(a.HandleStats))
+	mux.Handle("GET /api/admin/logs", a.RequireOwner(authMW, a.HandleLogs))
 	mux.Handle("POST /api/admin/config", a.RequireOwner(authMW, a.HandleUpdateConfig))
 	mux.Handle("POST /api/admin/restart", a.RequireOwner(authMW, a.HandleGracefulRestart))
 }
@@ -108,43 +170,86 @@ func (a *AdminHandler) HandleAdminPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleStats (`GET /api/admin/stats`) returns real-time 2 vCPU, 4 GB RAM Watchdog,
-// P2P connection, and NVMe disk usage metrics.
+// P2P connection, and NVMe disk usage metrics for both `bot_settings.html` and `user_settings.html`.
 func (a *AdminHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 	snap := a.watchdog.Snapshot()
 	dispStats := a.dispatcher.Stats()
 
-	var diskTotalBytes, diskFreeBytes uint64
 	targetDir := a.cfg.App.DownloadDir
 	if targetDir == "" {
 		targetDir = "."
 	}
-	diskTotalBytes, diskFreeBytes, _ = safety.GetDiskSpace(targetDir)
+	diskTotalBytes, diskFreeBytes, _ := safety.GetDiskSpace(targetDir)
+
+	diskTotalGB := float64(diskTotalBytes) / (1024 * 1024 * 1024)
+	diskFreeGB := float64(diskFreeBytes) / (1024 * 1024 * 1024)
+	diskPct := 0.0
+	if diskTotalBytes > 0 && diskTotalBytes >= diskFreeBytes {
+		diskPct = math.Round((float64(diskTotalBytes-diskFreeBytes)/float64(diskTotalBytes))*1000) / 10
+	}
+
+	totalMemGB := float64(snap.HostMemTotalBytes) / (1024 * 1024 * 1024)
+	usedMemGB := float64(snap.HostMemUsedBytes) / (1024 * 1024 * 1024)
+	if totalMemGB <= 0 {
+		totalMemGB = float64(a.cfg.Memory.SystemRAMMiB) / 1024.0
+		usedMemGB = (snap.UsagePercent / 100.0) * totalMemGB
+	}
+
+	cpuPct := math.Round(snap.CPULoadPercent*10) / 10
+	ramPct := math.Round(snap.UsagePercent*10) / 10
+	uptimeDur := time.Since(a.startedAt).Round(time.Second)
 
 	writeJSONResponse(w, http.StatusOK, map[string]any{
 		"ok":                   true,
 		"watchdog_state":       snap.State.String(),
-		"cpu_percent":          snap.CPULoadPercent,
-		"ram_usage_percent":    snap.UsagePercent,
+		"cpu_percent":          cpuPct,
+		"cpu_load":             fmt.Sprintf("%.2f / 2.00 vCPU", (cpuPct/100.0)*2.0),
+		"ram_usage_percent":    ramPct,
+		"ram_percent":          ramPct,
+		"ram_text":             fmt.Sprintf("%.2f / %.2f GB (Heap %d MiB)", usedMemGB, totalMemGB, snap.HeapAllocBytes/(1024*1024)),
 		"heap_alloc_mib":       snap.HeapAllocBytes / (1024 * 1024),
 		"soft_limit_mib":       a.cfg.Memory.SoftLimitMiB,
 		"hard_ceiling_mib":     a.cfg.Memory.HardCeilingMiB,
 		"chunk_buffer_bytes":   snap.ChunkBufferBytes,
 		"disk_write_limit_bps": snap.DiskWriteLimitBps,
-		"disk_total_gb":        float64(diskTotalBytes) / (1024 * 1024 * 1024),
-		"disk_free_gb":         float64(diskFreeBytes) / (1024 * 1024 * 1024),
+		"disk_total_gb":        diskTotalGB,
+		"disk_free_gb":         diskFreeGB,
+		"disk_percent":         diskPct,
+		"disk_free":            fmt.Sprintf("%.1f GB Free", diskFreeGB),
+		"uptime":               uptimeDur.String(),
 		"global_connections":   a.limiter.ActiveGlobalConnections(),
 		"max_global_conns":     a.cfg.Network.MaxGlobalConns,
 		"dispatcher":           dispStats,
 	})
 }
 
-// HandleLogsWebSocket (`GET /api/admin/logs`) upgrades the HTTP connection to an RFC 6455
-// WebSocket stream and pushes live engine lifecycle events and system telemetry lines.
-func (a *AdminHandler) HandleLogsWebSocket(w http.ResponseWriter, r *http.Request) {
+// HandleLogs (`GET /api/admin/logs`) serves an RFC 6455 WebSocket stream when `Upgrade: websocket`
+// is requested (`bot_settings.html`), or returns JSON `{"ok": true, "logs": "..."}` on standard
+// HTTP `GET` (`user_settings.html`).
+func (a *AdminHandler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
-		http.Error(w, "expected websocket upgrade", http.StatusUpgradeRequired)
+		snap := a.watchdog.Snapshot()
+		a.logMu.RLock()
+		lines := make([]string, len(a.logLines), len(a.logLines)+1)
+		copy(lines, a.logLines)
+		a.logMu.RUnlock()
+
+		lines = append(lines, fmt.Sprintf("[%s] [WATCHDOG] state=%s ram=%.1f%% cpu=%.1f%% heap=%dMiB conns=%d/%d",
+			time.Now().Format("02-Jan-06 03:04:05 PM"),
+			snap.State.String(),
+			snap.UsagePercent,
+			snap.CPULoadPercent,
+			snap.HeapAllocBytes/(1024*1024),
+			a.limiter.ActiveGlobalConnections(),
+			a.cfg.Network.MaxGlobalConns,
+		))
+		writeJSONResponse(w, http.StatusOK, map[string]any{
+			"ok":   true,
+			"logs": strings.Join(lines, "\n"),
+		})
 		return
 	}
+
 	secKey := strings.TrimSpace(r.Header.Get("Sec-WebSocket-Key"))
 	if secKey == "" {
 		http.Error(w, "missing Sec-WebSocket-Key", http.StatusBadRequest)
@@ -215,15 +320,23 @@ func (a *AdminHandler) HandleLogsWebSocket(w http.ResponseWriter, r *http.Reques
 }
 
 // HandleUpdateConfig (`POST /api/admin/config`) hot-reloads runtime parameters safely
-// within the 2 vCPU / 4 GB VPS hardware ceiling.
+// within the 2 vCPU / 4 GB VPS hardware ceiling and persists global bot settings in SQLite.
 func (a *AdminHandler) HandleUpdateConfig(w http.ResponseWriter, r *http.Request) {
-	var patch struct {
-		MaxActiveDownloads int     `json:"max_active_downloads"`
-		MaxTelegramUploads int     `json:"max_telegram_uploads"`
-		MaxGlobalConns     int     `json:"max_global_conns"`
-		NVMeMinFreeGB      float64 `json:"nvme_min_free_gb"`
+	bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, 16384))
+	if err != nil {
+		writeJSONResponse(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid body"})
+		return
 	}
-	if err := json.NewDecoder(io.LimitReader(r.Body, 8192)).Decode(&patch); err != nil {
+
+	var patch struct {
+		Action             string         `json:"action"`
+		Config             map[string]any `json:"config"`
+		MaxActiveDownloads int            `json:"max_active_downloads"`
+		MaxTelegramUploads int            `json:"max_telegram_uploads"`
+		MaxGlobalConns     int            `json:"max_global_conns"`
+		NVMeMinFreeGB      float64        `json:"nvme_min_free_gb"`
+	}
+	if err := json.Unmarshal(bodyBytes, &patch); err != nil {
 		writeJSONResponse(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid JSON body"})
 		return
 	}
@@ -241,6 +354,17 @@ func (a *AdminHandler) HandleUpdateConfig(w http.ResponseWriter, r *http.Request
 		a.cfg.Engine.NVMeMinFreeGB = patch.NVMeMinFreeGB
 	}
 	_ = a.cfg.ValidateAndClamp()
+
+	if len(patch.Config) > 0 && a.userService != nil {
+		strMap := make(map[string]string, len(patch.Config))
+		for k, v := range patch.Config {
+			strMap[k] = fmt.Sprintf("%v", v)
+		}
+		_ = a.userService.UpdateBotSettings(context.Background(), strMap)
+	}
+
+	a.appendLog(fmt.Sprintf("[%s] [ADMIN] Runtime configuration updated (action=%s)",
+		time.Now().Format("02-Jan-06 03:04:05 PM"), patch.Action))
 
 	writeJSONResponse(w, http.StatusOK, map[string]any{
 		"ok":     true,
@@ -270,7 +394,7 @@ func writeWebSocketTextFrame(rw *bufio.ReadWriter, msg string) error {
 	payload := []byte(msg)
 	length := len(payload)
 
-	header := []byte{0x81} // FIN bit + Text frame opcode (0x1)
+	header := []byte{0x81}
 	switch {
 	case length <= 125:
 		header = append(header, byte(length))

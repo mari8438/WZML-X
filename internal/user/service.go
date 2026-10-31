@@ -1,6 +1,6 @@
-// Package user provides domain methods (`GetUser`, `UpdateTelegramDump`, `UpdateThemePreferences`)
-// and HTTP API handlers (`GET /api/user/profile`, `POST /api/user/telegram-dump`)
-// for linking a user's Google account to their private Telegram delivery channel.
+// Package user provides domain methods (`GetUser`, `GetOrCreateByTelegramID`, `UpdateUserSettings`,
+// `UpdateTelegramDump`, `UpdateThemePreferences`, `GetBotSettings`) and HTTP API handlers
+// for linking a user's Google or Telegram account to their private Telegram delivery channel.
 package user
 
 import (
@@ -24,10 +24,25 @@ type Service struct {
 
 // NewService constructs a User Service backed by the embedded SQLite Store.
 func NewService(store *Store, logger *slog.Logger) *Service {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &Service{
 		store:  store,
 		logger: logger,
 	}
+}
+
+// SeedFromJSONDir imports `configs/user_settings_*.json` snapshots into SQLite on boot.
+func (s *Service) SeedFromJSONDir(ctx context.Context, dir string) (int, error) {
+	n, err := s.store.SeedFromJSONDir(ctx, dir)
+	if err != nil {
+		return n, err
+	}
+	if n > 0 {
+		s.logger.Info("seeded starfall user settings snapshots", slog.Int("count", n), slog.String("dir", dir))
+	}
+	return n, nil
 }
 
 // UpsertGoogleUser creates or updates a user upon Google OAuth 2.0 callback completion.
@@ -38,7 +53,17 @@ func (s *Service) UpsertGoogleUser(
 	return s.store.UpsertGoogleUser(ctx, id, email, name, avatarURL)
 }
 
-// GetUser retrieves a user's profile and linked Telegram Dump Channel ID by Google Sub ID.
+// GetOrCreateByTelegramID fetches or creates a Telegram-linked user (`tg:<telegramID>`).
+func (s *Service) GetOrCreateByTelegramID(ctx context.Context, telegramID int64, displayName string) (*models.User, error) {
+	return s.store.GetOrCreateByTelegramID(ctx, telegramID, displayName)
+}
+
+// GetByTelegramID retrieves a user record by their numeric Telegram ID.
+func (s *Service) GetByTelegramID(ctx context.Context, telegramID int64) (*models.User, error) {
+	return s.store.GetByTelegramID(ctx, telegramID)
+}
+
+// GetUser retrieves a user's profile and settings by user ID (`id`).
 func (s *Service) GetUser(ctx context.Context, userID string) (*models.User, error) {
 	if strings.TrimSpace(userID) == "" {
 		return nil, ErrUserNotFound
@@ -46,8 +71,43 @@ func (s *Service) GetUser(ctx context.Context, userID string) (*models.User, err
 	return s.store.GetByID(ctx, userID)
 }
 
+// UpdateUserSettings validates and persists the full 40+ StarfallX settings struct for `userID`.
+func (s *Service) UpdateUserSettings(
+	ctx context.Context,
+	userID string,
+	settings models.UserSettings,
+) (*models.User, error) {
+	cleanedDump := strings.TrimSpace(settings.LeechDumpChat)
+	if err := models.ValidateTelegramDumpChat(cleanedDump); err != nil {
+		return nil, err
+	}
+	settings.LeechDumpChat = cleanedDump
+	if settings.PostTemplateID != 0 {
+		if err := models.ValidatePosterTemplate(settings.PostTemplateID); err != nil {
+			return nil, err
+		}
+	}
+	if settings.AnimeTheme != "" {
+		canonical, err := models.NormalizeAnimeTheme(settings.AnimeTheme)
+		if err != nil {
+			return nil, err
+		}
+		settings.AnimeTheme = canonical
+	}
+	updated, err := s.store.UpdateUserSettings(ctx, userID, settings)
+	if err != nil {
+		return nil, err
+	}
+	s.logger.Info("updated user settings",
+		slog.String("user_id", updated.ID),
+		slog.String("dump_chat", updated.TelegramDumpChat),
+		slog.Int("poster_template", updated.PosterTemplate),
+	)
+	return updated, nil
+}
+
 // UpdateTelegramDump validates and saves the user's private Telegram Dump Channel ID
-// (e.g., `-1002345678901`) so all subsequent web-initiated leech tasks deliver directly to it.
+// (e.g., `-1002345678901` or `-1002345678901|15`).
 func (s *Service) UpdateTelegramDump(
 	ctx context.Context,
 	userID string,
@@ -69,8 +129,7 @@ func (s *Service) UpdateTelegramDump(
 	return user, nil
 }
 
-// UpdateThemePreferences validates and updates the user's `anime_theme` (default: "solo-leveling")
-// and `poster_template` (1..11, default: 1).
+// UpdateThemePreferences validates and updates the user's `anime_theme` and `poster_template` (1..11).
 func (s *Service) UpdateThemePreferences(
 	ctx context.Context,
 	userID string,
@@ -81,7 +140,8 @@ func (s *Service) UpdateThemePreferences(
 	if theme == "" {
 		theme = models.DefaultAnimeTheme
 	}
-	if err := models.ValidateAnimeTheme(theme); err != nil {
+	canonicalTheme, err := models.NormalizeAnimeTheme(theme)
+	if err != nil {
 		return nil, err
 	}
 	if posterTemplate == 0 {
@@ -91,7 +151,7 @@ func (s *Service) UpdateThemePreferences(
 		return nil, err
 	}
 
-	user, err := s.store.UpdateThemePreferences(ctx, userID, theme, posterTemplate)
+	user, err := s.store.UpdateThemePreferences(ctx, userID, canonicalTheme, posterTemplate)
 	if err != nil {
 		return nil, err
 	}
@@ -102,6 +162,16 @@ func (s *Service) UpdateThemePreferences(
 		slog.Int("poster_template", user.PosterTemplate),
 	)
 	return user, nil
+}
+
+// GetBotSettings returns all persisted global bot overrides (`bot_settings` table).
+func (s *Service) GetBotSettings(ctx context.Context) (map[string]string, error) {
+	return s.store.GetBotSettings(ctx)
+}
+
+// UpdateBotSettings persists global bot setting overrides (`bot_settings` table).
+func (s *Service) UpdateBotSettings(ctx context.Context, kv map[string]string) error {
+	return s.store.UpdateBotSettings(ctx, kv)
 }
 
 // RegisterRoutes mounts the protected `/api/user/*` endpoints onto `mux` behind `authMiddleware`.

@@ -1,5 +1,5 @@
 // Package auth provides HTTP middleware guarding protected `/api/` endpoints
-// using the 30-day `starfall_session` HTTP-Only JWT cookie.
+// using the 30-day `starfall_session` HTTP-Only JWT cookie or Telegram `/web` magic link.
 package auth
 
 import (
@@ -19,17 +19,18 @@ const (
 	userContextKey
 )
 
-// UserLoader resolves a live User record by Google Sub ID during middleware execution.
+// UserLoader resolves a live User record by ID during middleware execution.
 type UserLoader interface {
 	GetUser(ctx context.Context, userID string) (*models.User, error)
 }
 
 // Middleware guards `/api/` routes by verifying the `starfall_session` JWT cookie
-// and injecting authenticated user context into downstream handlers.
+// (or `?token=` magic link) and injecting authenticated user context into downstream handlers.
 type Middleware struct {
-	jwtManager *JWTManager
-	userLoader UserLoader
-	logger     *slog.Logger
+	jwtManager     *JWTManager
+	userLoader     UserLoader
+	logger         *slog.Logger
+	fallbackUserID string
 }
 
 // NewMiddleware constructs an authentication Middleware instance.
@@ -41,13 +42,33 @@ func NewMiddleware(jwtManager *JWTManager, userLoader UserLoader, logger *slog.L
 	}
 }
 
+// SetFallbackUserID sets an optional owner fallback ID (e.g. `tg:8814651149`) used only when
+// Google OAuth 2.0 is not yet configured, allowing immediate Web Studio use on private deployments.
+func (mw *Middleware) SetFallbackUserID(userID string) {
+	mw.fallbackUserID = strings.TrimSpace(userID)
+}
+
+// JWTManager returns the underlying JWTManager for minting magic links (`/web`).
+func (mw *Middleware) JWTManager() *JWTManager {
+	return mw.jwtManager
+}
+
 // RequireAuth wraps an `http.Handler`, rejecting unauthenticated requests with HTTP 401 JSON
 // and hydrating `r.Context()` with `*SessionClaims` and `*models.User`.
 func (mw *Middleware) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims, err := mw.jwtManager.ExtractFromRequest(r)
 		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "authentication required: please sign in with Google")
+			// If fallback owner mode is active (when Google OAuth is unconfigured), hydrate fallback user.
+			if mw.fallbackUserID != "" && mw.userLoader != nil {
+				if fallbackUser, ferr := mw.userLoader.GetUser(r.Context(), mw.fallbackUserID); ferr == nil && fallbackUser != nil {
+					_, _ = mw.jwtManager.SetSessionCookie(w, fallbackUser)
+					ctx := context.WithValue(r.Context(), userContextKey, fallbackUser)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+			writeJSONError(w, http.StatusUnauthorized, "authentication required: please sign in with Google or /web magic link")
 			return
 		}
 
@@ -59,6 +80,10 @@ func (mw *Middleware) RequireAuth(next http.Handler) http.Handler {
 				mw.jwtManager.ClearSessionCookie(w)
 				writeJSONError(w, http.StatusUnauthorized, "user session is no longer valid")
 				return
+			}
+			// If logged in via `?token=` magic link, persist the 30-day HTTP-Only cookie automatically.
+			if strings.TrimSpace(r.URL.Query().Get("token")) != "" {
+				_, _ = mw.jwtManager.SetSessionCookie(w, user)
 			}
 			ctx = context.WithValue(ctx, userContextKey, user)
 		}
@@ -84,7 +109,7 @@ func UserFromContext(ctx context.Context) (*models.User, bool) {
 	return u, ok && u != nil
 }
 
-// UserIDFromContext extracts the authenticated user's Google Sub ID from `ctx`.
+// UserIDFromContext extracts the authenticated user's ID from `ctx`.
 func UserIDFromContext(ctx context.Context) (string, bool) {
 	if u, ok := UserFromContext(ctx); ok && strings.TrimSpace(u.ID) != "" {
 		return u.ID, true

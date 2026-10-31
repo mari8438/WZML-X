@@ -4,7 +4,7 @@
 //   - Worker Pool Size: Max 4 concurrent workers overall
 //   - Download Stage Semaphore: Max 3 active downloads
 //   - Upload Stage Semaphore: Max 2 active Telegram uploads
-//   - Remux Stage Semaphore: Max 1 active lossless remux (`mkvmerge`)
+//   - Remux Stage Semaphore: Max 1 active lossless remux (`mkvmerge` / `7z` / `ffmpeg -c copy`)
 package engine
 
 import (
@@ -61,6 +61,10 @@ type Dispatcher struct {
 	bus         *ipc.Bus
 	logger      *slog.Logger
 
+	hookMu     sync.RWMutex
+	remuxHook  models.TaskWorkFunc
+	uploadHook models.TaskWorkFunc
+
 	queue    chan *models.Task
 	dlSem    chan struct{} // buffered size 3
 	ulSem    chan struct{} // buffered size 2
@@ -116,6 +120,15 @@ func NewDispatcher(
 	}
 }
 
+// SetStageHooks attaches the post-download lossless processing hook (`remuxHook`) and
+// Telegram Cloud Vault upload hook (`uploadHook`) executed under `remuxSem` and `ulSem`.
+func (d *Dispatcher) SetStageHooks(remuxHook, uploadHook models.TaskWorkFunc) {
+	d.hookMu.Lock()
+	defer d.hookMu.Unlock()
+	d.remuxHook = remuxHook
+	d.uploadHook = uploadHook
+}
+
 // Start spawns the 4 worker goroutines and a periodic terminal-task garbage collector.
 func (d *Dispatcher) Start(parentCtx context.Context) {
 	ctx, cancel := context.WithCancel(parentCtx)
@@ -156,7 +169,6 @@ func (d *Dispatcher) Submit(task *models.Task) error {
 		return errors.New("cannot submit nil task")
 	}
 
-	// Reject new heavy operations immediately if Watchdog is in WARN or CRITICAL state.
 	snap := task.StatsSnapshot()
 	if err := d.watchdog.CanAcceptHeavyOp(uint64(snap.TotalBytes)); err != nil {
 		return err
@@ -235,8 +247,6 @@ func (d *Dispatcher) Shutdown(ctx context.Context) {
 	}
 }
 
-// workerLoop pulls tasks from the buffered queue, waits if Watchdog is in WARN/CRITICAL
-// before starting new tasks, and executes the appropriate stage pipeline.
 func (d *Dispatcher) workerLoop(ctx context.Context, workerID int) {
 	defer d.wg.Done()
 
@@ -248,8 +258,6 @@ func (d *Dispatcher) workerLoop(ctx context.Context, workerID int) {
 			if !ok {
 				return
 			}
-			// If Watchdog entered WARN or CRITICAL while the task was waiting in queue,
-			// hold execution until memory returns to StateNormal.
 			if err := d.waitForNormalMemory(ctx, task); err != nil {
 				d.failTask(task, err)
 				continue
@@ -262,7 +270,6 @@ func (d *Dispatcher) workerLoop(ctx context.Context, workerID int) {
 	}
 }
 
-// waitForNormalMemory blocks new task startup while Watchdog is in StateWarn or StateCritical.
 func (d *Dispatcher) waitForNormalMemory(ctx context.Context, task *models.Task) error {
 	for !d.watchdog.CanAcceptNewTask() {
 		select {
@@ -277,8 +284,6 @@ func (d *Dispatcher) waitForNormalMemory(ctx context.Context, task *models.Task)
 	return nil
 }
 
-// executeTaskPipeline orchestrates the task through Download (max 3), optional
-// Lossless Remux via mkvmerge (max 1), and optional Telegram Upload (max 2).
 func (d *Dispatcher) executeTaskPipeline(parentCtx context.Context, workerID int, task *models.Task) {
 	taskCtx, cancel := context.WithCancel(parentCtx)
 	task.AttachCancel(cancel)
@@ -295,11 +300,15 @@ func (d *Dispatcher) executeTaskPipeline(parentCtx context.Context, workerID int
 		Message:   fmt.Sprintf("worker %d started task %s (%s)", workerID, task.Name, task.Type),
 	})
 
+	d.hookMu.RLock()
+	hasRemuxHook := d.remuxHook != nil
+	d.hookMu.RUnlock()
+
 	var err error
 	switch task.Type {
 	case models.TaskTypeDownload:
 		err = d.runDownloadStage(taskCtx, task)
-		if err == nil && task.NeedsRemux {
+		if err == nil && (task.NeedsRemux || hasRemuxHook) {
 			err = d.runRemuxStage(taskCtx, task)
 		}
 		if err == nil && task.NeedsUpload {
@@ -322,19 +331,22 @@ func (d *Dispatcher) executeTaskPipeline(parentCtx context.Context, workerID int
 	}
 
 	_, _ = d.registry.UpdateStatus(task.ID, models.StatusCompleted, "")
-	snap := task.StatsSnapshot()
+	snap := task.Snapshot()
 	d.bus.Publish(ipc.Event{
 		Type:      ipc.EventTaskCompleted,
 		TaskID:    task.ID,
 		UserID:    task.UserID,
 		Progress:  100.0,
-		SpeedBps:  snap.DownloadSpeedBps,
+		SpeedBps:  snap.Stats.DownloadSpeedBps,
 		Timestamp: time.Now(),
-		Message:   fmt.Sprintf("task %s completed cleanly", task.Name),
+		Message:   fmt.Sprintf("task %s completed cleanly", snap.Name),
+		Metadata: map[string]any{
+			"telegram_deep_link": snap.TelegramDeepLink,
+			"result_files":       snap.ResultFiles,
+		},
 	})
 }
 
-// runDownloadStage acquires one of the 3 download slots and runs the download work closure.
 func (d *Dispatcher) runDownloadStage(ctx context.Context, task *models.Task) error {
 	select {
 	case d.dlSem <- struct{}{}:
@@ -355,10 +367,7 @@ func (d *Dispatcher) runDownloadStage(ctx context.Context, task *models.Task) er
 	return nil
 }
 
-// runRemuxStage acquires the single (max 1) lossless `mkvmerge` remux slot after verifying
-// NVMe headroom (1.15x input size + 5 GB floor) and memory state.
 func (d *Dispatcher) runRemuxStage(ctx context.Context, task *models.Task) error {
-	// Wait until Watchdog is in StateNormal before acquiring the heavy remux slot.
 	if err := d.waitForNormalMemory(ctx, task); err != nil {
 		return err
 	}
@@ -374,7 +383,6 @@ func (d *Dispatcher) runRemuxStage(ctx context.Context, task *models.Task) error
 		d.activeRemuxes.Add(-1)
 	}()
 
-	// Verify 1.15x NVMe disk headroom (matching StarfallX v1.2 safety policy).
 	requiredBytes := uint64(float64(task.StatsSnapshot().TotalBytes) * 1.15)
 	if err := d.watchdog.CheckNVMeHeadroom(requiredBytes); err != nil {
 		return err
@@ -385,10 +393,15 @@ func (d *Dispatcher) runRemuxStage(ctx context.Context, task *models.Task) error
 	if task.Type == models.TaskTypeRemux && task.Work != nil {
 		return task.Work(ctx, task)
 	}
+	d.hookMu.RLock()
+	hook := d.remuxHook
+	d.hookMu.RUnlock()
+	if hook != nil {
+		return hook(ctx, task)
+	}
 	return nil
 }
 
-// runUploadStage acquires one of the 2 Telegram upload slots.
 func (d *Dispatcher) runUploadStage(ctx context.Context, task *models.Task) error {
 	select {
 	case d.ulSem <- struct{}{}:
@@ -406,13 +419,16 @@ func (d *Dispatcher) runUploadStage(ctx context.Context, task *models.Task) erro
 	if task.Type == models.TaskTypeUpload && task.Work != nil {
 		return task.Work(ctx, task)
 	}
+	d.hookMu.RLock()
+	hook := d.uploadHook
+	d.hookMu.RUnlock()
+	if hook != nil {
+		return hook(ctx, task)
+	}
 	return nil
 }
 
-// CopyStreamWithSafety copies `src` to `dst` using the Watchdog's adaptive chunk buffer
-// (256 KiB in NORMAL, 32 KiB in WARN, 16 KiB in CRITICAL), honors task pause gates,
-// throttles network ingress via RateLimiter, paces disk writes via Watchdog, and emits
-// periodic `EventTaskProgress` notifications over the IPC Bus.
+// CopyStreamWithSafety copies `src` to `dst` using the Watchdog's adaptive chunk buffer.
 func (d *Dispatcher) CopyStreamWithSafety(
 	ctx context.Context,
 	task *models.Task,
@@ -431,7 +447,6 @@ func (d *Dispatcher) CopyStreamWithSafety(
 			return written, err
 		}
 
-		// Dynamically slice read size to Watchdog's current recommended buffer size.
 		chunkCap := d.watchdog.RecommendedBufferSize()
 		if chunkCap > len(buf) {
 			chunkCap = len(buf)
@@ -479,8 +494,7 @@ func (d *Dispatcher) CopyStreamWithSafety(
 	return written, nil
 }
 
-// RunMkvmergeRemux executes `mkvmerge` subprocess under low I/O priority (`nice -n 10`)
-// when holding the single remux semaphore slot.
+// RunMkvmergeRemux executes `mkvmerge` subprocess when holding the single remux semaphore slot.
 func (d *Dispatcher) RunMkvmergeRemux(ctx context.Context, inputPath, outputPath string, extraArgs ...string) error {
 	if outputPath == "" {
 		ext := filepath.Ext(inputPath)

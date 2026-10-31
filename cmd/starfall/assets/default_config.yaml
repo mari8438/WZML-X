@@ -4,7 +4,9 @@ app:
   name: "starfall-debrid"
   environment: "production"
   listen_addr: "0.0.0.0:8080"
-  download_dir: "/usr/src/app/downloads"
+  public_base_url: "http://172.105.52.160:8080"
+  download_dir: "/app/downloads"
+  seed_config_dir: "/app/configs"
   max_procs: 2
 
 memory:
@@ -30,3 +32,8 @@ engine:
   queue_buffer_size: 128
   nvme_min_free_gb: 5.0
   max_disk_write_mbps: 120
+  aria2_enabled: true
+  aria2_rpc_port: 6800
+
+telegram:
+  owner_id: 8814651149

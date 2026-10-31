@@ -980,13 +980,13 @@
           <div class="brand-name">
             <span>ANIME STARFALL • STUDIO</span>
           </div>
-          <span class="brand-tagline">Dual-Mode Cloud Leech &amp; Silent Dump Automation • VPS 172.105.94.62</span>
+          <span class="brand-tagline">Dual-Mode Cloud Leech &amp; Silent Dump Automation • VPS 172.105.52.160</span>
         </div>
 
         <div class="user-identity-badge" title="Authenticated Telegram Session">
-          <span id="navUserIdBadge" class="uid-pill">#ID987654321</span>
+          <span id="navUserIdBadge" class="uid-pill">#ID8814651149</span>
           <span>•</span>
-          <span id="navUsernameBadge" class="uname-pill">@starfall_monarch</span>
+          <span id="navUsernameBadge" class="uname-pill">@Anime_Starfall</span>
         </div>
       </div>
 
@@ -995,6 +995,8 @@
           <span class="mode-status-dot"></span>
           <span id="dualModeLabelText">🌐 Web Studio Mode (Active)</span>
         </button>
+        <a href="/app/settings" class="nav-ext-link" title="User &amp; Bot Settings"><span>⚙️ Settings</span></a>
+        <a href="/app/video-studio" class="nav-ext-link" title="Lossless Video Tools Studio"><span>🎬 Video Studio</span></a>
 
         <a href="https://t.me/Anime_Starfall" target="_blank" rel="noopener noreferrer" class="nav-ext-link sakura-hover">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -1481,26 +1483,23 @@
       }
 
       // --- 5. API INTEGRATION: SESSION & MODE ---
-      async function fetchUserSession() {
-        if (!state.token) {
-          state.isLiveBackend = false;
-          pollingStatusLabel.textContent = "Interactive Studio Preview Mode • 1.5s Live Telemetry Simulation";
-          renderSessionUI();
-          return;
-        }
+      function withAuthUrl(apiPath) {
+        return state.token ? withAuthUrl(apiPath) : apiPath;
+      }
 
+      async function fetchUserSession() {
         const apiPath = ["/api", "user", "session"].join("/");
         try {
-          const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
-          const resp = await window.fetch(reqUrl);
+          const resp = await window.fetch(withAuthUrl(apiPath), { credentials: "same-origin" });
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
           state.userId = data.user_id || state.userId;
           state.mode = data.mode === "telegram" ? "telegram" : "web";
           state.dumpChannel = data.dump_channel || state.dumpChannel;
           state.username = data.username || state.username;
+          if (data.token && !state.token) state.token = data.token;
           state.isLiveBackend = true;
-          pollingStatusLabel.textContent = "Connected to Live FastAPI Engine • Polling /api/user/tasks (1.5s)";
+          pollingStatusLabel.textContent = "Connected to Live Starfall-Go Engine • Polling /api/user/tasks (1.5s)";
           renderSessionUI();
         } catch (err) {
           state.isLiveBackend = false;
@@ -1514,10 +1513,10 @@
         state.mode = nextMode;
         renderSessionUI();
 
-        if (state.token && state.isLiveBackend) {
+        if (state.isLiveBackend) {
           const apiPath = ["/api", "user", "mode"].join("/");
           try {
-            const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+            const reqUrl = withAuthUrl(apiPath);
             const resp = await window.fetch(reqUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -1672,10 +1671,10 @@
       }
 
       async function pollLiveTasks() {
-        if (state.token && state.isLiveBackend) {
+        if (state.isLiveBackend) {
           const apiPath = ["/api", "user", "tasks"].join("/");
           try {
-            const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+            const reqUrl = withAuthUrl(apiPath);
           const resp = await window.fetch(reqUrl);
             if (resp.ok) {
               const data = await resp.json();
@@ -1702,10 +1701,10 @@
       }
 
       async function cancelTaskByGid(gid, taskId, name) {
-        if (state.token && state.isLiveBackend) {
+        if (state.isLiveBackend) {
           const apiPath = ["/api", "leech", "cancel"].join("/");
           try {
-            const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+            const reqUrl = withAuthUrl(apiPath);
             await window.fetch(reqUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -1752,9 +1751,9 @@
         launchLeechTaskBtn.innerHTML = `<span>⚡ Dispatching to Starfall Engine...</span>`;
 
         try {
-          if (state.token && state.isLiveBackend) {
+          if (state.isLiveBackend) {
             const apiPath = ["/api", "leech", "start"].join("/");
-            const reqUrl = `${apiPath}?token=${encodeURIComponent(state.token)}`;
+            const reqUrl = withAuthUrl(apiPath);
             const resp = await window.fetch(reqUrl, {
               method: "POST",
               headers: { "Content-Type": "application/json" },

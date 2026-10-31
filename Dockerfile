@@ -36,7 +36,7 @@ LABEL org.opencontainers.image.title="starfall-debrid" \
       org.opencontainers.image.description="High-performance, resource-safe private Debrid & Telegram Cloud Vault engine for 2 vCPU / 4GB RAM VPS" \
       org.opencontainers.image.version="1.2.0"
 
-# Install lightweight runtime media & stream utilities (0% transcoding policy)
+# Install lightweight runtime media & archive utilities (0% transcoding policy)
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
@@ -46,16 +46,19 @@ RUN apk add --no-cache \
     mkvtoolnix \
     aria2 \
     yt-dlp \
+    7zip \
+    font-dejavu \
     && addgroup -g 10001 -S starfall \
     && adduser -u 10001 -S -G starfall -h /app starfall \
-    && mkdir -p /app/data /app/downloads /app/downloads/thumbnails /app/scripts \
+    && mkdir -p /app/data /app/downloads /app/downloads/thumbnails /app/scripts /app/configs \
     && chown -R starfall:starfall /app
 
 WORKDIR /app
 
-# Copy compiled static binary and verification script
+# Copy compiled static binary, verification script, and seed owner configs
 COPY --from=builder /starfall-debrid /starfall-debrid
-COPY scripts/verify.sh /app/scripts/verify.sh
+COPY --chown=starfall:starfall scripts/verify.sh /app/scripts/verify.sh
+COPY --chown=starfall:starfall configs /app/configs
 RUN chmod +x /starfall-debrid /app/scripts/verify.sh
 
 # Enforce Go runtime soft memory limit (3000 MiB) and aggressive GC (50%)
@@ -64,6 +67,7 @@ ENV GOMEMLIMIT=3000MiB \
     GOMAXPROCS=2 \
     STARFALL_APP_LISTEN_ADDR="0.0.0.0:8080" \
     STARFALL_APP_DOWNLOAD_DIR="/app/downloads" \
+    STARFALL_APP_SEED_CONFIG_DIR="/app/configs" \
     STARFALL_DATABASE_SQLITE_PATH="/app/data/starfall_users.db" \
     TZ=UTC
 

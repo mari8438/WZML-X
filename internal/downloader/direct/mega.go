@@ -162,12 +162,13 @@ func (m *MegaDownloader) Download(
 	if fileName == "" {
 		fileName = fmt.Sprintf("mega_%s.bin", handle)
 	}
-	if task.Name == "" {
-		task.Name = fileName
+	task.SetName(fileName)
+	if meta.Size > 0 {
+		task.SetTotalBytes(meta.Size)
 	}
 
 	finalPath := filepath.Join(destDir, fileName)
-	task.OutputPath = finalPath
+	task.SetOutputPath(finalPath)
 
 	outFile, err := os.OpenFile(finalPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {

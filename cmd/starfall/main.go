@@ -1,6 +1,8 @@
-// Package main bootstraps the Starfall-Go Debrid engine, wiring the 3000 MiB
+// Package main bootstraps the Starfall-Go Debrid v1.2 engine, wiring the 3000 MiB
 // Memory Watchdog, 150/30 P2P RateLimiter, 4-Worker Dispatcher, Pure-Go SQLite
-// User Store, and Google OAuth 2.0 + 30-Day HTTP-Only JWT Authentication System.
+// User & Bot Settings Store, Supervised Aria2c RPC, Lossless MKV Auto-Processor,
+// AniList/TMDb Poster Engine (Templates 1-11), Dual-Mode Interactive Telegram Bot,
+// and Cyberpunk Anime Web Studio.
 package main
 
 import (
@@ -11,8 +13,10 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,6 +26,7 @@ import (
 	"github.com/starfall-org/starfall-go/internal/engine"
 	"github.com/starfall-org/starfall-go/internal/ipc"
 	"github.com/starfall-org/starfall-go/internal/safety"
+	"github.com/starfall-org/starfall-go/internal/telegram"
 	"github.com/starfall-org/starfall-go/internal/user"
 	webhandlers "github.com/starfall-org/starfall-go/internal/web"
 	webassets "github.com/starfall-org/starfall-go/web"
@@ -35,8 +40,7 @@ const (
 	HardMemoryCeilingBytes uint64 = 3200 * 1024 * 1024
 )
 
-// embeddedAssets bundles default YAML configs and web templates directly into the
-// single static binary `starfall-debrid` using Go 1.23+ embed.FS.
+// embeddedAssets bundles default YAML configs directly into the static binary.
 //
 //go:embed assets/*
 var embeddedAssets embed.FS
@@ -70,7 +74,7 @@ func main() {
 	)
 	defer stopSignals()
 
-	// 1. Initialize Embedded Pure-Go SQLite User Store & User Service.
+	// 1. Initialize Embedded Pure-Go SQLite User Store & Seed Owner Profile (`configs/`).
 	userStore, err := user.NewStore(cfg.Database.SQLitePath)
 	if err != nil {
 		logger.Error("failed to initialize sqlite user store", slog.String("error", err.Error()))
@@ -78,6 +82,17 @@ func main() {
 	}
 	defer userStore.Close()
 	userService := user.NewService(userStore, logger)
+
+	if seededCount, seedErr := userService.SeedFromJSONDir(rootCtx, cfg.App.SeedConfigDir); seedErr != nil {
+		logger.Warn("seed config directory check completed with warning", slog.String("error", seedErr.Error()))
+	} else if seededCount > 0 {
+		logger.Info("seeded StarfallX user profile(s) into SQLite", slog.Int("count", seededCount))
+	}
+
+	// Ensure configured Owner exists in SQLite even if no JSON file was present
+	if cfg.Telegram.OwnerID > 0 {
+		_, _ = userService.GetOrCreateByTelegramID(rootCtx, cfg.Telegram.OwnerID, "Anime Starfall")
+	}
 
 	// 2. Initialize 30-Day HTTP-Only JWT Session Manager & Auth Middleware.
 	jwtManager, err := auth.NewJWTManager(auth.JWTConfig{
@@ -92,6 +107,11 @@ func main() {
 		os.Exit(1)
 	}
 	authMiddleware := auth.NewMiddleware(jwtManager, userService, logger)
+
+	// Private single-owner convenience: when Google OAuth is not configured, bind fallback session to Owner ID.
+	if strings.TrimSpace(cfg.Auth.GoogleClientID) == "" && cfg.Telegram.OwnerID > 0 {
+		authMiddleware.SetFallbackUserID(fmt.Sprintf("tg:%d", cfg.Telegram.OwnerID))
+	}
 
 	// 3. Initialize Internal IPC Event Bus, Task Registry, RateLimiter, Watchdog, and Dispatcher.
 	bus := ipc.NewBus(logger, 256)
@@ -157,11 +177,17 @@ func main() {
 	watchdog.Start(rootCtx)
 	dispatcher.Start(rootCtx)
 
-	// 4. Initialize Unified Direct Leech Manager (GDrive, Mega, Terabox, DDL, yt-dlp).
+	// 4. Initialize Unified Leech & Pipeline Manager (Aria2c RPC + Direct + Lossless MKV + Auto-Rename).
 	dlManager := downloader.NewManager(
 		downloader.ManagerConfig{
 			DownloadDir:         cfg.App.DownloadDir,
 			RequireTelegramDump: false,
+			GDriveAPIKey:        cfg.Integrations.GDriveAPIKey,
+			TeraboxCookie:       cfg.Integrations.TeraboxCookie,
+			Aria2Enabled:        cfg.Engine.Aria2Enabled,
+			Aria2RPCPort:        cfg.Engine.Aria2RPCPort,
+			Aria2RPCSecret:      cfg.Engine.Aria2RPCSecret,
+			NVMeMinFreeGB:       cfg.Engine.NVMeMinFreeGB,
 		},
 		dispatcher,
 		registry,
@@ -171,7 +197,103 @@ func main() {
 		logger,
 	)
 
-	// 5. Start HTTP Server with Web Studio, Video Tools, Owner Admin Deck, and Google OAuth 2.0.
+	if err := dlManager.StartAria2(rootCtx); err != nil {
+		logger.Warn("aria2c daemon unavailable; direct/cloud downloaders remain active", slog.String("error", err.Error()))
+	}
+
+	// 5. Initialize Poster Generator (Templates 1-11), Lossless Splitter, Optional MTProto Sessions & Bot.
+	notifier := telegram.NewNotifier(bus, logger)
+	posterGen := telegram.NewPosterGenerator(cfg.App.DownloadDir, "Anime Starfall", cfg.Integrations.TMDBAPIKey)
+	splitter := telegram.NewSplitter(watchdog, "mkvmerge", logger)
+
+	var primaryTGClient *telegram.Client
+	var premiumTGClient *telegram.Client
+	var helperPool *telegram.HelperPool
+
+	sessionDir := filepath.Dir(cfg.Database.SQLitePath)
+	if cfg.Telegram.AppID > 0 && strings.TrimSpace(cfg.Telegram.AppHash) != "" {
+		// Interactive Bot Client (when BOT_TOKEN is configured)
+		if strings.TrimSpace(cfg.Telegram.BotToken) != "" {
+			bot := telegram.NewBot(
+				telegram.BotConfig{
+					OwnerID:         cfg.Telegram.OwnerID,
+					SudoUserIDs:     cfg.Telegram.SudoUserIDs(),
+					AuthorizedChats: cfg.Telegram.AuthorizedChatIDs(),
+					PublicBaseURL:   cfg.App.PublicBaseURL,
+					BrandName:       "Anime Starfall",
+					DownloadDir:     cfg.App.DownloadDir,
+				},
+				dlManager,
+				userService,
+				jwtManager,
+				posterGen,
+				registry,
+				watchdog,
+				logger,
+			)
+
+			botCli, cliErr := telegram.NewClient(telegram.ClientConfig{
+				AppID:         cfg.Telegram.AppID,
+				AppHash:       cfg.Telegram.AppHash,
+				BotToken:      cfg.Telegram.BotToken,
+				SessionFile:   cfg.Telegram.SessionFile,
+				DeviceModel:   "Starfall-Go-Bot-v1.2",
+				UpdateHandler: bot.UpdateHandler(),
+			}, logger)
+			if cliErr == nil {
+				primaryTGClient = botCli
+				bot.BindClient(rootCtx, botCli)
+				go runTelegramClientLoop(rootCtx, "bot", botCli, logger)
+			} else {
+				logger.Error("failed to initialize primary telegram bot client", slog.String("error", cliErr.Error()))
+			}
+		}
+
+		// Optional Premium User Session (`SESSION_STRING` or `USER_SESSION_STRING` for 4 GB uploads)
+		if strings.TrimSpace(cfg.Telegram.SessionString) != "" {
+			userCli, uErr := telegram.NewClient(telegram.ClientConfig{
+				AppID:         cfg.Telegram.AppID,
+				AppHash:       cfg.Telegram.AppHash,
+				SessionString: cfg.Telegram.SessionString,
+				SessionFile:   cfg.Telegram.UserSessionFile,
+				DeviceModel:   "Starfall-Go-Premium-v1.2",
+			}, logger)
+			if uErr == nil {
+				premiumTGClient = userCli
+				if primaryTGClient == nil {
+					primaryTGClient = userCli
+				}
+				go runTelegramClientLoop(rootCtx, "premium_user", userCli, logger)
+			}
+		}
+
+		// Optional Multi-Bot Helper Pool (`HELPER_TOKENS` & `USER_UPLOAD_BOT_TOKEN`)
+		if helperTokens := cfg.Telegram.HelperTokenList(); len(helperTokens) > 0 {
+			helperPool = telegram.NewHelperPool(cfg.Telegram.AppID, cfg.Telegram.AppHash, sessionDir, helperTokens, logger)
+			helperPool.Start(rootCtx)
+		}
+	} else {
+		logger.Info("telegram API_ID/API_HASH not configured yet; Web Studio & local pipeline active")
+	}
+
+	tgUploader := telegram.NewUploader(
+		primaryTGClient,
+		splitter,
+		posterGen,
+		notifier,
+		dlManager.BufferPool(),
+		rateLimiter,
+		logger,
+	)
+	if premiumTGClient != nil {
+		tgUploader.SetPremiumClient(premiumTGClient)
+	}
+	if helperPool != nil {
+		tgUploader.SetHelperPool(helperPool)
+	}
+	dlManager.AttachPipelineServices(tgUploader, userService)
+
+	// 6. Start HTTP Server with Web Studio, Video Tools, Torrent Selector, and Owner Admin Deck.
 	httpServer := startHTTPServer(
 		cfg,
 		jwtManager,
@@ -195,6 +317,36 @@ func main() {
 	_ = httpServer.Shutdown(shutdownCtx)
 	dispatcher.Shutdown(shutdownCtx)
 	watchdog.Stop()
+}
+
+func runTelegramClientLoop(ctx context.Context, label string, cli *telegram.Client, logger *slog.Logger) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+		err := cli.Run(ctx, func(caps telegram.SessionCapabilities) {
+			logger.Info("telegram MTProto session online",
+				slog.String("session", label),
+				slog.String("username", caps.Username),
+				slog.Bool("is_premium", caps.IsPremium),
+				slog.Int64("max_upload_mb", caps.MaxSingleUploadBytes/(1024*1024)),
+			)
+		})
+		if ctx.Err() != nil {
+			return
+		}
+		if err != nil {
+			logger.Warn("telegram MTProto session disconnected; retrying in 10s",
+				slog.String("session", label),
+				slog.String("error", err.Error()),
+			)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+	}
 }
 
 func monitorEngineEvents(ctx context.Context, logger *slog.Logger, ch <-chan ipc.Event) {
@@ -234,10 +386,8 @@ func startHTTPServer(
 	mux := http.NewServeMux()
 	mux.Handle("GET /assets/", http.FileServer(http.FS(embeddedAssets)))
 
-	// Register protected /api/user/profile, /api/user/telegram-dump, and /api/user/preferences routes.
 	userService.RegisterRoutes(mux, authMiddleware)
 
-	// Register Google OAuth 2.0 routes (/auth/google/login, /auth/google/callback, /auth/logout).
 	if cfg.Auth.GoogleClientID != "" && cfg.Auth.GoogleClientSecret != "" {
 		googleHandler, err := auth.NewGoogleAuthHandler(
 			auth.GoogleOAuthConfig{
@@ -261,7 +411,6 @@ func startHTTPServer(
 		})
 	}
 
-	// Register Cyberpunk Anime Web Studio Dashboard & Leech API routes
 	dashboardHandler := webhandlers.NewDashboardHandler(
 		webassets.Assets,
 		dlManager,
@@ -273,7 +422,6 @@ func startHTTPServer(
 	)
 	dashboardHandler.RegisterRoutes(mux, authMiddleware)
 
-	// Register Lossless Video Tools Studio routes (probe, frame grabber, mkvmerge remux)
 	videoHandler := webhandlers.NewVideoStudioHandler(
 		webassets.Assets,
 		reg,
@@ -284,7 +432,6 @@ func startHTTPServer(
 	)
 	videoHandler.RegisterRoutes(mux, authMiddleware)
 
-	// Register Owner Bot Settings UI & Admin routes
 	adminHandler := webhandlers.NewAdminHandler(
 		webassets.Assets,
 		fmt.Sprintf("%d", cfg.Telegram.OwnerID),
@@ -296,6 +443,7 @@ func startHTTPServer(
 		bus,
 		logger,
 	)
+	adminHandler.AttachUserService(userService)
 	adminHandler.RegisterRoutes(mux, authMiddleware)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
