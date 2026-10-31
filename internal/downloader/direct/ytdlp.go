@@ -84,7 +84,7 @@ func (y *YTDLPDownloader) Download(
 		rawURL,
 	}
 
-	cmd := exec.CommandContext(ctx, y.binaryPath, args...)
+	cmd := safety.NewSupervisedCommand(ctx, y.binaryPath, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("attaching yt-dlp stdout pipe: %w", err)

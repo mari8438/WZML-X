@@ -25,6 +25,7 @@ import (
 
 	"github.com/starfall-org/starfall-go/internal/ipc"
 	"github.com/starfall-org/starfall-go/internal/models"
+	"github.com/starfall-org/starfall-go/internal/safety"
 )
 
 // Config configures the embedded Aria2c daemon and JSON-RPC client.
@@ -122,7 +123,7 @@ func (c *Client) superviseLoop(ctx context.Context) {
 		"--daemon=false",
 		"--quiet=true",
 		"--file-allocation=none",
-		"--disk-cache=16M",
+		"--disk-cache=32M",
 		"--continue=true",
 		"--max-concurrent-downloads=3",
 		"--max-connection-per-server=8",
@@ -144,7 +145,7 @@ func (c *Client) superviseLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		cmd := exec.CommandContext(ctx, c.cfg.BinaryPath, args...)
+		cmd := safety.NewSupervisedCommand(ctx, c.cfg.BinaryPath, args...)
 		c.mu.Lock()
 		c.cmd = cmd
 		c.mu.Unlock()

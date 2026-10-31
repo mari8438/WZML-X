@@ -504,10 +504,13 @@ func (d *Dispatcher) RunMkvmergeRemux(ctx context.Context, inputPath, outputPath
 	args = append(args, extraArgs...)
 	args = append(args, inputPath)
 
-	cmd := exec.CommandContext(ctx, "mkvmerge", args...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("mkvmerge failed: %w (output: %s)", err, string(output))
+	cmd := safety.NewSupervisedCommand(ctx, "mkvmerge", args...)
+	ringBuf := safety.NewBoundedRingBuffer(64 * 1024)
+	cmd.Stderr = ringBuf
+	cmd.Stdout = ringBuf
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("mkvmerge failed: %w (output: %s)", err, ringBuf.String())
 	}
 	return nil
 }
