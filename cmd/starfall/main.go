@@ -22,11 +22,15 @@ import (
 
 	"github.com/starfall-org/starfall-go/internal/auth"
 	"github.com/starfall-org/starfall-go/internal/config"
+	"github.com/starfall-org/starfall-go/internal/crawler"
+	"github.com/starfall-org/starfall-go/internal/database"
 	"github.com/starfall-org/starfall-go/internal/downloader"
 	"github.com/starfall-org/starfall-go/internal/engine"
 	"github.com/starfall-org/starfall-go/internal/ipc"
 	"github.com/starfall-org/starfall-go/internal/safety"
 	"github.com/starfall-org/starfall-go/internal/telegram"
+	"github.com/starfall-org/starfall-go/internal/telegram/commands"
+	"github.com/starfall-org/starfall-go/internal/tnpsc"
 	"github.com/starfall-org/starfall-go/internal/user"
 	webhandlers "github.com/starfall-org/starfall-go/internal/web"
 	webassets "github.com/starfall-org/starfall-go/web"
@@ -94,6 +98,26 @@ func main() {
 		_, _ = userService.GetOrCreateByTelegramID(rootCtx, cfg.Telegram.OwnerID, "Anime Starfall")
 	}
 
+	// 1.1 Initialize Dual-Pool SQLite WAL Database (Single-Writer + 4-Reader) and MongoDB Atlas Outbox Replicator
+	dbMgr, dbErr := database.NewDBManager(cfg.Database.SQLitePath)
+	if dbErr != nil {
+		logger.Error("failed to initialize dual-pool sqlite database", slog.String("error", dbErr.Error()))
+		os.Exit(1)
+	}
+	defer dbMgr.Close()
+	dbMgr.StartWALCheckpointer(rootCtx, 5*time.Minute)
+
+	mongoRep, mErr := database.NewMongoReplicator(dbMgr, cfg.Database.DatabaseURL)
+	if mErr == nil {
+		defer mongoRep.Close(context.Background())
+		_ = mongoRep.HydrateFromMongo(rootCtx)
+		mongoRep.StartReplication(rootCtx)
+	}
+
+	// 1.2 Initialize TNPSC AI Study Coach & seed PYQ questions into FTS5
+	coachService := tnpsc.NewCoachService(dbMgr, logger)
+	_ = coachService.SeedSamplePYQ(rootCtx)
+
 	// 2. Initialize 30-Day HTTP-Only JWT Session Manager & Auth Middleware.
 	jwtManager, err := auth.NewJWTManager(auth.JWTConfig{
 		SecretKey:    []byte(cfg.Auth.JWTSecret),
@@ -122,6 +146,19 @@ func main() {
 	go monitorEngineEvents(rootCtx, logger, eventCh)
 
 	registry := engine.NewTaskRegistry()
+
+	// Initialize Extended Telegram Command Router
+	cmdRouter := commands.NewRouter(dbMgr, registry)
+	_ = cmdRouter
+
+	// Initialize Auto-Leech Crawler Scheduler
+	crawlerScheduler := crawler.NewScheduler(dbMgr, func(ctx context.Context, rel crawler.DiscoveredRelease) error {
+		logger.Info("auto-leech discovered release", slog.String("title", rel.Title), slog.String("uri", rel.DownloadURI))
+		return nil
+	}, logger)
+	crawlerScheduler.Register(crawler.NewTamilMVCrawler(""))
+	crawlerScheduler.Register(crawler.NewFourKHDHubCrawler(""))
+	crawlerScheduler.Start(rootCtx, 30*time.Minute)
 
 	rateLimiter := safety.NewRateLimiter(safety.RateLimitConfig{
 		MaxGlobalConnections:  cfg.Network.MaxGlobalConns,
@@ -445,6 +482,11 @@ func startHTTPServer(
 	)
 	adminHandler.AttachUserService(userService)
 	adminHandler.RegisterRoutes(mux, authMiddleware)
+
+	// Mount real-time SSE telemetry broker for Web Studio
+	sseBroker := webhandlers.NewSSEBroker(reg, wd, disp)
+	sseBroker.Start(context.Background())
+	mux.Handle("GET /api/sse", sseBroker)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		snap := wd.Snapshot()
