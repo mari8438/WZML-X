@@ -61,7 +61,6 @@ func BuildTorrentFileTree(files []TorrentFileEntry) *TreeNode {
 					Selected: f.Selected,
 				}
 				current.Children = append(current.Children, leaf)
-				current.Size += f.Size
 			} else {
 				// Directory node
 				var foundChild *TreeNode
@@ -81,14 +80,29 @@ func BuildTorrentFileTree(files []TorrentFileEntry) *TreeNode {
 					}
 					current.Children = append(current.Children, foundChild)
 				}
-				foundChild.Size += f.Size
 				current = foundChild
 			}
 		}
 	}
 
+	computeSizes(root)
 	sortTree(root)
 	return root
+}
+
+func computeSizes(node *TreeNode) int64 {
+	if node == nil {
+		return 0
+	}
+	if !node.IsDir {
+		return node.Size
+	}
+	var total int64
+	for _, ch := range node.Children {
+		total += computeSizes(ch)
+	}
+	node.Size = total
+	return total
 }
 
 func sortTree(node *TreeNode) {
