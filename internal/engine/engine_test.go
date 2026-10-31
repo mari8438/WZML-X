@@ -40,7 +40,7 @@ func TestDispatcherConcurrencyLimits(t *testing.T) {
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer shutdownCancel()
-		_ = dispatcher.Shutdown(shutdownCtx)
+		dispatcher.Shutdown(shutdownCtx)
 	}()
 
 	var concurrentWork atomic.Int32
