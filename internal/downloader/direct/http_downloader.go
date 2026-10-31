@@ -684,7 +684,7 @@ func sanitizeFileName(name string) string {
 	replacer := strings.NewReplacer(
 		"/", "_",
 		"\", "_",
-		" ", "",
+		"\x00", "",
 		":", "_",
 	)
 	cleaned := strings.TrimSpace(replacer.Replace(name))

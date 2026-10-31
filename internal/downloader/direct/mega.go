@@ -329,7 +329,7 @@ func decryptMegaAttributes(b64Attr string, aesKey []byte) string {
 	plain := make([]byte, len(encBytes))
 	cbc.CryptBlocks(plain, encBytes)
 
-	plain = bytes.TrimRight(plain, " ")
+	plain = bytes.TrimRight(plain, "\x00")
 	if !bytes.HasPrefix(plain, []byte("MEGA{")) {
 		return ""
 	}
