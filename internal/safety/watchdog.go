@@ -228,12 +228,18 @@ func (w *Watchdog) RecommendedBufferSize() int {
 // CanAcceptNewTask returns true only when the watchdog is in StateNormal.
 // In StateWarn or StateCritical, new tasks are paused/rejected.
 func (w *Watchdog) CanAcceptNewTask() bool {
+	if w == nil {
+		return true
+	}
 	return w.State() == StateNormal
 }
 
 // CanAcceptHeavyOp checks whether heavy operations (such as lossless mkvmerge remuxing
 // or multi-part archive extraction) are permitted under current memory and disk headroom.
 func (w *Watchdog) CanAcceptHeavyOp(requiredDiskBytes uint64) error {
+	if w == nil {
+		return nil
+	}
 	if w.State() != StateNormal {
 		return fmt.Errorf("%w (state=%s)", ErrCircuitBreakerOpen, w.State().String())
 	}

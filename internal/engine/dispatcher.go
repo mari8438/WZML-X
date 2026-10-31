@@ -105,6 +105,10 @@ func NewDispatcher(
 		cfg.QueueBufferSize = 128
 	}
 
+	if logger == nil {
+		logger = slog.Default()
+	}
+
 	return &Dispatcher{
 		cfg:         cfg,
 		registry:    registry,
@@ -169,8 +173,10 @@ func (d *Dispatcher) Submit(task *models.Task) error {
 	}
 
 	snap := task.StatsSnapshot()
-	if err := d.watchdog.CanAcceptHeavyOp(uint64(snap.TotalBytes)); err != nil {
-		return err
+	if d.watchdog != nil {
+		if err := d.watchdog.CanAcceptHeavyOp(uint64(snap.TotalBytes)); err != nil {
+			return err
+		}
 	}
 
 	if err := d.registry.Register(task); err != nil {
