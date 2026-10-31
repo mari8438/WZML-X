@@ -316,12 +316,9 @@ func applyLegacyEnvFallbacks(cfg *Config) {
 		}
 	}
 	if cfg.Database.DatabaseURL == "" {
-		cfg.Database.DatabaseURL = strings.TrimSpace(os.Getenv("STARFALL_DATABASE_URL"))
+		cfg.Database.DatabaseURL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
 		if cfg.Database.DatabaseURL == "" {
-			cfg.Database.DatabaseURL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
-			if cfg.Database.DatabaseURL == "" {
-				cfg.Database.DatabaseURL = strings.TrimSpace(os.Getenv("MONGODB_URI"))
-			}
+			cfg.Database.DatabaseURL = strings.TrimSpace(os.Getenv("MONGODB_URI"))
 		}
 	}
 }
