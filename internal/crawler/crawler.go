@@ -97,9 +97,12 @@ func (s *Scheduler) Start(parentCtx context.Context, interval time.Duration) {
 }
 
 func (s *Scheduler) dispatchAll(ctx context.Context) {
-	s.mu.RLock()
+	s.mu.Lock()
+	if s.pool == nil {
+		s.pool = safety.NewBoundedPool(ctx, 2, 32)
+	}
 	crawlers := append([]SiteCrawler(nil), s.crawlers...)
-	s.mu.RUnlock()
+	s.mu.Unlock()
 
 	for _, c := range crawlers {
 		crawler := c

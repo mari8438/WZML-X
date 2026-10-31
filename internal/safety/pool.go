@@ -98,6 +98,9 @@ func NewBoundedPool(ctx context.Context, workers, queueSize int) *BoundedPool {
 
 // TrySubmit attempts to enqueue a job without blocking. Returns ErrQueueOverflow if full.
 func (p *BoundedPool) TrySubmit(job JobFunc) error {
+	if p == nil {
+		return ErrPoolClosed
+	}
 	p.closeMu.RLock()
 	defer p.closeMu.RUnlock()
 	if p.closed {
@@ -113,6 +116,9 @@ func (p *BoundedPool) TrySubmit(job JobFunc) error {
 
 // Submit enqueues a job, blocking until space is available or context is cancelled.
 func (p *BoundedPool) Submit(ctx context.Context, job JobFunc) error {
+	if p == nil {
+		return ErrPoolClosed
+	}
 	p.closeMu.RLock()
 	defer p.closeMu.RUnlock()
 	if p.closed {
@@ -128,6 +134,9 @@ func (p *BoundedPool) Submit(ctx context.Context, job JobFunc) error {
 
 // Close gracefully marks the pool closed and stops accepting new submissions.
 func (p *BoundedPool) Close() {
+	if p == nil {
+		return
+	}
 	p.closeMu.Lock()
 	if !p.closed {
 		p.closed = true
