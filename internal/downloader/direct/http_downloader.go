@@ -683,7 +683,7 @@ func sanitizeFileName(name string) string {
 	name = filepath.Base(name)
 	replacer := strings.NewReplacer(
 		"/", "_",
-		"\", "_",
+		"\\", "_",
 		"\x00", "",
 		":", "_",
 	)
