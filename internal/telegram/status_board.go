@@ -187,7 +187,7 @@ func (sb *StatusBoard) RenderHTML() (string, bool) {
 		ramLine = fmt.Sprintf("🧠 RAM: <code>%.1f MiB (%.1f%%)</code>", float64(ws.HeapAllocBytes)/(1024.0*1024.0), ws.UsagePercent)
 	}
 	var diskLine string
-	if freeB, err := safety.AvailableDiskBytes(sb.downloadDir); err == nil {
+	if _, freeB, err := safety.GetDiskSpace(sb.downloadDir); err == nil {
 		diskLine = fmt.Sprintf("💾 Free: <code>%.1f GB</code>", float64(freeB)/(1024*1024*1024))
 	}
 	b.WriteString("━━━━━━━━━━━━━━━━━━━━\n")

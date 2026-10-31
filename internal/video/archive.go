@@ -104,7 +104,7 @@ func extractSingleArchive(ctx context.Context, archivePath, destDir string, minF
 	if err != nil {
 		return err
 	}
-	if freeBytes, derr := safety.AvailableDiskBytes(filepath.Dir(archivePath)); derr == nil {
+	if _, freeBytes, derr := safety.GetDiskSpace(filepath.Dir(archivePath)); derr == nil {
 		required := uint64(st.Size()) + uint64(minFreeGB*1024*1024*1024)
 		if freeBytes < required {
 			return fmt.Errorf("insufficient NVMe disk space to extract %s (free %.2f GB)", filepath.Base(archivePath), float64(freeBytes)/(1024*1024*1024))
