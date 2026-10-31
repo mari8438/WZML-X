@@ -4,7 +4,6 @@
 package video
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"

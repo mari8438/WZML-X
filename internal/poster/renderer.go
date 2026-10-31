@@ -13,7 +13,6 @@ import (
 	"image/draw"
 	"image/jpeg"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
