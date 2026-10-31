@@ -64,7 +64,7 @@ func NewDashboardHandler(
 // RegisterRoutes mounts the Web Studio UI and API endpoints onto `mux`.
 func (h *DashboardHandler) RegisterRoutes(mux *http.ServeMux, authMW *auth.Middleware) {
 	// Web pages
-	mux.Handle("GET /", http.HandlerFunc(h.HandleRootPage))
+	mux.Handle("GET /{$}", http.HandlerFunc(h.HandleRootPage))
 	mux.Handle("GET /app/dashboard", authMW.RequireAuthFunc(h.HandleDashboardPage))
 	mux.Handle("GET /app/user/settings", authMW.RequireAuthFunc(h.HandleUserSettingsPage))
 	mux.Handle("GET /app/user", authMW.RequireAuthFunc(h.HandleUserSettingsPage))

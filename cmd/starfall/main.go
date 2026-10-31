@@ -232,7 +232,7 @@ func startHTTPServer(
 	logger *slog.Logger,
 ) *http.Server {
 	mux := http.NewServeMux()
-	mux.Handle("/assets/", http.FileServer(http.FS(embeddedAssets)))
+	mux.Handle("GET /assets/", http.FileServer(http.FS(embeddedAssets)))
 
 	// Register protected /api/user/profile, /api/user/telegram-dump, and /api/user/preferences routes.
 	userService.RegisterRoutes(mux, authMiddleware)
