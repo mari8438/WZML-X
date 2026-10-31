@@ -2,6 +2,8 @@
 .env
 *.env
 .env.*
+configs/*.yaml
+configs/*.yml
 connect_vps.bat
 config.py
 secrets/*
