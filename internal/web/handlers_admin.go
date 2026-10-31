@@ -118,7 +118,7 @@ func (a *AdminHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 	if targetDir == "" {
 		targetDir = "."
 	}
-	diskTotalBytes, diskFreeBytes, _ := safety.GetDiskSpace(targetDir)
+	diskTotalBytes, diskFreeBytes, _ = safety.GetDiskSpace(targetDir)
 
 	writeJSONResponse(w, http.StatusOK, map[string]any{
 		"ok":                   true,
@@ -166,15 +166,10 @@ func (a *AdminHandler) HandleLogsWebSocket(w http.ResponseWriter, r *http.Reques
 	sum := sha1.Sum([]byte(secKey + wsGUID))
 	acceptKey := base64.StdEncoding.EncodeToString(sum[:])
 
-	handshake := "HTTP/1.1 101 Switching Protocols
-" +
-		"Upgrade: websocket
-" +
-		"Connection: Upgrade
-" +
-		"Sec-WebSocket-Accept: " + acceptKey + "
-
-"
+	handshake := "HTTP/1.1 101 Switching Protocols\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Sec-WebSocket-Accept: " + acceptKey + "\r\n\r\n"
 	if _, err := rw.WriteString(handshake); err != nil {
 		return
 	}
