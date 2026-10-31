@@ -16,14 +16,6 @@ services:
     restart: unless-stopped
 
     # Strict Cgroups v2 & Compose resource shield (3400 MiB hard ceiling, 1.9 vCPU)
-    deploy:
-      resources:
-        limits:
-          memory: 3400M
-          cpus: '1.9'
-        reservations:
-          memory: 512M
-          cpus: '0.5'
     mem_limit: 3400m
     memswap_limit: 3800m
     cpus: 1.9

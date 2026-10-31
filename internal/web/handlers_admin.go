@@ -118,12 +118,7 @@ func (a *AdminHandler) HandleStats(w http.ResponseWriter, r *http.Request) {
 	if targetDir == "" {
 		targetDir = "."
 	}
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(targetDir, &stat); err != nil {
-		_ = syscall.Statfs(".", &stat)
-	}
-	diskTotalBytes = stat.Blocks * uint64(stat.Bsize)
-	diskFreeBytes = stat.Bavail * uint64(stat.Bsize)
+	diskTotalBytes, diskFreeBytes, _ := safety.GetDiskSpace(targetDir)
 
 	writeJSONResponse(w, http.StatusOK, map[string]any{
 		"ok":                   true,
