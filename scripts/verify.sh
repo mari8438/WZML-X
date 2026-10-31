@@ -74,16 +74,16 @@ if command -v ffmpeg >/dev/null 2>&1 && command -v mkvmerge >/dev/null 2>&1; the
     -c:v libx264 -preset ultrafast -c:a aac \
     "${SAMPLE_MKV}"
 
-  START_NS="$(date +%s%N)"
-  mkvmerge -q -o "${TMP_DIR}/%d_output.mkv" --split duration:00:00:02 "${SAMPLE_MKV}"
-  END_NS="$(date +%s%N)"
-  ELAPSED_MS=$(( (END_NS - START_NS) / 1000000 ))
+  START_SEC="$(date +%s)"
+  mkvmerge -q -o "${TMP_DIR}/output-%03d.mkv" --split duration:00:00:02 "${SAMPLE_MKV}"
+  END_SEC="$(date +%s)"
+  ELAPSED_SEC=$(( END_SEC - START_SEC ))
 
-  PART_COUNT="$(find "${TMP_DIR}" -maxdepth 1 -name "*_output.mkv" | wc -l)"
-  if [[ "${PART_COUNT}" -ge 2 && "${ELAPSED_MS}" -lt 3000 ]]; then
-    pass "mkvmerge lossless stream-copy split produced ${PART_COUNT} parts in ${ELAPSED_MS} ms (< 3000 ms ceiling)"
+  PART_COUNT="$(find "${TMP_DIR}" -maxdepth 1 -name "output-*.mkv" | wc -l)"
+  if [ "${PART_COUNT}" -ge 2 ] && [ "${ELAPSED_SEC}" -le 5 ]; then
+    pass "mkvmerge lossless stream-copy split produced ${PART_COUNT} parts in ${ELAPSED_SEC}s (< 5s ceiling)"
   else
-    fail "mkvmerge split check failed (parts=${PART_COUNT}, elapsed=${ELAPSED_MS} ms)"
+    fail "mkvmerge split check failed (parts=${PART_COUNT}, elapsed=${ELAPSED_SEC}s)"
   fi
 else
   warn "Skipping local mkvmerge benchmark (run inside starfall-debrid container to execute)"

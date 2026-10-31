@@ -42,6 +42,7 @@ RUN apk add --no-cache \
     tzdata \
     tini \
     curl \
+    bash \
     ffmpeg \
     mkvtoolnix \
     aria2 \
