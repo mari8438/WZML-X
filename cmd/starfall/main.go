@@ -182,8 +182,8 @@ func main() {
 		downloader.ManagerConfig{
 			DownloadDir:         cfg.App.DownloadDir,
 			RequireTelegramDump: false,
-			GDriveAPIKey:        cfg.Integrations.GDriveAPIKey,
-			TeraboxCookie:       cfg.Integrations.TeraboxCookie,
+			GDriveAPIKey:        cfg.Engine.GDriveAPIKey,
+			TeraboxCookie:       cfg.Engine.TeraboxCookie,
 			Aria2Enabled:        cfg.Engine.Aria2Enabled,
 			Aria2RPCPort:        cfg.Engine.Aria2RPCPort,
 			Aria2RPCSecret:      cfg.Engine.Aria2RPCSecret,
@@ -203,7 +203,7 @@ func main() {
 
 	// 5. Initialize Poster Generator (Templates 1-11), Lossless Splitter, Optional MTProto Sessions & Bot.
 	notifier := telegram.NewNotifier(bus, logger)
-	posterGen := telegram.NewPosterGenerator(cfg.App.DownloadDir, "Anime Starfall", cfg.Integrations.TMDBAPIKey)
+	posterGen := telegram.NewPosterGenerator(cfg.App.DownloadDir, "Anime Starfall", cfg.Engine.TMDBAPIKey)
 	splitter := telegram.NewSplitter(watchdog, "mkvmerge", logger)
 
 	var primaryTGClient *telegram.Client
@@ -211,7 +211,7 @@ func main() {
 	var helperPool *telegram.HelperPool
 
 	sessionDir := filepath.Dir(cfg.Database.SQLitePath)
-	if cfg.Telegram.AppID > 0 && strings.TrimSpace(cfg.Telegram.AppHash) != "" {
+	if cfg.Telegram.APIID > 0 && strings.TrimSpace(cfg.Telegram.APIHash) != "" {
 		// Interactive Bot Client (when BOT_TOKEN is configured)
 		if strings.TrimSpace(cfg.Telegram.BotToken) != "" {
 			bot := telegram.NewBot(
@@ -233,8 +233,8 @@ func main() {
 			)
 
 			botCli, cliErr := telegram.NewClient(telegram.ClientConfig{
-				AppID:         cfg.Telegram.AppID,
-				AppHash:       cfg.Telegram.AppHash,
+				AppID:         cfg.Telegram.APIID,
+				AppHash:       cfg.Telegram.APIHash,
 				BotToken:      cfg.Telegram.BotToken,
 				SessionFile:   cfg.Telegram.SessionFile,
 				DeviceModel:   "Starfall-Go-Bot-v1.2",
@@ -252,8 +252,8 @@ func main() {
 		// Optional Premium User Session (`SESSION_STRING` or `USER_SESSION_STRING` for 4 GB uploads)
 		if strings.TrimSpace(cfg.Telegram.SessionString) != "" {
 			userCli, uErr := telegram.NewClient(telegram.ClientConfig{
-				AppID:         cfg.Telegram.AppID,
-				AppHash:       cfg.Telegram.AppHash,
+				AppID:         cfg.Telegram.APIID,
+				AppHash:       cfg.Telegram.APIHash,
 				SessionString: cfg.Telegram.SessionString,
 				SessionFile:   cfg.Telegram.UserSessionFile,
 				DeviceModel:   "Starfall-Go-Premium-v1.2",
@@ -269,7 +269,7 @@ func main() {
 
 		// Optional Multi-Bot Helper Pool (`HELPER_TOKENS` & `USER_UPLOAD_BOT_TOKEN`)
 		if helperTokens := cfg.Telegram.HelperTokenList(); len(helperTokens) > 0 {
-			helperPool = telegram.NewHelperPool(cfg.Telegram.AppID, cfg.Telegram.AppHash, sessionDir, helperTokens, logger)
+			helperPool = telegram.NewHelperPool(cfg.Telegram.APIID, cfg.Telegram.APIHash, sessionDir, helperTokens, logger)
 			helperPool.Start(rootCtx)
 		}
 	} else {
