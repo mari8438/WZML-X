@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,9 +14,15 @@ import (
 )
 
 func TestDispatcherConcurrencyLimits(t *testing.T) {
-	bus := ipc.NewBus()
-	registry := NewTaskRegistry(bus)
-	limiter := safety.NewRateLimiter(150, 30)
+	logger := slog.Default()
+	bus := ipc.NewBus(logger, 64)
+	defer bus.Close()
+
+	registry := NewTaskRegistry()
+	limiter := safety.NewRateLimiter(safety.RateLimitConfig{
+		MaxGlobalConnections:  150,
+		MaxPerTaskConnections: 30,
+	}, logger)
 
 	cfg := DispatcherConfig{
 		MaxConcurrentWorkers: 4,
@@ -24,20 +32,27 @@ func TestDispatcherConcurrencyLimits(t *testing.T) {
 		QueueBufferSize:      10,
 	}
 
-	dispatcher := NewDispatcher(cfg, registry, nil, limiter, bus, nil)
+	dispatcher := NewDispatcher(cfg, registry, nil, limiter, bus, logger)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	dispatcher.Start(ctx)
-	defer dispatcher.Shutdown(1 * time.Second)
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer shutdownCancel()
+		_ = dispatcher.Shutdown(shutdownCtx)
+	}()
 
 	var concurrentWork atomic.Int32
 	var maxConcurrent atomic.Int32
 
+	user := models.NewGoogleUser("sub_123", "user@test.com", "Tester", "")
+
 	// Submit 6 lightweight tasks
 	for i := 0; i < 6; i++ {
-		task := models.NewTask("test_user", models.TaskTypeDownload, "Direct", models.DefaultUserSettings())
-		task.Work = func(taskCtx context.Context) error {
+		taskID := fmt.Sprintf("task_%d", i)
+		task := models.NewTask(taskID, user, "Test Task", "http://example.com/file", models.TaskTypeDownload, 1024)
+		task.Work = func(taskCtx context.Context, t *models.Task) error {
 			current := concurrentWork.Add(1)
 			for {
 				oldMax := maxConcurrent.Load()
@@ -56,7 +71,7 @@ func TestDispatcherConcurrencyLimits(t *testing.T) {
 	}
 
 	// Wait for queue to drain
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 
 	// Max concurrent should never exceed MaxActiveDownloads (3)
 	if maxConcurrent.Load() > 3 {
