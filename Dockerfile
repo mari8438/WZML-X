@@ -65,6 +65,7 @@ RUN chmod +x /starfall-debrid /app/scripts/verify.sh
 ENV GOMEMLIMIT=3000MiB \
     GOGC=50 \
     GOMAXPROCS=2 \
+    GODEBUG=madvdontneed=1 \
     STARFALL_APP_LISTEN_ADDR="0.0.0.0:8080" \
     STARFALL_APP_DOWNLOAD_DIR="/app/downloads" \
     STARFALL_APP_SEED_CONFIG_DIR="/app/configs" \
