@@ -71,7 +71,7 @@ if command -v ffmpeg >/dev/null 2>&1 && command -v mkvmerge >/dev/null 2>&1; the
   ffmpeg -nostdin -v error \
     -f lavfi -i testsrc=duration=4:size=320x240:rate=15 \
     -f lavfi -i sine=frequency=440:duration=4 \
-    -c:v libx264 -preset ultrafast -c:a aac \
+    -c:v libx264 -preset ultrafast -g 15 -c:a aac \
     "${SAMPLE_MKV}"
 
   START_SEC="$(date +%s)"
