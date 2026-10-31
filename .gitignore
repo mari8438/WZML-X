@@ -1,4 +1,8 @@
 .venv/*
+.env
+*.env
+.env.*
+connect_vps.bat
 config.py
 secrets/*
 token.pickle

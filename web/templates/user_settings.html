@@ -867,7 +867,7 @@
           </div>
           <div>
             <div class="brand-heading">ANIME STARFALL • CONTROL STUDIO</div>
-            <div class="brand-meta">User Automation &amp; Owner Sudo Engine • VPS 172.105.52.160</div>
+            <div class="brand-meta">User Automation &amp; Owner Sudo Engine • VPS Host</div>
           </div>
         </div>
 
@@ -1158,7 +1158,7 @@
             <div class="card-title-group">
               <div class="card-icon">📈</div>
               <div>
-                <h2 class="card-title">Live VPS Telemetry &amp; Resource Monitor (172.105.52.160)</h2>
+                <h2 class="card-title">Live VPS Telemetry &amp; Resource Monitor (Host)</h2>
                 <p class="card-desc">2 vCPU • 4 GB RAM • Real-time hardware &amp; daemon diagnostics</p>
               </div>
             </div>
@@ -1388,7 +1388,7 @@
         ⚡ Confirm Graceful Bot Container Restart
       </h3>
       <p style="font-size: 13px; color: var(--text-dim);">
-        This will cleanly flush active aria2/qBittorrent states, persist SQLite records, and restart the WZML-X daemon on 172.105.52.160.
+        This will cleanly flush active aria2/qBittorrent states, persist SQLite records, and restart the WZML-X daemon on Host.
       </p>
       <div style="display: flex; gap: 10px; margin-top: 6px;">
         <button type="button" id="cancelRestartModalBtn" class="ext-pill-link" style="flex: 1; justify-content: center; min-height: 42px;">
@@ -1929,7 +1929,7 @@
             await window.fetch(reqUrl, { method: "POST" });
           } catch (e) {}
         }
-        showToast("⚡ Triggered graceful container restart on 172.105.52.160!");
+        showToast("⚡ Triggered graceful container restart on Host!");
       });
 
       document.getElementById("backToMainStudioBtn").addEventListener("click", () => {

@@ -320,7 +320,7 @@ func setHardwareSafeDefaults(v *viper.Viper) {
 	v.SetDefault("app.name", "starfall-debrid")
 	v.SetDefault("app.environment", "production")
 	v.SetDefault("app.listen_addr", "0.0.0.0:8080")
-	v.SetDefault("app.public_base_url", "http://172.105.52.160:8080")
+	v.SetDefault("app.public_base_url", "")
 	v.SetDefault("app.download_dir", "/app/downloads")
 	v.SetDefault("app.seed_config_dir", "configs")
 	v.SetDefault("app.max_procs", 2)

@@ -4,7 +4,7 @@ app:
   name: "starfall-debrid"
   environment: "production"
   listen_addr: "0.0.0.0:8080"
-  public_base_url: "http://172.105.52.160:8080"
+  public_base_url: ""
   download_dir: "/app/downloads"
   seed_config_dir: "/app/configs"
   max_procs: 2
