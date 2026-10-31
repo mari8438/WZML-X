@@ -100,9 +100,10 @@ type AuthConfig struct {
 	SessionDays        int    `mapstructure:"session_days"`
 }
 
-// DatabaseConfig holds embedded SQLite storage configuration.
+// DatabaseConfig holds embedded SQLite and external database configuration.
 type DatabaseConfig struct {
-	SQLitePath string `mapstructure:"sqlite_path"`
+	SQLitePath  string `mapstructure:"sqlite_path"`
+	DatabaseURL string `mapstructure:"database_url"`
 }
 
 // TelegramConfig holds credentials and upload tuning for Telegram Bot/MTProto integration.
@@ -312,6 +313,15 @@ func applyLegacyEnvFallbacks(cfg *Config) {
 		cfg.App.PublicBaseURL = strings.TrimSpace(os.Getenv("STARFALL_APP_PUBLIC_BASE_URL"))
 		if cfg.App.PublicBaseURL == "" {
 			cfg.App.PublicBaseURL = strings.TrimSpace(os.Getenv("BASE_URL"))
+		}
+	}
+	if cfg.Database.DatabaseURL == "" {
+		cfg.Database.DatabaseURL = strings.TrimSpace(os.Getenv("STARFALL_DATABASE_URL"))
+		if cfg.Database.DatabaseURL == "" {
+			cfg.Database.DatabaseURL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+			if cfg.Database.DatabaseURL == "" {
+				cfg.Database.DatabaseURL = strings.TrimSpace(os.Getenv("MONGODB_URI"))
+			}
 		}
 	}
 }

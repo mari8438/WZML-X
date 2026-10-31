@@ -44,6 +44,10 @@ engine:
   tmdb_api_key: ""
   gdrive_api_key: ""
 
+database:
+  sqlite_path: "/app/data/starfall_users.db"
+  database_url: ""
+
 telegram:
   owner_id: 8814651149
   api_id: 0
