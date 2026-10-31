@@ -734,7 +734,7 @@ func buildTorrentTree(entries []aria2.TorrentFileEntry) []*torrentTreeNode {
 					ID:       e.Index,
 					Name:     path.Base(part),
 					Type:     "file",
-					Size:     e.LengthBytes,
+					Size:     e.SizeBytes,
 					Selected: e.Selected,
 				})
 			} else {
