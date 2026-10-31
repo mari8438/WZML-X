@@ -3,17 +3,16 @@
 package video
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/starfall-org/starfall-go/internal/media"
 	"github.com/starfall-org/starfall-go/internal/models"
+	"github.com/starfall-org/starfall-go/internal/safety"
 )
 
 // BuildFFmpegMetadataArgs constructs lossless `ffmpeg -map 0 -c copy` CLI arguments
@@ -175,12 +174,12 @@ func ApplyLosslessMetadata(
 	tmpOut := strings.TrimSuffix(inputPath, ext) + ".meta_tmp" + ext
 	args := BuildFFmpegMetadataArgs(inputPath, tmpOut, settings, probe, md)
 
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	cmd := safety.NewSupervisedCommand(ctx, "ffmpeg", args...)
+	ringBuf := safety.NewBoundedRingBuffer(64 * 1024)
+	cmd.Stderr = ringBuf
 	if err := cmd.Run(); err != nil {
 		_ = os.Remove(tmpOut)
-		return inputPath, fmt.Errorf("ffmpeg lossless metadata failed: %w (%s)", err, strings.TrimSpace(stderr.String()))
+		return inputPath, fmt.Errorf("ffmpeg lossless metadata failed: %w (%s)", err, strings.TrimSpace(ringBuf.String()))
 	}
 
 	if err := os.Rename(tmpOut, inputPath); err != nil {

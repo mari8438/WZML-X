@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/starfall-org/starfall-go/internal/models"
+	"github.com/starfall-org/starfall-go/internal/safety"
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/gobold"
@@ -446,7 +447,7 @@ func ExtractSmartVideoThumbnail(ctx context.Context, videoPath string, durationS
 	tmpOut := videoPath + ".smart_thumb.jpg"
 	defer func() { _ = os.Remove(tmpOut) }()
 
-	cmd := exec.CommandContext(
+	cmd := safety.NewSupervisedCommand(
 		ctx,
 		"ffmpeg",
 		"-hide_banner",

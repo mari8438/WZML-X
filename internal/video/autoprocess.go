@@ -15,6 +15,7 @@ import (
 
 	"github.com/starfall-org/starfall-go/internal/media"
 	"github.com/starfall-org/starfall-go/internal/models"
+	"github.com/starfall-org/starfall-go/internal/safety"
 )
 
 // BuildMkvmergeArgs constructs the exact single-pass `mkvmerge` CLI arguments for `probe`,
@@ -176,10 +177,10 @@ func ProcessVideoBundle(
 		remuxOut := filepath.Join(filepath.Dir(currentPath), stem+".starfall_mux.mkv")
 		args := BuildMkvmergeArgs(currentPath, remuxOut, probe, settings, taskOpts, extTracks, introSRT)
 
-		cmd := exec.CommandContext(ctx, "mkvmerge", args...)
-		var stderr, stdout bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
+		cmd := safety.NewSupervisedCommand(ctx, "mkvmerge", args...)
+		ringBuf := safety.NewBoundedRingBuffer(64 * 1024)
+		cmd.Stdout = ringBuf
+		cmd.Stderr = ringBuf
 		err := cmd.Run()
 		// mkvmerge exit code 1 means "warnings generated" (mux succeeded); exit code 2 means fatal error!
 		exitCode := 0
@@ -213,7 +214,7 @@ func ProcessVideoBundle(
 			}
 		} else {
 			_ = os.Remove(remuxOut)
-			return currentPath, probe, md, fmt.Errorf("mkvmerge failed (exit %d): %s %s", exitCode, strings.TrimSpace(stderr.String()), strings.TrimSpace(stdout.String()))
+			return currentPath, probe, md, fmt.Errorf("mkvmerge failed (exit %d): %s", exitCode, strings.TrimSpace(ringBuf.String()))
 		}
 	}
 

@@ -119,11 +119,11 @@ func extractSingleArchive(ctx context.Context, archivePath, destDir string, minF
 	if _, err := exec.LookPath(bin); err != nil {
 		bin = "7zz"
 	}
-	cmd := exec.CommandContext(ctx, bin, "x", "-y", "-bd", "-o"+destDir, archivePath)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	cmd := safety.NewSupervisedCommand(ctx, bin, "x", "-y", "-bd", "-o"+destDir, archivePath)
+	ringBuf := safety.NewBoundedRingBuffer(64 * 1024)
+	cmd.Stderr = ringBuf
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("7z extraction failed for %s: %w (%s)", filepath.Base(archivePath), err, strings.TrimSpace(stderr.String()))
+		return fmt.Errorf("7z extraction failed for %s: %w (%s)", filepath.Base(archivePath), err, strings.TrimSpace(ringBuf.String()))
 	}
 	return nil
 }

@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/starfall-org/starfall-go/internal/media"
+	"github.com/starfall-org/starfall-go/internal/safety"
 )
 
 // StreamInfo describes a single elementary track inside a media container.
@@ -122,7 +123,7 @@ type rawFFProbeOutput struct {
 
 // ProbeMedia executes `ffprobe` on `filePath` and parses stream metadata without loading media bytes.
 func ProbeMedia(ctx context.Context, filePath string) (*MediaProbe, error) {
-	cmd := exec.CommandContext(
+	cmd := safety.NewSupervisedCommand(
 		ctx,
 		"ffprobe",
 		"-v", "error",
