@@ -3,10 +3,8 @@ package crawler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"regexp"
-	"strings"
 	"sync"
 	"time"
 
