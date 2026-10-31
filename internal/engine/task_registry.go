@@ -117,6 +117,11 @@ func (r *TaskRegistry) ListSnapshots() []models.TaskSnapshot {
 	return out
 }
 
+// Snapshot is an alias for ListSnapshots.
+func (r *TaskRegistry) Snapshot() []models.TaskSnapshot {
+	return r.ListSnapshots()
+}
+
 // PauseAllActive pauses all currently downloading tasks (used by Watchdog on CRITICAL RAM).
 func (r *TaskRegistry) PauseAllActive() int {
 	paused := 0

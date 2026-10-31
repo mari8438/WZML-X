@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/starfall-org/starfall-go/internal/database"
 	"github.com/starfall-org/starfall-go/internal/engine"
 	"github.com/starfall-org/starfall-go/internal/media"
-	"github.com/starfall-org/starfall-go/internal/models"
 	"github.com/starfall-org/starfall-go/internal/publisher"
 )
 
@@ -83,7 +81,7 @@ func (r *Router) registerDefaults() {
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("📋 <b>Active & Queued Tasks (%d):</b>\n\n", len(tasks)))
 		for i, t := range tasks {
-			sb.WriteString(fmt.Sprintf("%d. <code>%s</code> | %s [%s]\n", i+1, t.ID, t.Name, t.Status()))
+			sb.WriteString(fmt.Sprintf("%d. <code>%s</code> | %s [%s]\n", i+1, t.ID, t.Name, t.Status))
 		}
 		return sb.String(), nil
 	})

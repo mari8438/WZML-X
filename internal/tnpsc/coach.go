@@ -2,9 +2,7 @@ package tnpsc
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"math/rand"
 	"time"
 
 	"github.com/starfall-org/starfall-go/internal/database"
