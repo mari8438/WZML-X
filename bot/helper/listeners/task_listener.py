@@ -411,6 +411,9 @@ class TaskListener(TaskConfig):
             up_path = await process_auto_pipeline(self, up_path, gid)
             if self.is_cancelled:
                 return
+            if getattr(self, "_vt_vps_saved_only", False) or up_path is None:
+                await self.finish_vps_only_task()
+                return
             self.is_file = await aiopath.isfile(up_path)
             self.name = up_path.replace(f"{up_dir}/", "").split("/", 1)[0]
             self.size = await get_path_size(up_dir)
@@ -418,6 +421,9 @@ class TaskListener(TaskConfig):
         elif getattr(self, "force_intro_subtitle", False) and not self.video_tool and not self.is_cancelled:
             up_path = await process_auto_finish_pipeline(self, up_path, gid)
             if self.is_cancelled:
+                return
+            if getattr(self, "_vt_vps_saved_only", False) or up_path is None:
+                await self.finish_vps_only_task()
                 return
             self.is_file = await aiopath.isfile(up_path)
             self.name = up_path.replace(f"{up_dir}/", "").split("/", 1)[0]
@@ -431,6 +437,9 @@ class TaskListener(TaskConfig):
             )
             if self.is_cancelled:
                 return
+            if getattr(self, "_vt_vps_saved_only", False) or up_path is None:
+                await self.finish_vps_only_task()
+                return
             self.is_file = await aiopath.isfile(up_path)
             self.name = up_path.replace(f"{up_dir}/", "").split("/", 1)[0]
             self.size = await get_path_size(up_dir)
@@ -442,13 +451,8 @@ class TaskListener(TaskConfig):
             up_path = await process_video_tool(self, up_path)
             if self.is_cancelled:
                 return
-            if getattr(self, "_vt_vps_saved_only", False):
-                await clean_download(self.dir)
-                async with queue_dict_lock:
-                    if self.mid in non_queued_up:
-                        non_queued_up.remove(self.mid)
-                await start_from_queued()
-                LOGGER.info(f"VT Extract-to-VPS complete for task {self.mid}. Skipping Telegram upload.")
+            if getattr(self, "_vt_vps_saved_only", False) or up_path is None:
+                await self.finish_vps_only_task()
                 return
             self.is_file = await aiopath.isfile(up_path)
             self.name = up_path.replace(f"{up_dir}/", "").split("/", 1)[0]
@@ -459,10 +463,17 @@ class TaskListener(TaskConfig):
             up_path = await process_auto_finish_pipeline(self, up_path, gid)
             if self.is_cancelled:
                 return
+            if getattr(self, "_vt_vps_saved_only", False) or up_path is None:
+                await self.finish_vps_only_task()
+                return
             self.is_file = await aiopath.isfile(up_path)
             self.name = up_path.replace(f"{up_dir}/", "").split("/", 1)[0]
             self.size = await get_path_size(up_dir)
             self.clear()
+
+        if up_path is None or getattr(self, "_vt_vps_saved_only", False):
+            await self.finish_vps_only_task()
+            return
 
         metadata_allowed = True
         if auto_enabled(self):
@@ -882,6 +893,28 @@ class TaskListener(TaskConfig):
         await start_from_queued()
         self.mark_multi_step_done()
         self._mark_bq_done("complete")
+
+    async def finish_vps_only_task(self):
+        await clean_download(self.dir)
+        async with task_dict_lock:
+            if self.mid in task_dict:
+                del task_dict[self.mid]
+            count = len(task_dict)
+        if count == 0:
+            await self.clean()
+        else:
+            await update_status_message(self.message.chat.id)
+
+        async with queue_dict_lock:
+            if self.mid in non_queued_up:
+                non_queued_up.remove(self.mid)
+            if self.mid in rss_non_queued_up:
+                rss_non_queued_up.remove(self.mid)
+
+        await start_from_queued()
+        self.mark_multi_step_done()
+        self._mark_bq_done("complete")
+        LOGGER.info(f"VPS-only task {self.mid} finished and cleaned up successfully.")
 
     async def on_download_error(self, error, button=None, is_limit=False):
         async with task_dict_lock:

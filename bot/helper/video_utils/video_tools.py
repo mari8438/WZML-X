@@ -469,6 +469,22 @@ async def _refresh_external_tracks(state, input_path):
     input_name = ospath.basename(input_path)
     external_audio = []
     external_sub = []
+    seen_audio_paths = set()
+    seen_sub_paths = set()
+
+    # Retain existing external tracks that point to existing files (e.g. from Audio Bank or matched bank)
+    for item in state.get("external_audio", []):
+        p = item.get("path", "")
+        if p and await aiopath.isfile(p):
+            external_audio.append(dict(item))
+            seen_audio_paths.add(p)
+
+    for item in state.get("external_sub", []):
+        p = item.get("path", "")
+        if p and await aiopath.isfile(p):
+            external_sub.append(dict(item))
+            seen_sub_paths.add(p)
+
     dirs = []
     external_dir = state.get("external_dir")
     if external_dir:
@@ -491,11 +507,12 @@ async def _refresh_external_tracks(state, input_path):
             ):
                 continue
             path = ospath.join(scan_dir, name)
-            if not await aiopath.isfile(path):
+            if path in seen_audio_paths or path in seen_sub_paths or not await aiopath.isfile(path):
                 continue
             ext = ospath.splitext(name)[1].lower()
             if ext in AUDIO_EXTENSIONS:
                 external_audio.append(_external_audio_item(len(external_audio), name, path))
+                seen_audio_paths.add(path)
             elif ext in VIDEO_EXTENSIONS:
                 # ONLY treat VIDEO_EXTENSIONS as external tracks if inside external_dir (explicit user upload)
                 if scan_dir == external_dir:
@@ -504,6 +521,12 @@ async def _refresh_external_tracks(state, input_path):
                 external_sub.append(
                     {"index": len(external_sub), "name": name, "path": path}
                 )
+                seen_sub_paths.add(path)
+
+    for idx, item in enumerate(external_audio):
+        item["index"] = idx
+    for idx, item in enumerate(external_sub):
+        item["index"] = idx
 
     from ..ext_utils.media_utils import get_exact_duration
 
@@ -538,26 +561,23 @@ async def _refresh_external_tracks(state, input_path):
         state["merge_sub"] = []
         return
 
-    state["merge_audio"] = [
-        idx for idx in state.get("merge_audio", []) if idx < len(external_audio)
-    ]
-    # Only auto-select all external tracks if merge intake or matched bank is active
-    if (
-        not state["merge_audio"]
-        and external_audio
-        and (state.get("merge_intake") or state.get("matched_bank"))
-    ):
-        state["merge_audio"] = [item["index"] for item in external_audio]
+    if external_audio:
+        if state.get("matched_bank") or state.get("merge_intake") or not state.get("merge_audio"):
+            state["merge_audio"] = [item["index"] for item in external_audio]
+        else:
+            valid_merge = [idx for idx in state.get("merge_audio", []) if idx < len(external_audio)]
+            state["merge_audio"] = valid_merge or [item["index"] for item in external_audio]
+    else:
+        state["merge_audio"] = []
 
-    state["merge_sub"] = [
-        idx for idx in state.get("merge_sub", []) if idx < len(external_sub)
-    ]
-    if (
-        not state["merge_sub"]
-        and external_sub
-        and (state.get("merge_intake") or state.get("matched_bank"))
-    ):
-        state["merge_sub"] = [item["index"] for item in external_sub]
+    if external_sub:
+        if state.get("matched_bank") or state.get("merge_intake") or not state.get("merge_sub"):
+            state["merge_sub"] = [item["index"] for item in external_sub]
+        else:
+            valid_merge_sub = [idx for idx in state.get("merge_sub", []) if idx < len(external_sub)]
+            state["merge_sub"] = valid_merge_sub or [item["index"] for item in external_sub]
+    else:
+        state["merge_sub"] = []
 
 
 async def _ensure_external_dir(state):
@@ -903,7 +923,13 @@ async def generate_final_sample(listener, output_path):
                 f"🎬 <b>Final Sample ({sample_dur}s • Lossless Cut)</b>\n"
                 f"<code>{ospath.basename(output_path)}</code>"
             )
-            await send_sample_video(listener.message, sample_path, caption=caption, duration=sample_dur)
+            try:
+                await asyncio.wait_for(
+                    send_sample_video(listener.message, sample_path, caption=caption, duration=sample_dur),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                LOGGER.warning("Video Tool: Sample video upload timed out after 30s. Skipping sample.")
     except Exception as e:
         LOGGER.warning(f"Video Tool: Failed generating final sample: {e}")
     finally:
@@ -1870,6 +1896,8 @@ def _clone_state_for_path(source, filename, audio_tracks, sub_tracks, input_path
     state["intro_text_available"] = bool(source.get("intro_text_available"))
     state["external_dir"] = source.get("external_dir", "")
     state["video_duration"] = float(source.get("video_duration", 0.0) or 0.0)
+    state["matched_bank"] = source.get("matched_bank")
+    state["audio_delay_ms"] = int(source.get("audio_delay_ms", 0) or 0)
     return state
 
 
@@ -2008,9 +2036,36 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
         if upload_to_tg:
             await makedirs(common_extract_dir, exist_ok=True)
 
+        from ... import task_dict, task_dict_lock, bot_cache
+        from ..mirror_leech_utils.status_utils.auto_process_status import AutoProcessStatus
+        from ..ext_utils.status_utils import update_status_message
+        from ..ext_utils.files_utils import get_path_size
+
+        total_extract_bytes = sum([await get_path_size(v) for v in videos])
+        processed_extract_bytes = 0
+        mkv_ver = bot_cache.get("eng_versions", {}).get("mkvmerge", "N/A")
+        status_obj = AutoProcessStatus(
+            listener,
+            getattr(listener, "_process_gid", str(listener.mid)),
+            action="Extract Stream",
+            engine=f"mkvextract v{mkv_ver}",
+        )
+        status_obj._total_bytes = total_extract_bytes
+        async with task_dict_lock:
+            task_dict[listener.mid] = status_obj
+
         for idx, video in enumerate(videos, start=1):
             if listener.is_cancelled:
                 break
+            v_size = await get_path_size(video)
+            status_obj.set_progress(
+                current_file=ospath.basename(video),
+                processed_bytes=processed_extract_bytes,
+                total_bytes=total_extract_bytes,
+            )
+            with suppress(Exception):
+                await update_status_message(listener.message.chat.id)
+
             audio_tracks, sub_tracks = await probe_streams(video)
             work_state = _clone_state_for_path(
                 state, ospath.basename(video), audio_tracks, sub_tracks, video
@@ -2019,6 +2074,8 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
             work_state["merge_sub"] = []
 
             extracted, _ = await _extract_streams(listener, video, work_state)
+            processed_extract_bytes += v_size
+            status_obj.set_progress(processed_bytes=processed_extract_bytes)
             if extracted:
                 for ext_path in extracted:
                     all_extracted_paths.append(ext_path)
@@ -2056,15 +2113,51 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
 
         return up_path
 
+    from ... import task_dict, task_dict_lock
+    from ..mirror_leech_utils.status_utils.auto_process_status import AutoProcessStatus
+    from ..ext_utils.status_utils import update_status_message, EngineStatus
+    from ..ext_utils.files_utils import get_path_size
+
+    total_folder_bytes = sum([await get_path_size(v) for v in videos])
+    processed_folder_bytes = 0
+
+    status_obj = AutoProcessStatus(
+        listener,
+        getattr(listener, "_process_gid", str(listener.mid)),
+        action="Video Tools Mux",
+        engine=EngineStatus().STATUS_MKVMERGE,
+    )
+    status_obj._total_bytes = total_folder_bytes
+    async with task_dict_lock:
+        task_dict[listener.mid] = status_obj
+
     for idx, video in enumerate(videos):
+        if listener.is_cancelled:
+            break
+        v_size = await get_path_size(video)
+        status_obj.set_progress(
+            current_file=ospath.basename(video),
+            processed_bytes=processed_folder_bytes,
+            total_bytes=total_folder_bytes,
+            engine=EngineStatus().STATUS_MKVMERGE,
+        )
+        with suppress(Exception):
+            await update_status_message(listener.message.chat.id)
+
         audio_tracks, sub_tracks = await probe_streams(video)
         work_state = _clone_state_for_path(
             state, ospath.basename(video), audio_tracks, sub_tracks, video
         )
         if state.get("matched_bank"):
             matched_list = state["matched_bank"].get("matched", [])
-            if idx < len(matched_list):
+            vid_base = ospath.basename(video)
+            ep_match = next(
+                (m for m in matched_list if m.get("video_path") == video or m.get("video_name") == vid_base),
+                None
+            )
+            if not ep_match and idx < len(matched_list):
                 ep_match = matched_list[idx]
+            if ep_match:
                 ext_items = []
                 for a_idx, trk in enumerate(ep_match.get("audio_tracks", [])):
                     ext_items.append({
@@ -2080,9 +2173,12 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
                 if ext_items:
                     work_state["external_audio"] = ext_items
                     work_state["merge_audio"] = list(range(len(ext_items)))
+                    work_state["matched_bank"] = state["matched_bank"]
 
         await _refresh_external_tracks(work_state, video)
         res = await _execute_vt_pipeline(listener, video, work_state)
+        processed_folder_bytes += v_size
+        status_obj.set_progress(processed_bytes=processed_folder_bytes)
         if res and not first_muxed_video:
             first_muxed_video = res
         if listener.is_cancelled:

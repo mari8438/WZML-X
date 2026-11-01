@@ -1013,11 +1013,37 @@ async def _auto_extract_streams_pipeline(listener, up_path):
     if upload_to_tg:
         await makedirs(common_extract_dir, exist_ok=True)
 
+    from ... import task_dict, task_dict_lock, bot_cache
+    from ..mirror_leech_utils.status_utils.auto_process_status import AutoProcessStatus
+    from ..ext_utils.status_utils import update_status_message
+    from ..ext_utils.files_utils import get_path_size
+
+    total_extract_bytes = sum([await get_path_size(v) for v in videos])
+    processed_extract_bytes = 0
+    mkv_ver = bot_cache.get("eng_versions", {}).get("mkvmerge", "N/A")
+    status_obj = AutoProcessStatus(
+        listener,
+        getattr(listener, "_process_gid", str(listener.mid)),
+        action="Extract Stream",
+        engine=f"mkvextract v{mkv_ver}",
+    )
+    status_obj._total_bytes = total_extract_bytes
+    async with task_dict_lock:
+        task_dict[listener.mid] = status_obj
+
     all_extracted_paths = []
 
     for video in videos:
         if listener.is_cancelled:
             break
+        v_size = await get_path_size(video)
+        status_obj.set_progress(
+            current_file=ospath.basename(video),
+            processed_bytes=processed_extract_bytes,
+            total_bytes=total_extract_bytes,
+        )
+        with suppress(Exception):
+            await update_status_message(listener.message.chat.id)
         audio_tracks, _ = await probe_streams(video)
         matched_audio = []
         for trk in audio_tracks:
@@ -1042,6 +1068,9 @@ async def _auto_extract_streams_pipeline(listener, up_path):
                         await save_to_audio_bank(user_id, out_path, custom_name=out_name)
                     except Exception as be:
                         LOGGER.warning(f"Failed to save auto-extracted audio to VPS bank: {be}")
+
+        processed_extract_bytes += v_size
+        status_obj.set_progress(processed_bytes=processed_extract_bytes)
 
         if is_folder or (save_to_vps and not upload_to_tg):
             with suppress(Exception):
