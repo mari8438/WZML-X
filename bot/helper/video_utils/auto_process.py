@@ -25,7 +25,6 @@ from ..ext_utils.media_utils import (
     format_clean_poster_title,
 )
 from ..ext_utils.performance import get_ffmpeg_threads
-from ..ext_utils.status_utils import get_readable_file_size
 from ..telegram_helper.message_utils import (
     delete_message,
     edit_message,
@@ -698,16 +697,7 @@ async def _delete_batch_sources(batch, output):
 
 def _merge_limit(listener):
     safety = max(0, int(getattr(Config, "AUTO_MERGE_SAFETY_MB", 150) or 150))
-    # If Telegram Premium is active (or user session available), merge limit supports up to 4GB
-    if TgClient.IS_PREMIUM_USER or getattr(TgClient, "user", None):
-        max_size = TgClient.PREMIUM_SPLIT_SIZE
-    else:
-        max_size = getattr(listener, "max_split_size", 0) or TgClient.MAX_SPLIT_SIZE
-        if max_size < TgClient.PREMIUM_SPLIT_SIZE and getattr(Config, "AUTO_MERGE_4GB", True):
-            max_size = TgClient.PREMIUM_SPLIT_SIZE
-    custom_max = getattr(Config, "AUTO_MERGE_MAX_SIZE", 0)
-    if custom_max:
-        max_size = int(custom_max)
+    max_size = getattr(listener, "max_split_size", 0) or TgClient.MAX_SPLIT_SIZE
     return max(1, max_size - safety * 1024 * 1024)
 
 
@@ -799,14 +789,14 @@ async def _write_planner(listener, root, batches, limit, warnings):
     path = ospath.join(root, f"auto_merge_planner_{listener.mid}.txt")
     lines = [
         "Auto Merge Planner",
-        f"Merge limit: {limit} bytes ({get_readable_file_size(limit)})",
+        f"Merge limit: {limit} bytes",
         "",
     ]
     for idx, batch in enumerate(batches, start=1):
         name = _batch_name(listener, batch)
         total = sum(item["size"] for item in batch)
         lines.append(f"Batch {idx}: {name}")
-        lines.append(f"Estimated size: {total} bytes ({get_readable_file_size(total)})")
+        lines.append(f"Estimated size: {total} bytes")
         for item in batch:
             lines.append(f"  - {ospath.basename(item['path'])}")
         lines.append("")

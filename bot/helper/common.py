@@ -619,7 +619,7 @@ class TaskConfig:
             )
             self.max_split_size = (
                 TgClient.MAX_SPLIT_SIZE
-                if (self.user_transmission or TgClient.IS_PREMIUM_USER)
+                if self.user_transmission
                 else TgClient.NON_PREMIUM_SPLIT_SIZE
             )
             self.split_size = min(self.split_size, self.max_split_size)
