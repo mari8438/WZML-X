@@ -728,10 +728,14 @@ class TelegramUploader:
                                 "but the Premium user session is unavailable"
                             )
                         self._user_session = True
-                        self._sent_msg = await TgClient.user.get_messages(
-                            chat_id=self._sent_msg.chat.id,
-                            message_ids=self._sent_msg.id,
-                        )
+                        if self._sent_msg:
+                            with suppress(Exception):
+                                user_msg = await TgClient.user.get_messages(
+                                    chat_id=self._sent_msg.chat.id,
+                                    message_ids=self._sent_msg.id,
+                                )
+                                if user_msg:
+                                    self._sent_msg = user_msg
                         LOGGER.info(
                             "Using Premium user session for large upload: %s (%s bytes)",
                             file_,
