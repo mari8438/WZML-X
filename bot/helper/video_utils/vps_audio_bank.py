@@ -3,6 +3,7 @@ import re
 import json
 import hmac
 import hashlib
+import asyncio
 from time import time
 from contextlib import suppress
 
@@ -505,12 +506,14 @@ class open_async_tmp:
     def __init__(self, target_path: str):
         self.target_path = target_path
         self.tmp_path = f"{target_path}.tmp"
+        self._cm = None
         self._file = None
 
     async def __aenter__(self):
         try:
             from aiofiles import open as aiopen
-            self._file = await aiopen(self.tmp_path, "w", encoding="utf-8")
+            self._cm = aiopen(self.tmp_path, "w", encoding="utf-8")
+            self._file = await self._cm.__aenter__()
             return self._file
         except ImportError:
             self._file = open(self.tmp_path, "w", encoding="utf-8")
@@ -520,17 +523,16 @@ class open_async_tmp:
             return _SyncWrapper(self._file)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if self._file:
-            if hasattr(self._file, "close"):
-                if asyncio.iscoroutinefunction(self._file.close):
-                    await self._file.close()
-                else:
-                    self._file.close()
+        if self._cm:
+            await self._cm.__aexit__(exc_type, exc_val, exc_tb)
+        elif self._file:
+            self._file.close()
         if exc_type is None:
             try:
                 from aiofiles.os import rename as aiorename
                 if await aiopath.exists(self.target_path):
-                    await aioremove(self.target_path)
+                    with suppress(Exception):
+                        await aioremove(self.target_path)
                 await aiorename(self.tmp_path, self.target_path)
             except Exception:
                 import os

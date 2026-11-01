@@ -1345,28 +1345,29 @@ async def process_video_tool(listener, up_path):
             state["web_studio_url"] = f"{Config.BASE_URL.rstrip('/')}/app/video-studio?task_id={task_id}&token={token}"
 
         bank_data = await list_audio_bank(user_id)
-        await save_web_session(task_id, {
-            "task_id": task_id,
-            "user_id": user_id,
-            "token": token,
-            "is_folder": False,
-            "file_name": state["filename"],
-            "file_path": up_path,
-            "video_duration": state.get("video_duration", 0),
-            "video_stream": {
-                "index": 0,
-                "codec": "HEVC/x265",
-                "resolution": "1920x1080",
-                "durationSec": int(state.get("video_duration", 0) or 1452),
-            },
-            "audio_tracks": state.get("audio_tracks", []),
-            "sub_tracks": state.get("sub_tracks", []),
-            "external_audio": state.get("external_audio", []),
-            "bank_data": bank_data,
-            "matched_bank": state.get("matched_bank") or {},
-            "total_episodes": 1,
-            "video_files": [state["filename"]],
-        })
+        with suppress(Exception):
+            await save_web_session(task_id, {
+                "task_id": task_id,
+                "user_id": user_id,
+                "token": token,
+                "is_folder": False,
+                "file_name": state["filename"],
+                "file_path": up_path,
+                "video_duration": state.get("video_duration", 0),
+                "video_stream": {
+                    "index": 0,
+                    "codec": "HEVC/x265",
+                    "resolution": "1920x1080",
+                    "durationSec": int(state.get("video_duration", 0) or 1452),
+                },
+                "audio_tracks": state.get("audio_tracks", []),
+                "sub_tracks": state.get("sub_tracks", []),
+                "external_audio": state.get("external_audio", []),
+                "bank_data": bank_data,
+                "matched_bank": state.get("matched_bank") or {},
+                "total_episodes": 1,
+                "video_files": [state["filename"]],
+            })
 
         ipc_task = create_task(_watch_web_session_ipc(task_id, state, done_event, listener))
 
@@ -1843,28 +1844,29 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
             matched_info = match_videos_with_bank(videos, bank_data["files"], state.get("selected_bank_languages"))
             state["matched_bank"] = matched_info
 
-        await save_web_session(task_id, {
-            "task_id": task_id,
-            "user_id": user_id,
-            "token": token,
-            "is_folder": True,
-            "file_name": ospath.basename(up_path.rstrip("/")),
-            "file_path": up_path,
-            "video_duration": state.get("video_duration", 0),
-            "video_stream": {
-                "index": 0,
-                "codec": "HEVC/x265",
-                "resolution": "1920x1080",
-                "durationSec": int(state.get("video_duration", 0) or 1452),
-            },
-            "audio_tracks": state.get("audio_tracks", []),
-            "sub_tracks": state.get("sub_tracks", []),
-            "external_audio": state.get("external_audio", []),
-            "bank_data": bank_data,
-            "matched_bank": state.get("matched_bank") or {},
-            "total_episodes": len(videos),
-            "video_files": [ospath.basename(v) for v in videos],
-        })
+        with suppress(Exception):
+            await save_web_session(task_id, {
+                "task_id": task_id,
+                "user_id": user_id,
+                "token": token,
+                "is_folder": True,
+                "file_name": ospath.basename(up_path.rstrip("/")),
+                "file_path": up_path,
+                "video_duration": state.get("video_duration", 0),
+                "video_stream": {
+                    "index": 0,
+                    "codec": "HEVC/x265",
+                    "resolution": "1920x1080",
+                    "durationSec": int(state.get("video_duration", 0) or 1452),
+                },
+                "audio_tracks": state.get("audio_tracks", []),
+                "sub_tracks": state.get("sub_tracks", []),
+                "external_audio": state.get("external_audio", []),
+                "bank_data": bank_data,
+                "matched_bank": state.get("matched_bank") or {},
+                "total_episodes": len(videos),
+                "video_files": [ospath.basename(v) for v in videos],
+            })
 
         listener._vt_state = state
         done_event = Event()
