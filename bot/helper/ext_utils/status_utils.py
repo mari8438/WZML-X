@@ -627,3 +627,9 @@ async def get_readable_message(sid, is_user, page_no=1, status="All", page_step=
         message_parts.append(page_line)
     message_parts.append(footer)
     return "\n\n".join(message_parts), buttons.build_menu(8)
+
+async def update_status_message(*args, **kwargs):
+    """Compatibility forwarder; the real implementation lives in message_utils."""
+    from ..telegram_helper.message_utils import update_status_message as _usm
+
+    return await _usm(*args, **kwargs)

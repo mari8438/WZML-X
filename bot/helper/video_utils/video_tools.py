@@ -46,7 +46,7 @@ VIDEO_EXTENSIONS = {
 AUDIO_EXTENSIONS = {".aac", ".ac3", ".eac3", ".dts", ".flac", ".m4a", ".mka", ".mp3", ".ogg", ".opus", ".wav"}
 SUBTITLE_EXTENSIONS = {".ass", ".srt", ".ssa", ".vtt"}
 
-UI_TIMEOUT = 900  # 15 minutes
+UI_TIMEOUT = int(getattr(Config, "VT_UI_TIMEOUT", 3600) or 3600)  # 60 minutes default
 
 # Global dict to hold active video tool sessions: {task_id: event}
 _active_vt_sessions = {}
@@ -1396,8 +1396,8 @@ async def process_video_tool(listener, up_path):
         token = make_vt_studio_token(task_id, user_id)
         state["user_id"] = user_id
         state["token"] = token
-        if Config.BASE_URL:
-            state["web_studio_url"] = f"{Config.BASE_URL.rstrip('/')}/app/video-studio?task_id={task_id}&token={token}"
+        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
+        state["web_studio_url"] = f"{base_url}/app/video-studio?task_id={task_id}&token={token}"
 
         bank_data = await list_audio_bank(user_id)
         with suppress(Exception):
@@ -1951,8 +1951,8 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
         state["token"] = token
         state["is_folder"] = True
         state["folder_videos"] = videos
-        if Config.BASE_URL:
-            state["web_studio_url"] = f"{Config.BASE_URL.rstrip('/')}/app/video-studio?task_id={task_id}&token={token}"
+        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
+        state["web_studio_url"] = f"{base_url}/app/video-studio?task_id={task_id}&token={token}"
 
         bank_data = await list_audio_bank(user_id)
         if bank_data.get("files"):
@@ -2038,7 +2038,7 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
 
         from ... import task_dict, task_dict_lock, bot_cache
         from ..mirror_leech_utils.status_utils.auto_process_status import AutoProcessStatus
-        from ..ext_utils.status_utils import update_status_message
+        from ..telegram_helper.message_utils import update_status_message
         from ..ext_utils.files_utils import get_path_size
 
         total_extract_bytes = sum([await get_path_size(v) for v in videos])
@@ -2115,7 +2115,8 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
 
     from ... import task_dict, task_dict_lock
     from ..mirror_leech_utils.status_utils.auto_process_status import AutoProcessStatus
-    from ..ext_utils.status_utils import update_status_message, EngineStatus
+    from ..telegram_helper.message_utils import update_status_message
+    from ..ext_utils.status_utils import EngineStatus
     from ..ext_utils.files_utils import get_path_size
 
     total_folder_bytes = sum([await get_path_size(v) for v in videos])
@@ -2178,7 +2179,12 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
         await _refresh_external_tracks(work_state, video)
         res = await _execute_vt_pipeline(listener, video, work_state)
         processed_folder_bytes += v_size
-        status_obj.set_progress(processed_bytes=processed_folder_bytes)
+        status_obj.set_progress(processed_bytes=processed_folder_bytes, current_dest_file="")
+        # The FFmpeg fallback swaps in its own FFmpegStatus; restore the
+        # folder-level card so the next episode keeps cumulative progress.
+        async with task_dict_lock:
+            if not listener.is_cancelled and listener.mid in task_dict:
+                task_dict[listener.mid] = status_obj
         if res and not first_muxed_video:
             first_muxed_video = res
         if listener.is_cancelled:
@@ -2232,6 +2238,43 @@ async def _get_mkv_tracks(input_path):
         return data.get("tracks", [])
     except Exception:
         return None
+
+
+async def _attach_live_mux_status(listener, input_path, output_path):
+    """Point the live status card at the file mkvmerge is writing.
+
+    Reuses the folder-level AutoProcessStatus when present (so cumulative
+    progress is preserved); otherwise registers a per-file one so single-file
+    muxes also show real speed instead of a frozen card.
+    """
+    from ... import task_dict, task_dict_lock
+    from ..ext_utils.files_utils import get_path_size
+    from ..ext_utils.status_utils import EngineStatus
+    from ..mirror_leech_utils.status_utils.auto_process_status import AutoProcessStatus
+
+    try:
+        in_size = await get_path_size(input_path)
+    except Exception:
+        in_size = 0
+    async with task_dict_lock:
+        status_obj = task_dict.get(listener.mid)
+        if not isinstance(status_obj, AutoProcessStatus):
+            status_obj = AutoProcessStatus(
+                listener,
+                getattr(listener, "_process_gid", None) or str(listener.mid),
+                action="Video Tools Mux",
+                engine=EngineStatus().STATUS_MKVMERGE,
+            )
+            status_obj.set_progress(processed_bytes=0, total_bytes=in_size or 1)
+            status_obj._vt_transient = True
+            task_dict[listener.mid] = status_obj
+    status_obj.set_progress(
+        current_file=ospath.basename(input_path),
+        current_dest_file=output_path,
+        current_input_size=in_size,
+        engine=EngineStatus().STATUS_MKVMERGE,
+    )
+    return status_obj
 
 
 async def _try_mkvmerge_pipeline(listener, input_path, output_path, state, extra_inputs):
@@ -2440,9 +2483,22 @@ async def _try_mkvmerge_pipeline(listener, input_path, output_path, state, extra
             "Video Tool: attempting fast mkvmerge mux for %s",
             ospath.basename(input_path),
         )
-        success, out_msg = await execute_mkvmerge_with_fallback(
-            cmd, input_path, output_path, cmd_exec
-        )
+        live_status = None
+        with suppress(Exception):
+            live_status = await _attach_live_mux_status(listener, input_path, output_path)
+        try:
+            success, out_msg = await execute_mkvmerge_with_fallback(
+                cmd, input_path, output_path, cmd_exec
+            )
+        finally:
+            if live_status is not None:
+                # Stop counting the in-flight file. Folder loops add the
+                # finished input size themselves; a per-file status must.
+                if getattr(live_status, "_vt_transient", False):
+                    live_status.set_progress(
+                        processed_bytes=live_status._current_dest_cap or live_status._total_bytes
+                    )
+                live_status.set_progress(current_dest_file="")
         if success and await aiopath.exists(output_path):
             LOGGER.info("mkvmerge muxing successful: %s", output_path)
             return True

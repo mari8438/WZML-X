@@ -1015,7 +1015,7 @@ async def _auto_extract_streams_pipeline(listener, up_path):
 
     from ... import task_dict, task_dict_lock, bot_cache
     from ..mirror_leech_utils.status_utils.auto_process_status import AutoProcessStatus
-    from ..ext_utils.status_utils import update_status_message
+    from ..telegram_helper.message_utils import update_status_message
     from ..ext_utils.files_utils import get_path_size
 
     total_extract_bytes = sum([await get_path_size(v) for v in videos])
@@ -1061,6 +1061,7 @@ async def _auto_extract_streams_pipeline(listener, up_path):
             seen_langs[t_lang] = seen_langs.get(t_lang, 0) + 1
             out_name = build_extracted_filename(trk, video, kind="audio", duplicate_index=seen_langs[t_lang])
             out_path = ospath.join(common_extract_dir if upload_to_tg else ospath.dirname(video), out_name)
+            status_obj.set_progress(current_dest_file=out_path, current_input_size=v_size)
             if await _extract_single(video, trk, out_path):
                 all_extracted_paths.append(out_path)
                 if save_to_vps:
@@ -1070,7 +1071,7 @@ async def _auto_extract_streams_pipeline(listener, up_path):
                         LOGGER.warning(f"Failed to save auto-extracted audio to VPS bank: {be}")
 
         processed_extract_bytes += v_size
-        status_obj.set_progress(processed_bytes=processed_extract_bytes)
+        status_obj.set_progress(processed_bytes=processed_extract_bytes, current_dest_file="")
 
         if is_folder or (save_to_vps and not upload_to_tg):
             with suppress(Exception):

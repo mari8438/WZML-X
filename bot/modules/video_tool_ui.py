@@ -290,7 +290,8 @@ async def render_muxing_configuration(vt_msg, state):
 
     rows = []
     # 1. Prominent Web Studio URL Button
-    web_url = state.get("web_studio_url") or (f"{Config.BASE_URL.rstrip('/')}/app/video-studio?task_id={task_id}&token={state.get('token', '')}" if Config.BASE_URL else None)
+    base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
+    web_url = state.get("web_studio_url") or f"{base_url}/app/video-studio?task_id={task_id}&token={state.get('token', '')}"
     if web_url:
         rows.append([
             InlineKeyboardButton("🌐 Open Web Merge Studio (Sync & Confirm)", url=web_url)
@@ -591,7 +592,7 @@ async def render_video_tools_main(vt_msg, state):
     ext_sub = len(state.get("external_sub", []))
     audio_info = f"{audio_count}" + (f" (+{ext_audio} ext)" if ext_audio else "")
     sub_info = f"{sub_count}" + (f" (+{ext_sub} ext)" if ext_sub else "")
-    timeout_str = "15m" if UI_TIMEOUT == 900 else f"{UI_TIMEOUT}s"
+    timeout_str = f"{UI_TIMEOUT // 60}m" if UI_TIMEOUT % 60 == 0 else f"{UI_TIMEOUT}s"
 
     text = (
         "<b>✦ 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗠𝗞𝗩 𝗦𝗧𝗨𝗗𝗜𝗢 ✦</b>\n\n"

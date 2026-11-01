@@ -50,7 +50,7 @@ async def _tunnel_monitor_loop():
         try:
             url = await _read_tunnel_url()
             if url and Config.BASE_URL != url:
-                if _is_ephemeral_or_empty_base_url() or not Config.BASE_URL:
+                if _is_ephemeral_or_empty_base_url():
                     Config.BASE_URL = url
                     LOGGER.info(f"tunnel_monitor: updated BASE_URL = {url}")
                     await _sync_base_url_to_db(url)
@@ -62,7 +62,7 @@ async def _tunnel_monitor_loop():
 async def apply_tunnel_url_once():
     url = await _read_tunnel_url()
     if url:
-        if _is_ephemeral_or_empty_base_url() or Config.BASE_URL != url:
+        if _is_ephemeral_or_empty_base_url():
             Config.BASE_URL = url
             LOGGER.info(f"tunnel_monitor: active BASE_URL = {url}")
             await _sync_base_url_to_db(url)

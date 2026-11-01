@@ -395,7 +395,12 @@ class TaskListener(TaskConfig):
             await remove_excluded_files(up_dir, self.excluded_extensions)
             from ..mirror_leech_utils.status_utils.auto_process_status import AutoProcessStatus
             async with task_dict_lock:
-                task_dict[self.mid] = AutoProcessStatus(self, "Preparing Process", engine="AutoProcess")
+                task_dict[self.mid] = AutoProcessStatus(
+                    self,
+                    getattr(self, "_process_gid", None) or gid,
+                    action="Preparing Process",
+                    engine="AutoProcess",
+                )
 
         first_video = await _first_video_name(up_path)
         if first_video:
