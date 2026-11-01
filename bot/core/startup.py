@@ -123,26 +123,71 @@ async def _start_background_process(component, cmd, *, env=None, must_keep_runni
     return proc
 
 
+PUBLIC_TRACKERS_LIST = [
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://open.stealth.si:80/announce",
+    "udp://tracker.torrent.eu.org:451/announce",
+    "udp://tracker.bittor.pw:1337/announce",
+    "udp://tracker.dler.org:6969/announce",
+    "udp://exodus.desync.com:6969/announce",
+    "udp://open.demonii.com:1337/announce",
+    "http://tracker.openbittorrent.com:80/announce",
+    "udp://explodie.org:6969/announce",
+    "udp://9.rarbg.to:2920/announce",
+    "udp://p4p.arenabg.com:1337/announce",
+    "udp://tracker.pomf.se:80/announce",
+    "udp://tracker.coppersurfer.tk:6969/announce",
+    "udp://tracker.tiny-vps.com:6969/announce",
+]
+
+
+def _qbit_performance_options():
+    return {
+        "listen_port": 15026,
+        "async_io_threads": 4,
+        "disk_cache": 384,
+        "disk_cache_ttl": 60,
+        "socket_receive_buffer_size": 1048576,
+        "socket_send_buffer_size": 1048576,
+        "send_buffer_watermark": 10240,
+        "send_buffer_low_watermark": 1024,
+        "utp_tcp_mixed_mode": 1,
+        "enable_coalesce_read_write": True,
+        "preallocate_all": False,
+        "resolve_peer_countries": False,
+        "max_connec": 500,
+        "max_connec_per_torrent": 150,
+        "max_uploads": 50,
+        "max_uploads_per_torrent": 20,
+        "announce_to_all_tiers": True,
+        "announce_to_all_trackers": True,
+        "add_trackers_enabled": True,
+        "add_trackers": "\n".join(PUBLIC_TRACKERS_LIST),
+    }
+
+
 async def update_qb_options():
     LOGGER.info("Get qBittorrent options from server")
     pwd = _qbit_password()
+    perf = _qbit_performance_options()
+    if not TorrentManager.qbittorrent:
+        LOGGER.warning(
+            "qBittorrent is not initialized. Skipping qBittorrent options update."
+        )
+        return
     if not qbit_options:
-        if not TorrentManager.qbittorrent:
-            LOGGER.warning(
-                "qBittorrent is not initialized. Skipping qBittorrent options update."
-            )
-            return
         opt = await TorrentManager.qbittorrent.app.preferences()
         qbit_options.update(opt)
-        del qbit_options["listen_port"]
         for k in list(qbit_options.keys()):
             if k.startswith("rss"):
                 del qbit_options[k]
         qbit_options["web_ui_password"] = pwd
-        await TorrentManager.qbittorrent.app.set_preferences({"web_ui_password": pwd})
+        qbit_options.update(perf)
+        await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
     else:
         if qbit_options.get("web_ui_password") in ("admin", "admin1", ""):
             qbit_options["web_ui_password"] = pwd
+        qbit_options.update(perf)
         await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
 
 

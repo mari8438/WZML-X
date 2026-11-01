@@ -530,8 +530,12 @@ class SevenZ:
                 s = b""
             await sleep(0.05)
 
-        self._processed_bytes = 0
-        self._percentage = "0%"
+        if not self._listener.is_cancelled:
+            self._percentage = "100%"
+            self._processed_bytes = getattr(self._listener, "subsize", 0) or getattr(self._listener, "size", 0)
+        else:
+            self._processed_bytes = 0
+            self._percentage = "0%"
 
     async def extract(self, f_path, t_path, pswd):
         cmd = [

@@ -2206,7 +2206,14 @@
             state.subtitleTracks = data.subtitle_tracks;
           }
           if (data.bank_data) state.bankData = data.bank_data;
-          if (data.matched_bank) state.matchedBank = data.matched_bank;
+          if (data.matched_bank) {
+            state.matchedBank = data.matched_bank;
+            if (Array.isArray(data.matched_bank.available_languages)) {
+              data.matched_bank.available_languages.forEach((l) => state.selectedBankLanguages.add(l));
+            }
+          } else if (data.bank_data && data.bank_data.languages) {
+            Object.keys(data.bank_data.languages).forEach((l) => state.selectedBankLanguages.add(l));
+          }
           if (data.audio_delay_ms !== undefined) {
             updateActiveAudioDelay(parseInt(data.audio_delay_ms, 10) || 0);
           }
@@ -2494,7 +2501,7 @@
 
           list.forEach((ep) => {
             const tr = document.createElement("tr");
-            const isMatch = Boolean(ep.matched);
+            const isMatch = Boolean(ep.matched || ep.status === "matched" || (ep.audio_tracks && ep.audio_tracks.length > 0));
             const audios = (ep.audio_tracks || []).map((a) => `<div style="color:var(--neon-cyan);">${escapeHtml(a.audio_name || a.language)}</div>`).join("") || "<span style='color:var(--text-muted);'>No audio paired</span>";
             tr.innerHTML = `
               <td style="color:var(--sakura-pink); font-weight:700;">E${ep.episode < 10 ? '0' : ''}${ep.episode}</td>

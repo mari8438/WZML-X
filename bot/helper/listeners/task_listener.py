@@ -393,6 +393,9 @@ class TaskListener(TaskConfig):
             self.size = await get_path_size(up_dir)
             self.clear()
             await remove_excluded_files(up_dir, self.excluded_extensions)
+            from ..mirror_leech_utils.status_utils.auto_process_status import AutoProcessStatus
+            async with task_dict_lock:
+                task_dict[self.mid] = AutoProcessStatus(self, "Preparing Process", engine="AutoProcess")
 
         first_video = await _first_video_name(up_path)
         if first_video:
