@@ -55,8 +55,8 @@ class Config:
     MYANIMELIST_CLIENT_ID = ""
     MYANIMELIST_CLIENT_NAME = ""
     AUTORENAME = True
-    BASE_URL = ""
-    BASE_URL_PORT = 80
+    BASE_URL = "http://172.105.52.160:8080"
+    BASE_URL_PORT = 8080
     BOT_TOKEN = ""
     HELPER_TOKENS = ""
     HELPER_STRINGS = ""

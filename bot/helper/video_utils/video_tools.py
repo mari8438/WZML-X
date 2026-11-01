@@ -1396,7 +1396,7 @@ async def process_video_tool(listener, up_path):
         token = make_vt_studio_token(task_id, user_id)
         state["user_id"] = user_id
         state["token"] = token
-        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
+        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL and "trycloudflare.com" not in Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
         state["web_studio_url"] = f"{base_url}/app/video-studio?task_id={task_id}&token={token}"
 
         bank_data = await list_audio_bank(user_id)
@@ -1951,7 +1951,7 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
         state["token"] = token
         state["is_folder"] = True
         state["folder_videos"] = videos
-        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
+        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL and "trycloudflare.com" not in Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
         state["web_studio_url"] = f"{base_url}/app/video-studio?task_id={task_id}&token={token}"
 
         bank_data = await list_audio_bank(user_id)

@@ -290,7 +290,7 @@ async def render_muxing_configuration(vt_msg, state):
 
     rows = []
     # 1. Prominent Web Studio URL Button
-    base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
+    base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL and "trycloudflare.com" not in Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
     web_url = state.get("web_studio_url") or f"{base_url}/app/video-studio?task_id={task_id}&token={state.get('token', '')}"
     if web_url:
         rows.append([

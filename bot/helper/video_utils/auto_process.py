@@ -915,6 +915,10 @@ async def _merge_batch(listener, root, batch):
         if await aiopath.exists(output):
             await remove(output)
 
+    if listener.is_cancelled:
+        return None
+
+    await makedirs(root, exist_ok=True)
     list_path = ospath.join(root, f"concat_{listener.mid}_{len(batch)}.txt")
     async with aiopen(list_path, "w", encoding="utf-8") as f:
         for item in batch:
