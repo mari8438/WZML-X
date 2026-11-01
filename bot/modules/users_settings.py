@@ -112,6 +112,7 @@ post_options = [
     "POST_LOGO",
 ]
 auto_process_options = [
+    "AUTO_EXTRACT_AUDIO_LANGS",
     "AUTO_KEEP_AUDIO_LANGS",
     "AUTO_KEEP_SUBTITLE_LANGS",
     "AUTO_AUDIO_ORDER",
@@ -214,6 +215,11 @@ user_settings_text = {
         "",
         "Intro subtitle display ranges with fade. The intro track is muxed as the first/default subtitle.",
         "Send ranges like <code>00:00:00 - 00:00:05 | 00:01:20 - 00:01:25</code>.</i> \nâ”– <b>Time Left :</b> <code>60 sec</code>",
+    ),
+    "AUTO_EXTRACT_AUDIO_LANGS": (
+        "",
+        "Audio languages to automatically extract and save to VPS Audio Bank.",
+        "Send language names/codes separated by comma. Example: <code>tam,tamil</code>. Empty means Auto Extract is skipped.</i> \nâ”– <b>Time Left :</b> <code>60 sec</code>",
     ),
     "AUTO_KEEP_AUDIO_LANGS": (
         "",
@@ -1166,6 +1172,9 @@ Current: <b>{escape(template_id)}</b>"""
             ("AUTO_LEECH", "Auto Leech"),
             ("AUTO_UNZIP", "Auto Unzip"),
             ("AUTO_VT", "Auto -vt"),
+            ("AUTO_EXTRACT_STREAMS", "Auto Extract"),
+            ("AUTO_EXTRACT_SAVE_VPS", "Extract Save VPS"),
+            ("AUTO_EXTRACT_UPLOAD_TG", "Extract Upload TG"),
             ("AUTO_ORDER", "Auto Order"),
             ("AUTO_REMOVE_STREAMS", "Auto Remove Streams"),
             ("AUTO_MERGE", "Auto Merge"),
@@ -1182,6 +1191,11 @@ Current: <b>{escape(template_id)}</b>"""
             )
             status_lines.append(f"- {label}: <b>{'On' if state else 'Off'}</b>")
 
+        buttons.data_button(
+            state_label("Extract Audios", value_set("AUTO_EXTRACT_AUDIO_LANGS")),
+            f"userset {user_id} menu AUTO_EXTRACT_AUDIO_LANGS",
+            style=state_style(value_set("AUTO_EXTRACT_AUDIO_LANGS")),
+        )
         buttons.data_button(
             state_label("Keep Audios", value_set("AUTO_KEEP_AUDIO_LANGS")),
             f"userset {user_id} menu AUTO_KEEP_AUDIO_LANGS",
@@ -1208,6 +1222,7 @@ Current: <b>{escape(template_id)}</b>"""
             style=state_style(value_set("INTRO_SUBTITLE_RANGES")),
         )
 
+        extract_audio = user_dict.get("AUTO_EXTRACT_AUDIO_LANGS") or Config.AUTO_EXTRACT_AUDIO_LANGS or "Not Set"
         keep_audio = user_dict.get("AUTO_KEEP_AUDIO_LANGS") or Config.AUTO_KEEP_AUDIO_LANGS or "Not Set"
         keep_sub = user_dict.get("AUTO_KEEP_SUBTITLE_LANGS") or Config.AUTO_KEEP_SUBTITLE_LANGS or "Not Set"
         audio_order = user_dict.get("AUTO_AUDIO_ORDER") or Config.AUTO_AUDIO_ORDER or "Default"
@@ -1223,6 +1238,7 @@ Current: <b>{escape(template_id)}</b>"""
 
 {chr(10).join(status_lines)}
 
+Extract Audios -> <code>{escape(str(extract_audio))}</code>
 Keep Audios -> <code>{escape(str(keep_audio))}</code>
 Keep Subtitles -> <code>{escape(str(keep_sub))}</code>
 Audios Order -> <code>{escape(str(audio_order))}</code>
@@ -1893,6 +1909,7 @@ async def set_option(_, message, option, rfunc):
             return
     update_user_ldata(user_id, option, value)
     if option in {
+        "AUTO_EXTRACT_AUDIO_LANGS",
         "AUTO_KEEP_AUDIO_LANGS",
         "AUTO_KEEP_SUBTITLE_LANGS",
         "AUTO_AUDIO_ORDER",

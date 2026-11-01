@@ -35,11 +35,18 @@ from .video_tools import (
     VIDEO_EXTENSIONS,
     _base_state,
     _execute_vt_pipeline,
+    _extract_single,
     execute_mkvmerge_with_fallback,
     normalize_mkv_track_meta,
     process_video_tool,
     probe_streams,
 )
+from .vps_audio_bank import (
+    build_extracted_filename,
+    resolve_full_language_name,
+    save_to_audio_bank,
+)
+from aioshutil import move as aiomove
 
 
 def _user_value(listener, key):
@@ -172,6 +179,12 @@ async def process_auto_pipeline(listener, up_path, gid):
     videos = await _video_files(up_path)
     auto_vt = bool_setting(listener, "AUTO_VT")
     auto_merge = bool_setting(listener, "AUTO_MERGE")
+    auto_extract = bool_setting(listener, "AUTO_EXTRACT_STREAMS")
+
+    if auto_extract:
+        await _next_process_step(listener, "Auto Extracting Streams", up_path)
+        up_path = await _auto_extract_streams_pipeline(listener, up_path)
+        return up_path
 
     listener._auto_process_total = (
         (1 if auto_vt else 0)
@@ -981,3 +994,81 @@ async def _remove_non_outputs(root, outputs, planner_path):
                     await remove(path)
                 except Exception:
                     pass
+
+
+async def _auto_extract_streams_pipeline(listener, up_path):
+    videos = await _video_files(up_path)
+    if not videos:
+        return up_path
+
+    raw_extract_langs = _user_value(listener, "AUTO_EXTRACT_AUDIO_LANGS") or "tam,tamil"
+    target_langs = _lang_set(raw_extract_langs)
+    save_to_vps = bool_setting(listener, "AUTO_EXTRACT_SAVE_VPS") if _user_value(listener, "AUTO_EXTRACT_SAVE_VPS") is not None else True
+    upload_to_tg = bool_setting(listener, "AUTO_EXTRACT_UPLOAD_TG")
+    user_id = getattr(listener, "user_id", None) or (listener.message.from_user.id if listener.message and listener.message.from_user else 0)
+    task_id = str(listener.mid)
+    is_folder = await aiopath.isdir(up_path)
+
+    common_extract_dir = ospath.join(up_path if is_folder else ospath.dirname(up_path), f"vt_extracted_{task_id}")
+    if upload_to_tg:
+        await makedirs(common_extract_dir, exist_ok=True)
+
+    all_extracted_paths = []
+
+    for video in videos:
+        if listener.is_cancelled:
+            break
+        audio_tracks, _ = await probe_streams(video)
+        matched_audio = []
+        for trk in audio_tracks:
+            full_name, iso = resolve_full_language_name(trk.get("lang"), trk.get("title"))
+            if (
+                (iso and iso.lower() in target_langs)
+                or (full_name and full_name.lower() in target_langs)
+                or _lang_matches(trk.get("lang"), target_langs, trk.get("title"))
+            ):
+                matched_audio.append(trk)
+
+        seen_langs = {}
+        for trk in matched_audio:
+            t_lang = (trk.get("lang") or "und").lower()
+            seen_langs[t_lang] = seen_langs.get(t_lang, 0) + 1
+            out_name = build_extracted_filename(trk, video, kind="audio", duplicate_index=seen_langs[t_lang])
+            out_path = ospath.join(common_extract_dir if upload_to_tg else ospath.dirname(video), out_name)
+            if await _extract_single(video, trk, out_path):
+                all_extracted_paths.append(out_path)
+                if save_to_vps:
+                    try:
+                        await save_to_audio_bank(user_id, out_path, custom_name=out_name)
+                    except Exception as be:
+                        LOGGER.warning(f"Failed to save auto-extracted audio to VPS bank: {be}")
+
+        if is_folder or (save_to_vps and not upload_to_tg):
+            with suppress(Exception):
+                await remove(video)
+
+    if save_to_vps and not upload_to_tg:
+        listener._vt_vps_saved_only = True
+        file_list_str = "\n".join(f"• <code>{ospath.basename(p)}</code>" for p in all_extracted_paths[:10])
+        if len(all_extracted_paths) > 10:
+            file_list_str += f"\n<i>...and {len(all_extracted_paths) - 10} more</i>"
+        await send_message(
+            listener.message,
+            f"💾 <b>[Auto Process] Extracted {len(all_extracted_paths)} stream(s) directly to VPS Audio Bank!</b>\n"
+            f"<b>Target:</b> <code>{raw_extract_langs}</code>\n"
+            f"<b>Folder:</b> <code>{ospath.basename(up_path.rstrip('/'))}</code>\n\n"
+            f"{file_list_str}\n\n"
+            "<i>Saved in VPS (Upload to Telegram skipped). Files are ready for merging.</i>",
+        )
+        return None
+
+    if upload_to_tg and all_extracted_paths:
+        listener._vt_extract_only = True
+        await send_message(
+            listener.message,
+            f"⚡ <b>[Auto Process] Extracted {len(all_extracted_paths)} stream(s) from {len(videos)} video(s)!</b>\n"
+            "<i>Uploading extracted streams to Telegram...</i>",
+        )
+        return common_extract_dir
+
+    return up_path

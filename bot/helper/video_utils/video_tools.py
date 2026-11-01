@@ -17,6 +17,7 @@ from ... import LOGGER, DOWNLOAD_DIR
 from ...core.config_manager import BinConfig, Config
 from .vps_audio_bank import (
     build_extracted_filename,
+    resolve_full_language_name,
     save_to_audio_bank,
     list_audio_bank,
     clear_audio_bank,
@@ -1790,26 +1791,21 @@ def _clone_state_for_path(source, filename, audio_tracks, sub_tracks, input_path
     # Smart matching for extract_audio across episodes by language
     source_audio = source.get("audio_tracks", [])
     selected_extract_audio = set(source.get("extract_audio", []))
-    selected_audio_langs = set()
+    selected_audio_isos = set()
+    selected_audio_names = set()
     for trk in source_audio:
         if trk.get("index") in selected_extract_audio:
-            lang = (trk.get("lang") or "").strip().lower()
-            if lang and lang != "und":
-                selected_audio_langs.add(lang)
-            title = (trk.get("title") or "").strip().lower()
-            if title:
-                for token in _lang_tokens(title):
-                    selected_audio_langs.add(token.lower())
+            full_name, iso = resolve_full_language_name(trk.get("lang"), trk.get("title"))
+            if iso and iso != "und":
+                selected_audio_isos.add(iso.lower())
+            if full_name and full_name.lower() not in {"audio", "unknown", "und"}:
+                selected_audio_names.add(full_name.lower())
 
     matched_extract_audio = []
-    if selected_audio_langs:
+    if selected_audio_isos or selected_audio_names:
         for trk in audio_tracks:
-            t_lang = (trk.get("lang") or "").strip().lower()
-            t_title = (trk.get("title") or "").strip().lower()
-            t_tokens = set(_lang_tokens(t_title))
-            if t_lang:
-                t_tokens.add(t_lang)
-            if t_tokens & selected_audio_langs:
+            t_name, t_iso = resolve_full_language_name(trk.get("lang"), trk.get("title"))
+            if (t_iso and t_iso.lower() in selected_audio_isos) or (t_name and t_name.lower() in selected_audio_names):
                 matched_extract_audio.append(trk["index"])
     if not matched_extract_audio:
         matched_extract_audio = [idx for idx in source.get("extract_audio", []) if idx < audio_len]
@@ -1818,26 +1814,21 @@ def _clone_state_for_path(source, filename, audio_tracks, sub_tracks, input_path
     # Smart matching for extract_sub across episodes by language
     source_sub = source.get("sub_tracks", [])
     selected_extract_sub = set(source.get("extract_sub", []))
-    selected_sub_langs = set()
+    selected_sub_isos = set()
+    selected_sub_names = set()
     for trk in source_sub:
         if trk.get("index") in selected_extract_sub:
-            lang = (trk.get("lang") or "").strip().lower()
-            if lang and lang != "und":
-                selected_sub_langs.add(lang)
-            title = (trk.get("title") or "").strip().lower()
-            if title:
-                for token in _lang_tokens(title):
-                    selected_sub_langs.add(token.lower())
+            full_name, iso = resolve_full_language_name(trk.get("lang"), trk.get("title"))
+            if iso and iso != "und":
+                selected_sub_isos.add(iso.lower())
+            if full_name and full_name.lower() not in {"subtitle", "unknown", "und"}:
+                selected_sub_names.add(full_name.lower())
 
     matched_extract_sub = []
-    if selected_sub_langs:
+    if selected_sub_isos or selected_sub_names:
         for trk in sub_tracks:
-            t_lang = (trk.get("lang") or "").strip().lower()
-            t_title = (trk.get("title") or "").strip().lower()
-            t_tokens = set(_lang_tokens(t_title))
-            if t_lang:
-                t_tokens.add(t_lang)
-            if t_tokens & selected_sub_langs:
+            t_name, t_iso = resolve_full_language_name(trk.get("lang"), trk.get("title"))
+            if (t_iso and t_iso.lower() in selected_sub_isos) or (t_name and t_name.lower() in selected_sub_names):
                 matched_extract_sub.append(trk["index"])
     if not matched_extract_sub:
         matched_extract_sub = [idx for idx in source.get("extract_sub", []) if idx < sub_len]
