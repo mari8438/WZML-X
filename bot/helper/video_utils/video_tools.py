@@ -11,7 +11,7 @@ from time import time
 
 from aiofiles import open as aiopen
 from aiofiles.os import listdir, makedirs, path as aiopath, remove, rename
-from aioshutil import rmtree
+from aioshutil import rmtree, move as aiomove
 
 from ... import LOGGER, DOWNLOAD_DIR
 from ...core.config_manager import BinConfig, Config
@@ -468,16 +468,26 @@ async def _refresh_external_tracks(state, input_path):
     input_name = ospath.basename(input_path)
     external_audio = []
     external_sub = []
-    dirs = [dir_path]
+    dirs = []
     external_dir = state.get("external_dir")
-    if external_dir and external_dir not in dirs:
+    if external_dir:
         dirs.append(external_dir)
+
+    # In folder mode (or if extraction is active), do not scan dir_path for merge tracks!
+    # Sibling video files in dir_path are separate episodes, NEVER external audio tracks.
+    if not state.get("is_folder") and not (state.get("extract_audio") or state.get("extract_sub")):
+        dirs.append(dir_path)
 
     for scan_dir in dirs:
         if not await aiopath.isdir(scan_dir):
             continue
         for name in sorted(await listdir(scan_dir)):
-            if name == input_name or name.startswith("vt_") or name.startswith("intro_"):
+            if (
+                name == input_name
+                or name.startswith("vt_")
+                or name.startswith("intro_")
+                or name.startswith("sample_")
+            ):
                 continue
             path = ospath.join(scan_dir, name)
             if not await aiopath.isfile(path):
@@ -486,7 +496,9 @@ async def _refresh_external_tracks(state, input_path):
             if ext in AUDIO_EXTENSIONS:
                 external_audio.append(_external_audio_item(len(external_audio), name, path))
             elif ext in VIDEO_EXTENSIONS:
-                external_audio.extend(await _external_video_audio_items(path, len(external_audio)))
+                # ONLY treat VIDEO_EXTENSIONS as external tracks if inside external_dir (explicit user upload)
+                if scan_dir == external_dir:
+                    external_audio.extend(await _external_video_audio_items(path, len(external_audio)))
             elif ext in SUBTITLE_EXTENSIONS:
                 external_sub.append(
                     {"index": len(external_sub), "name": name, "path": path}
@@ -518,16 +530,32 @@ async def _refresh_external_tracks(state, input_path):
 
     state["external_audio"] = external_audio
     state["external_sub"] = external_sub
+
+    # If stream extraction is active, NEVER merge tracks!
+    if state.get("extract_audio") or state.get("extract_sub"):
+        state["merge_audio"] = []
+        state["merge_sub"] = []
+        return
+
     state["merge_audio"] = [
         idx for idx in state.get("merge_audio", []) if idx < len(external_audio)
     ]
-    if not state["merge_audio"] and external_audio:
+    # Only auto-select all external tracks if merge intake or matched bank is active
+    if (
+        not state["merge_audio"]
+        and external_audio
+        and (state.get("merge_intake") or state.get("matched_bank"))
+    ):
         state["merge_audio"] = [item["index"] for item in external_audio]
 
     state["merge_sub"] = [
         idx for idx in state.get("merge_sub", []) if idx < len(external_sub)
     ]
-    if not state["merge_sub"] and external_sub:
+    if (
+        not state["merge_sub"]
+        and external_sub
+        and (state.get("merge_intake") or state.get("matched_bank"))
+    ):
         state["merge_sub"] = [item["index"] for item in external_sub]
 
 
@@ -1758,12 +1786,80 @@ def _clone_state_for_path(source, filename, audio_tracks, sub_tracks, input_path
     state = _base_state(task_id, filename, audio_tracks, sub_tracks, input_path)
     audio_len = len(audio_tracks)
     sub_len = len(sub_tracks)
-    for key in ("remove_audio", "extract_audio"):
+
+    # Smart matching for extract_audio across episodes by language
+    source_audio = source.get("audio_tracks", [])
+    selected_extract_audio = set(source.get("extract_audio", []))
+    selected_audio_langs = set()
+    for trk in source_audio:
+        if trk.get("index") in selected_extract_audio:
+            lang = (trk.get("lang") or "").strip().lower()
+            if lang and lang != "und":
+                selected_audio_langs.add(lang)
+            title = (trk.get("title") or "").strip().lower()
+            if title:
+                for token in _lang_tokens(title):
+                    selected_audio_langs.add(token.lower())
+
+    matched_extract_audio = []
+    if selected_audio_langs:
+        for trk in audio_tracks:
+            t_lang = (trk.get("lang") or "").strip().lower()
+            t_title = (trk.get("title") or "").strip().lower()
+            t_tokens = set(_lang_tokens(t_title))
+            if t_lang:
+                t_tokens.add(t_lang)
+            if t_tokens & selected_audio_langs:
+                matched_extract_audio.append(trk["index"])
+    if not matched_extract_audio:
+        matched_extract_audio = [idx for idx in source.get("extract_audio", []) if idx < audio_len]
+    state["extract_audio"] = matched_extract_audio
+
+    # Smart matching for extract_sub across episodes by language
+    source_sub = source.get("sub_tracks", [])
+    selected_extract_sub = set(source.get("extract_sub", []))
+    selected_sub_langs = set()
+    for trk in source_sub:
+        if trk.get("index") in selected_extract_sub:
+            lang = (trk.get("lang") or "").strip().lower()
+            if lang and lang != "und":
+                selected_sub_langs.add(lang)
+            title = (trk.get("title") or "").strip().lower()
+            if title:
+                for token in _lang_tokens(title):
+                    selected_sub_langs.add(token.lower())
+
+    matched_extract_sub = []
+    if selected_sub_langs:
+        for trk in sub_tracks:
+            t_lang = (trk.get("lang") or "").strip().lower()
+            t_title = (trk.get("title") or "").strip().lower()
+            t_tokens = set(_lang_tokens(t_title))
+            if t_lang:
+                t_tokens.add(t_lang)
+            if t_tokens & selected_sub_langs:
+                matched_extract_sub.append(trk["index"])
+    if not matched_extract_sub:
+        matched_extract_sub = [idx for idx in source.get("extract_sub", []) if idx < sub_len]
+    state["extract_sub"] = matched_extract_sub
+
+    for key in ("remove_audio",):
         state[key] = [idx for idx in source.get(key, []) if idx < audio_len]
-    for key in ("remove_sub", "extract_sub", "translate_sub"):
+    for key in ("remove_sub", "translate_sub"):
         state[key] = [idx for idx in source.get(key, []) if idx < sub_len]
-    state["merge_audio"] = list(source.get("merge_audio", []))
-    state["merge_sub"] = list(source.get("merge_sub", []))
+
+    state["save_to_vps"] = source.get("save_to_vps", True)
+    state["upload_to_tg"] = source.get("upload_to_tg", True)
+    state["is_folder"] = True
+
+    # If extracting streams, NEVER merge tracks
+    if state["extract_audio"] or state["extract_sub"]:
+        state["merge_audio"] = []
+        state["merge_sub"] = []
+    else:
+        state["merge_audio"] = list(source.get("merge_audio", []))
+        state["merge_sub"] = list(source.get("merge_sub", []))
+
     state["remove_original_audio"] = bool(source.get("remove_original_audio"))
     state["default_audio"] = (
         source.get("default_audio")
@@ -1910,6 +2006,64 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
 
     first_muxed_video = None
     is_muxing_action = bool(state.get("merge_audio") or state.get("merge_intake") or state.get("matched_bank"))
+    is_extract_action = bool(state.get("extract_audio") or state.get("extract_sub"))
+
+    if is_extract_action:
+        all_extracted_paths = []
+        save_to_vps = state.get("save_to_vps", True)
+        upload_to_tg = state.get("upload_to_tg", True)
+
+        common_extract_dir = ospath.join(up_path, f"vt_extracted_{task_id}")
+        if upload_to_tg:
+            await makedirs(common_extract_dir, exist_ok=True)
+
+        for idx, video in enumerate(videos, start=1):
+            if listener.is_cancelled:
+                break
+            audio_tracks, sub_tracks = await probe_streams(video)
+            work_state = _clone_state_for_path(
+                state, ospath.basename(video), audio_tracks, sub_tracks, video
+            )
+            work_state["merge_audio"] = []
+            work_state["merge_sub"] = []
+
+            extracted, _ = await _extract_streams(listener, video, work_state)
+            if extracted:
+                for ext_path in extracted:
+                    all_extracted_paths.append(ext_path)
+                    if upload_to_tg:
+                        dest_file = ospath.join(common_extract_dir, ospath.basename(ext_path))
+                        if ext_path != dest_file:
+                            with suppress(Exception):
+                                await aiomove(ext_path, dest_file)
+                # Immediately remove processed video to keep VPS disk space safe
+                with suppress(Exception):
+                    await remove(video)
+
+        if save_to_vps and not upload_to_tg:
+            listener._vt_vps_saved_only = True
+            file_list_str = "\n".join(f"• <code>{ospath.basename(p)}</code>" for p in all_extracted_paths[:10])
+            if len(all_extracted_paths) > 10:
+                file_list_str += f"\n<i>...and {len(all_extracted_paths) - 10} more</i>"
+            await send_message(
+                listener.message,
+                f"💾 <b>Extracted {len(all_extracted_paths)} stream(s) directly to VPS Audio Bank!</b>\n"
+                f"<b>Folder:</b> <code>{ospath.basename(up_path.rstrip('/'))}</code>\n\n"
+                f"{file_list_str}\n\n"
+                "<i>Saved in VPS (Upload to Telegram skipped). Files are ready for merging.</i>",
+            )
+            return None
+
+        if upload_to_tg and all_extracted_paths:
+            listener._vt_extract_only = True
+            await send_message(
+                listener.message,
+                f"⚡ <b>Extracted {len(all_extracted_paths)} stream(s) from {len(videos)} video(s)!</b>\n"
+                "<i>Uploading extracted streams to Telegram...</i>",
+            )
+            return common_extract_dir
+
+        return up_path
 
     for idx, video in enumerate(videos):
         audio_tracks, sub_tracks = await probe_streams(video)
@@ -2236,6 +2390,9 @@ async def _execute_vt_pipeline(listener, input_path, state):
     has_default_audio = state.get("default_audio") is not None
     has_default_sub = state.get("default_sub") is not None
     has_extractions = state.get("extract_audio") or state.get("extract_sub")
+    if has_extractions and not (state.get("merge_intake") or state.get("matched_bank")):
+        state["merge_audio"] = []
+        state["merge_sub"] = []
     has_merge_audio = state.get("merge_audio")
     has_merge_sub = state.get("merge_sub")
     has_translate = state.get("translate_sub")
