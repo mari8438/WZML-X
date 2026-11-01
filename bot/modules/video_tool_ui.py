@@ -14,6 +14,12 @@ from ..helper.video_utils.video_tools import (
     get_vt_state,
     start_merge_track_intake,
 )
+from ..helper.video_utils.vps_audio_bank import (
+    list_audio_bank,
+    clear_audio_bank,
+    match_videos_with_bank,
+    resolve_full_language_name,
+)
 
 
 def _selected_icon(selected):
@@ -89,25 +95,127 @@ LANGUAGES = [
 ]
 
 
+async def render_extract_studio(message, state):
+    from ..helper.ext_utils.status_utils import get_readable_file_size
+
+    task_id = state["task_id"]
+    filename = state.get("filename", "Video.mkv")
+    is_folder = state.get("is_folder", False)
+    extract_type = state.get("extract_type", "audio")
+    save_to_vps = state.get("save_to_vps", True)
+    upload_to_tg = state.get("upload_to_tg", True)
+
+    user_id = state.get("user_id") or (message.from_user.id if getattr(message, "from_user", None) else 0)
+    bank_info = await list_audio_bank(user_id)
+    bank_files_count = bank_info.get("total_files", 0)
+    bank_size_str = get_readable_file_size(bank_info.get("total_size", 0))
+
+    tracks = state.get("audio_tracks", []) if extract_type == "audio" else state.get("sub_tracks", [])
+    selected_indices = set(state.get("extract_audio", []) if extract_type == "audio" else state.get("extract_sub", []))
+
+    header_lines = [
+        "<b>✦ 𝗘𝗫𝗧𝗥𝗔𝗖𝗧 𝗦𝗧𝗥𝗘𝗔𝗠 𝗦𝗧𝗨𝗗𝗜𝗢 ✦</b>",
+        f"📁 <b>Source:</b> <code>{filename}</code>" + (f" <i>(Folder: {state.get('total_episodes', len(state.get('folder_videos', [])))} Videos)</i>" if is_folder else ""),
+        "🏷️ <b>Naming:</b> <code>{Language} - {Filename}.{ext}</code>",
+        f"💾 <b>VPS Audio Bank:</b> <code>{bank_files_count} file(s) ({bank_size_str})</code>",
+        "│",
+        f"└ <b>Current View:</b> <b>{'🔊 AUDIO STREAMS' if extract_type == 'audio' else '📝 SUBTITLE STREAMS'}</b>",
+    ]
+
+    rows = []
+    # Track buttons
+    if not tracks:
+        header_lines.append("<i>No streams found for this type.</i>")
+    else:
+        for t in tracks:
+            idx = t["index"]
+            is_sel = idx in selected_indices
+            icon = "🟢 " if is_sel else "⚪ "
+            raw_lang = t.get("lang") or ""
+            raw_title = t.get("title") or ""
+            full_lang, _ = resolve_full_language_name(raw_lang, raw_title)
+            codec = t.get("codec") or "Stream"
+            label = f"{icon}{full_lang} ({codec})"
+            rows.append([
+                InlineKeyboardButton(label, callback_data=f"vt_ext_toggle_{idx}_{task_id}", style=_state_style(is_sel))
+            ])
+
+    # Presets row
+    rows.append([
+        InlineKeyboardButton("✅ Select All", callback_data=f"vt_ext_preset_all_{task_id}"),
+        InlineKeyboardButton("🇮🇳 Ind Dubs", callback_data=f"vt_ext_preset_indian_{task_id}"),
+        InlineKeyboardButton("🔄 Reset", callback_data=f"vt_ext_preset_reset_{task_id}"),
+    ])
+
+    # Destination toggles row
+    rows.append([
+        InlineKeyboardButton(
+            f"💾 Save VPS : {'ON' if save_to_vps else 'OFF'}",
+            callback_data=f"vt_ext_togglevps_{task_id}",
+            style=_state_style(save_to_vps),
+        ),
+        InlineKeyboardButton(
+            f"📤 Upload TG : {'ON' if upload_to_tg else 'OFF'}",
+            callback_data=f"vt_ext_toggletg_{task_id}",
+            style=_state_style(upload_to_tg),
+        ),
+    ])
+
+    # Switch type and clear bank row
+    switch_label = "📝 Switch to Subtitles" if extract_type == "audio" else "🔊 Switch to Audio"
+    bottom_row = [
+        InlineKeyboardButton(switch_label, callback_data=f"vt_ext_switch_{task_id}")
+    ]
+    if bank_files_count > 0:
+        bottom_row.append(
+            InlineKeyboardButton(f"🧹 Clear VPS Bank ({bank_files_count})", callback_data=f"vt_ext_clearbank_{task_id}", style=_btn_style(ButtonStyle.DANGER))
+        )
+    rows.append(bottom_row)
+
+    # Action row
+    sel_count = len(selected_indices)
+    rows.append([
+        InlineKeyboardButton("🔙 Back", callback_data=f"vt_main_{task_id}"),
+        InlineKeyboardButton(
+            f"⚡ Start Extract ({sel_count})" if sel_count else "⚡ Start Extract",
+            callback_data=f"vt_ext_start_{task_id}",
+            style=_btn_style(ButtonStyle.SUCCESS),
+        ),
+    ])
+
+    markup = InlineKeyboardMarkup(rows)
+    try:
+        await message.edit_text("\n".join(header_lines), reply_markup=markup)
+    except Exception as e:
+        if "MESSAGE_NOT_MODIFIED" not in str(e).upper():
+            LOGGER.warning(f"render_extract_studio edit failed: {e}")
+
 async def render_muxing_configuration(vt_msg, state):
     from ..helper.ext_utils.status_utils import get_readable_file_size
 
     task_id = state["task_id"]
     filename = state.get("filename", "Video.mkv")
+    is_folder = state.get("is_folder", False)
     file_size_bytes = state.get("file_size")
     size_str = get_readable_file_size(file_size_bytes) if file_size_bytes else "N/A"
     task_mode = state.get("task_mode", "#Leech")
 
+    user_id = state.get("user_id") or (vt_msg.chat.id if getattr(vt_msg, "chat", None) else 0)
+    bank_info = await list_audio_bank(user_id)
+    bank_files_count = bank_info.get("total_files", 0)
+
+    # Auto-match if folder and bank has audio
+    if is_folder and bank_files_count > 0 and not state.get("matched_bank"):
+        state["matched_bank"] = match_videos_with_bank(state.get("folder_videos", []), bank_info["files"])
+
     external_audio = state.get("external_audio", [])
     external_sub = state.get("external_sub", [])
 
-    delay_summary = ""
-    if external_audio and state.get("auto_sync", True):
-        first_delay = external_audio[0].get("delay_ms", 0)
-        delay_summary = f" ({first_delay:+d}ms)"
+    audio_delay_ms = int(state.get("audio_delay_ms") or 0)
+    delay_summary = f" ({audio_delay_ms:+d}ms)" if audio_delay_ms != 0 else ""
 
-    auto_sync = f"ON{delay_summary}" if state.get("auto_sync", True) else "OFF"
-    final_sample = "ON (Telegram)" if state.get("final_sample", True) else "OFF"
+    auto_sync = f"ON{delay_summary}" if state.get("auto_sync", True) else f"OFF{delay_summary}"
+    final_sample = "ON (1 Sample Only)" if state.get("final_sample", True) else "OFF"
     preview_sync = "ON" if state.get("preview_sync", True) else "OFF"
     save_settings = "ON" if state.get("save_settings", True) else "OFF"
 
@@ -126,11 +234,17 @@ async def render_muxing_configuration(vt_msg, state):
             state.get("audio_tracks", []),
         )
 
+    matched_bank = state.get("matched_bank")
+    bank_summary_str = f"{bank_files_count} file(s) on VPS" if bank_files_count else "None"
+    matched_summary_str = f"{matched_bank.get('matched_episodes', 0)}/{matched_bank.get('total_episodes', 0)} episodes paired" if matched_bank else ""
+
     lines = [
         "<b>⬡ Muxing Configuration :</b>",
-        f"├ Base Video → <code>{filename}</code>",
+        f"├ Base Video → <code>{filename}</code>" + (f" <i>(Season Pack: {len(state.get('folder_videos', []))} Episodes)</i>" if is_folder else ""),
         f"├ File Size → <code>{size_str}</code>",
         f"├ Task Mode → <code>{task_mode}</code>",
+        f"├ VPS Audio Bank → <code>{bank_summary_str}</code>" + (f" <i>({matched_summary_str})</i>" if matched_summary_str else ""),
+        f"├ Audio Delay → <b>{audio_delay_ms:+d} ms</b>",
         f"├ Auto Sync → <b>{auto_sync}</b>",
         f"├ Final Sample → <b>{final_sample}</b>",
         f"├ Source Audio → <code>{source_audio_str}</code>",
@@ -174,49 +288,68 @@ async def render_muxing_configuration(vt_msg, state):
         if downloading_status:
             lines.append(f"└ ⏳ <i>{downloading_status}</i>")
 
-    rows = [
-        [
-            InlineKeyboardButton("➕ Add Audio", callback_data=f"vt_mux_addaudio_{task_id}"),
-            InlineKeyboardButton("➕ Add Subtitle", callback_data=f"vt_mux_addsub_{task_id}"),
-        ],
-        [
-            InlineKeyboardButton("🌐 Audio Lang", callback_data=f"vt_mux_audiolang_{task_id}"),
-            InlineKeyboardButton("🗑️ Remove Audio", callback_data=f"vt_mux_removeaudio_{task_id}"),
-        ],
-        [
-            InlineKeyboardButton("✏️ Rename", callback_data=f"vt_mux_rename_{task_id}"),
-            InlineKeyboardButton("🎬 Delay Preview", callback_data=f"vt_mux_preview_{task_id}"),
-        ],
-        [
-            InlineKeyboardButton(
-                f"Auto Sync : {'ON' if state.get('auto_sync', True) else 'OFF'}",
-                callback_data=f"vt_mux_toggle_auto_sync_{task_id}",
-                style=_state_style(state.get("auto_sync", True)),
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                f"Preview Sync : {'ON' if state.get('preview_sync', True) else 'OFF'}",
-                callback_data=f"vt_mux_toggle_preview_sync_{task_id}",
-                style=_state_style(state.get("preview_sync", True)),
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                f"Save settings : {'ON' if state.get('save_settings', True) else 'OFF'}",
-                callback_data=f"vt_mux_toggle_save_settings_{task_id}",
-                style=_state_style(state.get("save_settings", True)),
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "❌ Cancel", callback_data=f"vt_mux_cancel_{task_id}", style=_btn_style(ButtonStyle.DANGER)
-            ),
-            InlineKeyboardButton(
-                "🚀 Start Mux", callback_data=f"vt_mux_start_{task_id}", style=_btn_style(ButtonStyle.SUCCESS)
-            ),
-        ],
-    ]
+    rows = []
+    # 1. Prominent Web Studio URL Button
+    web_url = state.get("web_studio_url") or (f"{Config.BASE_URL.rstrip('/')}/app/video-studio?task_id={task_id}&token={state.get('token', '')}" if Config.BASE_URL else None)
+    if web_url:
+        rows.append([
+            InlineKeyboardButton("🌐 Open Web Merge Studio (Sync & Confirm)", url=web_url)
+        ])
+
+    # 2. Intake Audio & Subtitles
+    rows.append([
+        InlineKeyboardButton("➕ Add Audio", callback_data=f"vt_mux_addaudio_{task_id}"),
+        InlineKeyboardButton("➕ Add Subtitle", callback_data=f"vt_mux_addsub_{task_id}"),
+    ])
+
+    # 3. VPS Audio Bank Integration
+    bank_btn_label = f"📥 Use VPS Audio ({bank_files_count})" if bank_files_count else "📥 VPS Audio Bank (Empty)"
+    rows.append([
+        InlineKeyboardButton(bank_btn_label, callback_data=f"vt_mux_usebank_{task_id}"),
+        InlineKeyboardButton(f"⏱️ Delay ({audio_delay_ms:+d}ms)", callback_data=f"vt_mux_setdelay_{task_id}"),
+    ])
+
+    # 4. Audio Language & Remove
+    rows.append([
+        InlineKeyboardButton("🌐 Audio Lang", callback_data=f"vt_mux_audiolang_{task_id}"),
+        InlineKeyboardButton("🗑️ Remove Audio", callback_data=f"vt_mux_removeaudio_{task_id}"),
+    ])
+
+    # 5. Rename & Delay Preview
+    rows.append([
+        InlineKeyboardButton("✏️ Rename", callback_data=f"vt_mux_rename_{task_id}"),
+        InlineKeyboardButton("🎬 Delay Preview", callback_data=f"vt_mux_preview_{task_id}"),
+    ])
+
+    # 6. Auto Sync & Final Sample (1 Sample Only)
+    rows.append([
+        InlineKeyboardButton(
+            f"Auto Sync : {'ON' if state.get('auto_sync', True) else 'OFF'}",
+            callback_data=f"vt_mux_toggle_auto_sync_{task_id}",
+            style=_state_style(state.get("auto_sync", True)),
+        ),
+        InlineKeyboardButton(
+            f"1 Sample Only : {'ON' if state.get('final_sample', True) else 'OFF'}",
+            callback_data=f"vt_mux_toggle_final_sample_{task_id}",
+            style=_state_style(state.get("final_sample", True)),
+        ),
+    ])
+
+    # 7. Clear VPS Audio Bank button (if files exist)
+    if bank_files_count > 0:
+        rows.append([
+            InlineKeyboardButton(f"🧹 Clear Extracted Files ({bank_files_count})", callback_data=f"vt_mux_clearbank_{task_id}", style=_btn_style(ButtonStyle.DANGER))
+        ])
+
+    # 8. Cancel & Start Mux
+    rows.append([
+        InlineKeyboardButton(
+            "❌ Cancel", callback_data=f"vt_mux_cancel_{task_id}", style=_btn_style(ButtonStyle.DANGER)
+        ),
+        InlineKeyboardButton(
+            "🚀 Start Mux", callback_data=f"vt_mux_start_{task_id}", style=_btn_style(ButtonStyle.SUCCESS)
+        ),
+    ])
 
     markup = InlineKeyboardMarkup(rows)
     try:
@@ -228,6 +361,61 @@ async def render_muxing_configuration(vt_msg, state):
 
 render_merge_intake = render_muxing_configuration
 
+
+async def render_vps_bank_picker(message, state, bank_info):
+    task_id = state["task_id"]
+    langs = bank_info.get("languages", {})
+    sel_langs = set(state.get("selected_bank_languages", []))
+
+    text = (
+        "<b>📦 VPS Extracted Audio Bank</b>\n\n"
+        "Select audio languages to merge into target video(s):\n"
+    )
+    rows = []
+    for lang, files in langs.items():
+        is_sel = lang in sel_langs
+        icon = "🟢 " if is_sel else "⚪ "
+        rows.append([
+            InlineKeyboardButton(
+                f"{icon}{lang} ({len(files)} files)",
+                callback_data=f"vt_mux_togglebanklang_{lang}_{task_id}",
+                style=_state_style(is_sel),
+            )
+        ])
+    rows.append([
+        InlineKeyboardButton("🔙 Back to Mux Config", callback_data=f"vt_mux_back_{task_id}"),
+        InlineKeyboardButton("🧹 Clear VPS Bank", callback_data=f"vt_mux_clearbank_{task_id}", style=_btn_style(ButtonStyle.DANGER)),
+    ])
+    try:
+        await message.edit_text(text, reply_markup=InlineKeyboardMarkup(rows))
+    except Exception as e:
+        if "MESSAGE_NOT_MODIFIED" not in str(e).upper():
+            LOGGER.warning(f"render_vps_bank_picker error: {e}")
+
+
+async def render_audio_delay_menu(message, state):
+    task_id = state["task_id"]
+    curr_ms = int(state.get("audio_delay_ms") or 0)
+    text = (
+        "<b>⏱️ Set Audio Delay Offset:</b>\n\n"
+        f"<b>Current Delay:</b> <code>{curr_ms:+d} ms</code>\n\n"
+        "Choose a preset below or type a custom millisecond value:"
+    )
+    presets = [-250, -150, -100, 0, 100, 150, 250]
+    rows = []
+    r1 = [InlineKeyboardButton(f"{ms:+d}ms" if ms != 0 else "0ms", callback_data=f"vt_mux_applydelay_{ms}_{task_id}") for ms in presets[:4]]
+    r2 = [InlineKeyboardButton(f"{ms:+d}ms", callback_data=f"vt_mux_applydelay_{ms}_{task_id}") for ms in presets[4:]]
+    rows.append(r1)
+    rows.append(r2)
+    rows.append([
+        InlineKeyboardButton("✏️ Custom Delay (ms)", callback_data=f"vt_mux_customdelay_{task_id}"),
+        InlineKeyboardButton("🔙 Back", callback_data=f"vt_mux_back_{task_id}"),
+    ])
+    try:
+        await message.edit_text(text, reply_markup=InlineKeyboardMarkup(rows))
+    except Exception as e:
+        if "MESSAGE_NOT_MODIFIED" not in str(e).upper():
+            LOGGER.warning(f"render_audio_delay_menu error: {e}")
 
 async def render_audio_lang_menu(message, state):
     task_id = state["task_id"]
@@ -618,6 +806,56 @@ async def video_tools_callback(_, query):
                 await render_muxing_configuration(query.message, state)
                 return
 
+            if mux_action == "clearbank":
+                user_id = query.from_user.id if getattr(query, "from_user", None) else (state.get("user_id") or 0)
+                del_count, freed = await clear_audio_bank(user_id)
+                state["matched_bank"] = None
+                await query.answer(f"🧹 Cleared {del_count} extracted files from VPS!", show_alert=True)
+                await render_muxing_configuration(query.message, state)
+                return
+
+            if mux_action == "usebank":
+                user_id = query.from_user.id if getattr(query, "from_user", None) else (state.get("user_id") or 0)
+                bank_info = await list_audio_bank(user_id)
+                if bank_info["total_files"] == 0:
+                    await query.answer("VPS Audio Bank is currently empty. Extract audio streams first!", show_alert=True)
+                    return
+                await render_vps_bank_picker(query.message, state, bank_info)
+                return
+
+            if mux_action == "togglebanklang":
+                lang = parts[3]
+                sel = state.setdefault("selected_bank_languages", [])
+                if lang in sel:
+                    sel.remove(lang)
+                else:
+                    sel.append(lang)
+                user_id = query.from_user.id if getattr(query, "from_user", None) else (state.get("user_id") or 0)
+                bank_info = await list_audio_bank(user_id)
+                videos = state.get("folder_videos") or ([state["input_path"]] if state.get("input_path") else [])
+                if videos:
+                    state["matched_bank"] = match_videos_with_bank(videos, bank_info["files"], sel)
+                await render_vps_bank_picker(query.message, state, bank_info)
+                return
+
+            if mux_action == "setdelay":
+                await render_audio_delay_menu(query.message, state)
+                return
+
+            if mux_action == "applydelay":
+                ms = int(parts[3])
+                state["audio_delay_ms"] = ms
+                for a in state.get("external_audio", []):
+                    a["delay_ms"] = ms
+                await query.answer(f"Audio Delay set to {ms:+d}ms!")
+                await render_muxing_configuration(query.message, state)
+                return
+
+            if mux_action == "customdelay":
+                state["awaiting_input"] = ("global_delay_ms", 0)
+                await query.message.reply_text("Send the signed integer delay in milliseconds (e.g. <code>-250</code> or <code>1200</code>):")
+                return
+
             if mux_action == "addaudio":
                 await query.answer(
                     "Send audio (.mka, .aac, .ac3, .eac3, .m4a) or video files to this chat to add them.",
@@ -829,6 +1067,76 @@ async def video_tools_callback(_, query):
                     if "MESSAGE_ID_INVALID" not in str(me).upper():
                         raise
                 return
+        if action == "ext":
+            ext_action = parts[2]
+            if ext_action == "toggle":
+                idx = int(parts[3])
+                e_type = state.get("extract_type", "audio")
+                key = "extract_audio" if e_type == "audio" else "extract_sub"
+                curr = state.setdefault(key, [])
+                if idx in curr:
+                    curr.remove(idx)
+                else:
+                    curr.append(idx)
+                await render_extract_studio(query.message, state)
+                return
+
+            if ext_action == "preset":
+                preset = parts[3]
+                e_type = state.get("extract_type", "audio")
+                key = "extract_audio" if e_type == "audio" else "extract_sub"
+                tracks = state.get("audio_tracks" if e_type == "audio" else "sub_tracks", [])
+                if preset == "all":
+                    state[key] = [t["index"] for t in tracks]
+                elif preset == "reset":
+                    state[key] = []
+                elif preset == "indian":
+                    ind_langs = {"tamil", "hindi", "telugu", "malayalam", "kannada", "tam", "hin", "tel", "mal", "kan"}
+                    sel = []
+                    for t in tracks:
+                        combined = f"{t.get('lang', '')} {t.get('title', '')}".lower()
+                        if any(l in combined for l in ind_langs):
+                            sel.append(t["index"])
+                    state[key] = sel or [t["index"] for t in tracks]
+                await render_extract_studio(query.message, state)
+                return
+
+            if ext_action == "switch":
+                curr = state.get("extract_type", "audio")
+                state["extract_type"] = "sub" if curr == "audio" else "audio"
+                await render_extract_studio(query.message, state)
+                return
+
+            if ext_action == "togglevps":
+                state["save_to_vps"] = not state.get("save_to_vps", True)
+                await render_extract_studio(query.message, state)
+                return
+
+            if ext_action == "toggletg":
+                state["upload_to_tg"] = not state.get("upload_to_tg", True)
+                if not state["upload_to_tg"] and not state.get("save_to_vps", True):
+                    state["save_to_vps"] = True
+                await render_extract_studio(query.message, state)
+                return
+
+            if ext_action == "clearbank":
+                user_id = query.from_user.id if getattr(query, "from_user", None) else (state.get("user_id") or 0)
+                await clear_audio_bank(user_id)
+                await query.answer("🧹 VPS Extracted Audio Bank cleared!", show_alert=True)
+                await render_extract_studio(query.message, state)
+                return
+
+            if ext_action == "start":
+                audio_sel = state.get("extract_audio", [])
+                sub_sel = state.get("extract_sub", [])
+                if not audio_sel and not sub_sel:
+                    await query.answer("Please select at least one stream to extract!", show_alert=True)
+                    return
+                _clear_non_extract_tools(state)
+                state["completed"] = True
+                event.set()
+                await query.message.edit_text("<b>⚡ Starting stream extraction...</b>")
+                return
 
         if action == "close":
             state["completed"] = True
@@ -895,7 +1203,8 @@ async def video_tools_callback(_, query):
 
         if action == "extract":
             _clear_non_extract_tools(state)
-            await render_stream_type_menu(query, task_id, "extract", "Extract Stream")
+            state["extract_type"] = "audio"
+            await render_extract_studio(query.message, state)
             return
 
         if action == "merge":

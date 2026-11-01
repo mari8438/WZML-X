@@ -15,6 +15,20 @@ from aioshutil import rmtree
 
 from ... import LOGGER, DOWNLOAD_DIR
 from ...core.config_manager import BinConfig, Config
+from .vps_audio_bank import (
+    build_extracted_filename,
+    save_to_audio_bank,
+    list_audio_bank,
+    clear_audio_bank,
+    match_videos_with_bank,
+    make_vt_studio_token,
+    verify_vt_studio_token,
+    save_web_session,
+    load_web_session,
+    delete_web_session,
+    read_and_clear_web_cmd,
+    read_and_clear_web_submission,
+)
 from ..ext_utils.bot_utils import cmd_exec, sync_to_async
 from ..ext_utils.ffmpeg_queue import ffmpeg_task
 from ..ext_utils.files_utils import get_source_container_name
@@ -427,6 +441,13 @@ def _base_state(task_id, filename, audio_tracks, sub_tracks, input_path=""):
         "output_name": "",
         "task_mode": "#Leech",
         "file_size": 0,
+        "save_to_vps": True,
+        "upload_to_tg": True,
+        "extract_type": "audio",
+        "matched_bank": None,
+        "selected_bank_languages": [],
+        "audio_delay_ms": 0,
+        "web_studio_url": "",
     }
 
 
@@ -654,6 +675,20 @@ async def video_tools_text_collector(_, message):
                 value += ".mkv"
             state["output_name"] = value
             state["custom_output_name"] = True
+        if vt_msg:
+            from ...modules.video_tool_ui import render_muxing_configuration
+            await render_muxing_configuration(vt_msg, state)
+        return
+
+    if field == "global_delay_ms":
+        if not re.fullmatch(r"[+-]?\d+", value):
+            state["awaiting_input"] = (field, index)
+            await send_message(message, "Audio delay must be a signed integer in milliseconds, for example <code>-250</code> or <code>1200</code>.")
+            return
+        ms = max(-3_600_000, min(3_600_000, int(value)))
+        state["audio_delay_ms"] = ms
+        for a in state.get("external_audio", []):
+            a["delay_ms"] = ms
         if vt_msg:
             from ...modules.video_tool_ui import render_muxing_configuration
             await render_muxing_configuration(vt_msg, state)
@@ -1302,6 +1337,39 @@ async def process_video_tool(listener, up_path):
         # Render the UI
         from ...modules.video_tool_ui import render_merge_intake, render_video_tools_main
 
+        user_id = getattr(listener, "user_id", None) or (listener.message.from_user.id if listener.message and listener.message.from_user else 0)
+        token = make_vt_studio_token(task_id, user_id)
+        state["user_id"] = user_id
+        state["token"] = token
+        if Config.BASE_URL:
+            state["web_studio_url"] = f"{Config.BASE_URL.rstrip('/')}/app/video-studio?task_id={task_id}&token={token}"
+
+        bank_data = await list_audio_bank(user_id)
+        await save_web_session(task_id, {
+            "task_id": task_id,
+            "user_id": user_id,
+            "token": token,
+            "is_folder": False,
+            "file_name": state["filename"],
+            "file_path": up_path,
+            "video_duration": state.get("video_duration", 0),
+            "video_stream": {
+                "index": 0,
+                "codec": "HEVC/x265",
+                "resolution": "1920x1080",
+                "durationSec": int(state.get("video_duration", 0) or 1452),
+            },
+            "audio_tracks": state.get("audio_tracks", []),
+            "sub_tracks": state.get("sub_tracks", []),
+            "external_audio": state.get("external_audio", []),
+            "bank_data": bank_data,
+            "matched_bank": state.get("matched_bank") or {},
+            "total_episodes": 1,
+            "video_files": [state["filename"]],
+        })
+
+        ipc_task = create_task(_watch_web_session_ipc(task_id, state, done_event, listener))
+
         tag = getattr(listener, "tag", None) or (listener.message.from_user.mention if listener.message.from_user else "")
         vt_msg = await send_message(
             listener.message,
@@ -1353,6 +1421,10 @@ async def process_video_tool(listener, up_path):
         external_dir = state.get("external_dir")
         if external_dir and await aiopath.isdir(external_dir):
             await rmtree(external_dir, ignore_errors=True)
+        with suppress(Exception):
+            if "ipc_task" in locals() and not ipc_task.done():
+                ipc_task.cancel()
+        await delete_web_session(task_id)
         _active_vt_sessions.pop(task_id, None)
         listener._vt_state = None
         listener._vt_msg = None
@@ -1604,6 +1676,82 @@ async def _merge_video_directory(listener, root, videos):
             await remove(list_path)
 
 
+async def _watch_web_session_ipc(task_id, state, done_event, listener):
+    try:
+        while not done_event.is_set():
+            cmd = await read_and_clear_web_cmd(task_id)
+            if cmd:
+                action = cmd.get("cmd")
+                payload = cmd.get("payload", {})
+                if action == "preview":
+                    if "delay_ms" in payload:
+                        state["audio_delay_ms"] = int(payload["delay_ms"])
+                        for a in state.get("external_audio", []):
+                            a["delay_ms"] = state["audio_delay_ms"]
+                    if not state.get("external_audio") and state.get("matched_bank"):
+                        matched_list = state["matched_bank"].get("matched", [])
+                        if matched_list:
+                            ext_items = []
+                            for a_idx, trk in enumerate(matched_list[0].get("audio_tracks", [])):
+                                ext_items.append({
+                                    "index": a_idx,
+                                    "name": trk.get("audio_name", ""),
+                                    "path": trk.get("audio_path", ""),
+                                    "stream_index": 0,
+                                    "language": trk.get("language", "und"),
+                                    "title": trk.get("audio_name", ""),
+                                    "delay_ms": state.get("audio_delay_ms", 0),
+                                    "duration": 0,
+                                })
+                            if ext_items:
+                                state["external_audio"] = ext_items
+                                state["merge_audio"] = list(range(len(ext_items)))
+                    with suppress(Exception):
+                        await generate_merge_preview(state)
+                elif action == "clear_bank":
+                    user_id = state.get("user_id") or listener.user_id
+                    await clear_audio_bank(user_id)
+                    state["matched_bank"] = None
+                    vt_msg = getattr(listener, "_vt_msg", None)
+                    if vt_msg:
+                        from ...modules.video_tool_ui import render_muxing_configuration
+                        await render_muxing_configuration(vt_msg, state)
+
+            submission = await read_and_clear_web_submission(task_id)
+            if submission:
+                LOGGER.info(f"Web Studio submission received for task {task_id}")
+                if "selected_bank_languages" in submission:
+                    state["selected_bank_languages"] = submission["selected_bank_languages"]
+                    user_id = state.get("user_id") or listener.user_id
+                    bank_data = await list_audio_bank(user_id)
+                    videos = state.get("folder_videos") or ([state["input_path"]] if state.get("input_path") else [])
+                    if bank_data.get("files") and videos:
+                        state["matched_bank"] = match_videos_with_bank(videos, bank_data["files"], state["selected_bank_languages"])
+                if "audio_tracks" in submission and submission["audio_tracks"]:
+                    state["external_audio"] = submission["audio_tracks"]
+                    state["merge_audio"] = list(range(len(submission["audio_tracks"])))
+                if "subtitle_tracks" in submission and submission["subtitle_tracks"]:
+                    state["external_sub"] = submission["subtitle_tracks"]
+                    state["merge_sub"] = list(range(len(submission["subtitle_tracks"])))
+                if "thumbnail_mode" in submission:
+                    state["thumb_mode"] = submission["thumbnail_mode"]
+                if "frame_timestamp" in submission:
+                    state["frame_timestamp"] = submission["frame_timestamp"]
+                if "final_sample" in submission:
+                    state["final_sample"] = bool(submission["final_sample"])
+                if "audio_delay_ms" in submission:
+                    state["audio_delay_ms"] = int(submission.get("audio_delay_ms") or 0)
+                    for a in state.get("external_audio", []):
+                        a["delay_ms"] = state["audio_delay_ms"]
+                state["completed"] = True
+                done_event.set()
+                break
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        LOGGER.warning(f"Error in web IPC watcher: {e}")
+
 def _clone_state_for_path(source, filename, audio_tracks, sub_tracks, input_path=""):
     task_id = source["task_id"]
     state = _base_state(task_id, filename, audio_tracks, sub_tracks, input_path)
@@ -1681,6 +1829,43 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
             )
             return up_path
 
+        user_id = getattr(listener, "user_id", None) or (listener.message.from_user.id if listener.message and listener.message.from_user else 0)
+        token = make_vt_studio_token(task_id, user_id)
+        state["user_id"] = user_id
+        state["token"] = token
+        state["is_folder"] = True
+        state["folder_videos"] = videos
+        if Config.BASE_URL:
+            state["web_studio_url"] = f"{Config.BASE_URL.rstrip('/')}/app/video-studio?task_id={task_id}&token={token}"
+
+        bank_data = await list_audio_bank(user_id)
+        if bank_data.get("files"):
+            matched_info = match_videos_with_bank(videos, bank_data["files"], state.get("selected_bank_languages"))
+            state["matched_bank"] = matched_info
+
+        await save_web_session(task_id, {
+            "task_id": task_id,
+            "user_id": user_id,
+            "token": token,
+            "is_folder": True,
+            "file_name": ospath.basename(up_path.rstrip("/")),
+            "file_path": up_path,
+            "video_duration": state.get("video_duration", 0),
+            "video_stream": {
+                "index": 0,
+                "codec": "HEVC/x265",
+                "resolution": "1920x1080",
+                "durationSec": int(state.get("video_duration", 0) or 1452),
+            },
+            "audio_tracks": state.get("audio_tracks", []),
+            "sub_tracks": state.get("sub_tracks", []),
+            "external_audio": state.get("external_audio", []),
+            "bank_data": bank_data,
+            "matched_bank": state.get("matched_bank") or {},
+            "total_episodes": len(videos),
+            "video_files": [ospath.basename(v) for v in videos],
+        })
+
         listener._vt_state = state
         done_event = Event()
         _active_vt_sessions[task_id] = {
@@ -1688,6 +1873,9 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
             "state": state,
             "listener": listener,
         }
+
+        ipc_task = create_task(_watch_web_session_ipc(task_id, state, done_event, listener))
+
         try:
             from ...modules.video_tool_ui import render_video_tools_main
 
@@ -1705,6 +1893,10 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
             if state.get("cancelled", False):
                 return up_path
         finally:
+            with suppress(Exception):
+                if not ipc_task.done():
+                    ipc_task.cancel()
+            await delete_web_session(task_id)
             _active_vt_sessions.pop(task_id, None)
             listener._vt_state = None
             listener._vt_msg = None
@@ -1713,15 +1905,49 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
         listener.message,
         f"Video Tools: processing {len(videos)} video(s) after download/extract...",
     )
-    for video in videos:
+
+    first_muxed_video = None
+    is_muxing_action = bool(state.get("merge_audio") or state.get("merge_intake") or state.get("matched_bank"))
+
+    for idx, video in enumerate(videos):
         audio_tracks, sub_tracks = await probe_streams(video)
         work_state = _clone_state_for_path(
             state, ospath.basename(video), audio_tracks, sub_tracks, video
         )
+        if state.get("matched_bank"):
+            matched_list = state["matched_bank"].get("matched", [])
+            if idx < len(matched_list):
+                ep_match = matched_list[idx]
+                ext_items = []
+                for a_idx, trk in enumerate(ep_match.get("audio_tracks", [])):
+                    ext_items.append({
+                        "index": a_idx,
+                        "name": trk["audio_name"],
+                        "path": trk["audio_path"],
+                        "stream_index": 0,
+                        "language": trk["language"],
+                        "title": trk["audio_name"],
+                        "delay_ms": state.get("audio_delay_ms", 0),
+                        "duration": 0,
+                    })
+                if ext_items:
+                    work_state["external_audio"] = ext_items
+                    work_state["merge_audio"] = list(range(len(ext_items)))
+
         await _refresh_external_tracks(work_state, video)
-        await _execute_vt_pipeline(listener, video, work_state)
+        res = await _execute_vt_pipeline(listener, video, work_state)
+        if res and not first_muxed_video:
+            first_muxed_video = res
         if listener.is_cancelled:
             break
+
+    # If folder was muxed, generate ONLY 1 sample video from Episode 1
+    if is_muxing_action and first_muxed_video:
+        listener._vt_muxed_folder = True
+        if state.get("final_sample", True) and not getattr(listener, "_vt_folder_sample_sent", False):
+            await generate_final_sample(listener, first_muxed_video)
+            listener._vt_folder_sample_sent = True
+
     return up_path
 
 
@@ -2033,6 +2259,15 @@ async def _execute_vt_pipeline(listener, input_path, state):
             if extracted_paths:
                 with suppress(Exception):
                     await remove(input_path)
+                if state.get("save_to_vps") and not state.get("upload_to_tg", True):
+                    listener._vt_vps_saved_only = True
+                    await send_message(
+                        listener.message,
+                        f"💾 <b>Extracted {len(extracted_paths)} stream(s) directly to VPS Audio Bank!</b>\n"
+                        f"<code>{ospath.basename(input_path)}</code>\n\n"
+                        "<i>Saved in VPS (Upload to Telegram skipped). Files are ready for merging.</i>",
+                    )
+                    return None
                 if len(extracted_paths) == 1:
                     return extracted_paths[0]
                 return extract_dir
@@ -2047,13 +2282,15 @@ async def _execute_vt_pipeline(listener, input_path, state):
         for item in state.get("external_audio", []):
             if item["index"] == idx:
                 extra_inputs.append(("audio", item["path"], item))
-                cleanup_paths.append(item["path"])
+                if "vt_audio_bank" not in str(item.get("path", "")):
+                    cleanup_paths.append(item["path"])
 
     for idx in state.get("merge_sub", []):
         for item in state.get("external_sub", []):
             if item["index"] == idx:
                 extra_inputs.append(("sub", item["path"], item))
-                cleanup_paths.append(item["path"])
+                if "vt_audio_bank" not in str(item.get("path", "")):
+                    cleanup_paths.append(item["path"])
 
     if has_translate:
         target = _target_lang(listener)
@@ -2327,27 +2564,43 @@ async def _extract_streams(listener, input_path, state):
     extracted = []
     failed = False
 
+    user_id = getattr(listener, "user_id", None) or (listener.message.from_user.id if listener.message and listener.message.from_user else 0)
+    seen_langs = {}
+
     for idx in state.get("extract_audio", []):
         track = all_audio.get(idx)
         if not track:
             continue
-        ext = _extract_extension(track, "audio")
-        out_name = f"Audio_{track['lang']}_{idx + 1}{ext}"
+        t_lang = (track.get("lang") or "und").lower()
+        seen_langs[t_lang] = seen_langs.get(t_lang, 0) + 1
+        out_name = build_extracted_filename(track, input_path, kind="audio", duplicate_index=seen_langs[t_lang])
         out_path = ospath.join(extract_dir, out_name)
         if await _extract_single(input_path, track, out_path):
             extracted.append(out_path)
+            if state.get("save_to_vps", True):
+                try:
+                    await save_to_audio_bank(user_id, out_path, custom_name=out_name)
+                except Exception as be:
+                    LOGGER.warning(f"Failed to save audio to VPS bank: {be}")
         else:
             failed = True
 
+    seen_sub_langs = {}
     for idx in state.get("extract_sub", []):
         track = all_sub.get(idx)
         if not track:
             continue
-        ext = _extract_extension(track, "subtitle")
-        out_name = f"Subtitle_{track['lang']}_{idx + 1}{ext}"
+        s_lang = (track.get("lang") or "und").lower()
+        seen_sub_langs[s_lang] = seen_sub_langs.get(s_lang, 0) + 1
+        out_name = build_extracted_filename(track, input_path, kind="subtitle", duplicate_index=seen_sub_langs[s_lang])
         out_path = ospath.join(extract_dir, out_name)
         if await _extract_single(input_path, track, out_path):
             extracted.append(out_path)
+            if state.get("save_to_vps", True):
+                try:
+                    await save_to_audio_bank(user_id, out_path, custom_name=out_name)
+                except Exception as be:
+                    LOGGER.warning(f"Failed to save subtitle to VPS bank: {be}")
         else:
             failed = True
     if failed:

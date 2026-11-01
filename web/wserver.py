@@ -681,6 +681,181 @@ async def qbittorrent_proxy(path: str = "", request: Request = None):
     return await protected_proxy("qbit", path, request)
 
 
+# --- STARFALL VIDEO TOOLS: MERGE & SYNC STUDIO ENDPOINTS ---
+import base64
+import os
+from bot.helper.video_utils.vps_audio_bank import (
+    verify_vt_studio_token,
+    load_web_session,
+    list_audio_bank,
+    clear_audio_bank,
+    write_web_cmd,
+    write_web_submission,
+)
+
+
+@app.get("/app/video-studio", response_class=HTMLResponse)
+async def video_studio_page(request: Request, task_id: str = "", token: str = ""):
+    if not task_id or not token:
+        raise HTTPException(status_code=403, detail="Task ID and authentication token required")
+    if not verify_vt_studio_token(task_id, token):
+        raise HTTPException(status_code=403, detail="Invalid or expired video studio token")
+    response = templates.TemplateResponse(request, "video_studio.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.get("/api/video/probe")
+async def video_probe_api(task_id: str = "", token: str = ""):
+    if not task_id or not token:
+        raise HTTPException(status_code=403, detail="Missing task_id or token")
+    if not verify_vt_studio_token(task_id, token):
+        raise HTTPException(status_code=403, detail="Invalid studio token")
+    session = await load_web_session(task_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Task session not found or completed")
+    user_id = session.get("user_id", 0)
+    bank_data = await list_audio_bank(user_id)
+    return JSONResponse(
+        {
+            "task_id": session.get("task_id", task_id),
+            "file_name": session.get("file_name", "Video.mkv"),
+            "is_folder": session.get("is_folder", False),
+            "video": session.get("video_stream", {}),
+            "audio_tracks": session.get("audio_tracks", []),
+            "subtitle_tracks": session.get("sub_tracks", []),
+            "external_audio": session.get("external_audio", []),
+            "bank_data": bank_data,
+            "matched_bank": session.get("matched_bank") or {},
+            "total_episodes": session.get("total_episodes", 1),
+            "video_files": session.get("video_files", []),
+            "audio_delay_ms": session.get("audio_delay_ms", 0),
+            "single_sample_for_folder": True,
+        }
+    )
+
+
+@app.get("/api/video/frame")
+async def video_frame_api(task_id: str = "", token: str = "", ss: str = "00:04:50"):
+    if not task_id or not token:
+        raise HTTPException(status_code=403, detail="Missing credentials")
+    if not verify_vt_studio_token(task_id, token):
+        raise HTTPException(status_code=403, detail="Invalid token")
+    session = await load_web_session(task_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    file_path = session.get("file_path", "")
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Media file not found on disk")
+    if os.path.isdir(file_path):
+        videos = session.get("video_files", [])
+        found = False
+        for v in videos:
+            p = os.path.join(file_path, v)
+            if os.path.isfile(p):
+                file_path = p
+                found = True
+                break
+        if not found:
+            raise HTTPException(status_code=404, detail="No video file found in folder")
+
+    # Strictly lightweight single-frame grab to keep RAM under 4GB safe limits
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        ss,
+        "-i",
+        file_path,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        "-f",
+        "image2",
+        "-",
+    ]
+    try:
+        import asyncio
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+        if stdout and len(stdout) > 100:
+            return Response(content=stdout, media_type="image/jpeg")
+        raise HTTPException(status_code=500, detail="Failed to extract frame")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Frame grab error: {e}")
+
+
+@app.post("/api/video/thumbnail")
+async def video_thumbnail_api(request: Request, token: str = ""):
+    data = await request.json()
+    task_id = data.get("task_id", "")
+    if not task_id or not token:
+        raise HTTPException(status_code=403, detail="Missing task_id or token")
+    if not verify_vt_studio_token(task_id, token):
+        raise HTTPException(status_code=403, detail="Invalid token")
+    b64_img = data.get("image_base64", "")
+    if "," in b64_img:
+        b64_img = b64_img.split(",", 1)[1]
+    if b64_img:
+        img_bytes = base64.b64decode(b64_img)
+        thumb_dir = "downloads/thumbnails"
+        os.makedirs(thumb_dir, exist_ok=True)
+        thumb_path = os.path.join(thumb_dir, f"{task_id}.jpg")
+        with open(thumb_path, "wb") as f:
+            f.write(img_bytes)
+    return JSONResponse({"status": "ok"})
+
+
+@app.post("/api/video/preview")
+async def video_preview_api(request: Request, token: str = ""):
+    data = await request.json()
+    task_id = data.get("task_id", "")
+    if not task_id or not token:
+        raise HTTPException(status_code=403, detail="Missing task_id or token")
+    if not verify_vt_studio_token(task_id, token):
+        raise HTTPException(status_code=403, detail="Invalid token")
+    delay_ms = int(data.get("delay_ms") or 0)
+    await write_web_cmd(task_id, "preview", {"delay_ms": delay_ms})
+    return JSONResponse({"status": "preview_queued"})
+
+
+@app.post("/api/video/extracted/clear")
+async def video_clear_extracted_api(request: Request, token: str = ""):
+    data = await request.json()
+    task_id = data.get("task_id", "")
+    if not task_id or not token:
+        raise HTTPException(status_code=403, detail="Missing task_id or token")
+    if not verify_vt_studio_token(task_id, token):
+        raise HTTPException(status_code=403, detail="Invalid token")
+    session = await load_web_session(task_id)
+    user_id = session.get("user_id", 0) if session else 0
+    del_count, freed_bytes = await clear_audio_bank(user_id)
+    await write_web_cmd(task_id, "clear_bank")
+    return JSONResponse(
+        {"status": "ok", "deleted_files": del_count, "freed_bytes": freed_bytes}
+    )
+
+
+@app.post("/api/video/mux")
+async def video_mux_api(request: Request, token: str = ""):
+    data = await request.json()
+    task_id = data.get("task_id", "")
+    if not task_id or not token:
+        raise HTTPException(status_code=403, detail="Missing task_id or token")
+    if not verify_vt_studio_token(task_id, token):
+        raise HTTPException(status_code=403, detail="Invalid token")
+    await write_web_submission(task_id, data)
+    return JSONResponse({"status": "mux_queued"})
+
+
 @app.exception_handler(Exception)
 async def page_not_found(_, exc):
     return HTMLResponse(

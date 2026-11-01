@@ -362,6 +362,16 @@ class TaskListener(TaskConfig):
                 self.file_details.setdefault("filename", first)
 
         await maybe_enable_auto_unzip(self, up_path)
+        if self.video_tool and not self.extract:
+            from ..ext_utils.files_utils import is_supported_archive
+            if await aiopath.isfile(up_path) and await is_supported_archive(up_path):
+                self.extract = True
+            elif await aiopath.isdir(up_path):
+                for name in await listdir(up_path):
+                    f_check = ospath.join(up_path, name)
+                    if await aiopath.isfile(f_check) and await is_supported_archive(f_check):
+                        self.extract = True
+                        break
 
         if not Config.QUEUE_ALL:
             async with queue_dict_lock:
@@ -431,6 +441,14 @@ class TaskListener(TaskConfig):
 
             up_path = await process_video_tool(self, up_path)
             if self.is_cancelled:
+                return
+            if getattr(self, "_vt_vps_saved_only", False):
+                await clean_download(self.dir)
+                async with queue_dict_lock:
+                    if self.mid in non_queued_up:
+                        non_queued_up.remove(self.mid)
+                await start_from_queued()
+                LOGGER.info(f"VT Extract-to-VPS complete for task {self.mid}. Skipping Telegram upload.")
                 return
             self.is_file = await aiopath.isfile(up_path)
             self.name = up_path.replace(f"{up_dir}/", "").split("/", 1)[0]
@@ -524,7 +542,7 @@ class TaskListener(TaskConfig):
             self.size = await get_path_size(up_dir)
             self.clear()
 
-        if self.sample_video:
+        if self.sample_video and not getattr(self, "_vt_folder_sample_sent", False):
             up_path = await self.generate_sample_video(up_path, gid)
             if self.is_cancelled:
                 return

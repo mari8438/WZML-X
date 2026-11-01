@@ -1188,6 +1188,10 @@ class TaskConfig:
         del all_files
 
         if self.files_to_proceed:
+            if not self.is_file and getattr(self, "_vt_muxed_folder", False):
+                sorted_files = sorted(self.files_to_proceed.keys(), key=lambda p: ospath.basename(p).lower())
+                first_k = sorted_files[0]
+                self.files_to_proceed = {first_k: self.files_to_proceed[first_k]}
             ffmpeg = FFMpeg(self)
             async with task_dict_lock:
                 task_dict[self.mid] = FFmpegStatus(self, ffmpeg, gid, "Convert")
@@ -1238,6 +1242,10 @@ class TaskConfig:
                     if (await get_document_type(f_path))[0]:
                         self.files_to_proceed[f_path] = file_
         if self.files_to_proceed:
+            if not self.is_file and getattr(self, "_vt_muxed_folder", False):
+                sorted_files = sorted(self.files_to_proceed.keys(), key=lambda p: ospath.basename(p).lower())
+                first_k = sorted_files[0]
+                self.files_to_proceed = {first_k: self.files_to_proceed[first_k]}
             ffmpeg = FFMpeg(self)
             async with task_dict_lock:
                 task_dict[self.mid] = FFmpegStatus(self, ffmpeg, gid, "Sample Video")
@@ -1301,6 +1309,10 @@ class TaskConfig:
                     if f_size > self.split_size:
                         self.files_to_proceed[f_path] = [f_size, file_]
         if self.files_to_proceed:
+            if not self.is_file and getattr(self, "_vt_muxed_folder", False):
+                sorted_files = sorted(self.files_to_proceed.keys(), key=lambda p: ospath.basename(p).lower())
+                first_k = sorted_files[0]
+                self.files_to_proceed = {first_k: self.files_to_proceed[first_k]}
             ffmpeg = FFMpeg(self)
             async with task_dict_lock:
                 task_dict[self.mid] = FFmpegStatus(self, ffmpeg, gid, "Split")

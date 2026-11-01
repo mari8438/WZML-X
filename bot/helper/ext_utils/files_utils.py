@@ -244,12 +244,17 @@ async def clean_target(opath):
             LOGGER.error(str(e))
 
 
+PROTECTED_DOWNLOAD_SUBDIRS = {"vt_audio_bank", "vt_web_sessions"}
+
+
 async def clean_download(opath):
     if await aiopath.exists(opath):
         LOGGER.info(f"Cleaning Download: {opath}")
         try:
             if ospath.abspath(opath) == ospath.abspath(DOWNLOAD_DIR):
                 for entry in await listdir(opath):
+                    if entry in PROTECTED_DOWNLOAD_SUBDIRS:
+                        continue
                     entry_path = ospath.join(opath, entry)
                     if await aiopath.islink(entry_path) or await aiopath.isfile(entry_path):
                         await remove(entry_path)
@@ -268,6 +273,8 @@ async def clean_all():
     LOGGER.info("Cleaning Download Directory")
     if await aiopath.exists(DOWNLOAD_DIR):
         for entry in await listdir(DOWNLOAD_DIR):
+            if entry in PROTECTED_DOWNLOAD_SUBDIRS:
+                continue
             entry_path = ospath.join(DOWNLOAD_DIR, entry)
             try:
                 if await aiopath.islink(entry_path) or await aiopath.isfile(entry_path):
