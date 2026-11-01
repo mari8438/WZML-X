@@ -771,11 +771,12 @@ async def video_tools_text_collector(_, message):
 
 
 def finish_merge_track_intake(state, event):
-    if not state.get("merge_audio") and not state.get("merge_sub"):
+    has_bank = bool(state.get("matched_bank") and state["matched_bank"].get("matched_episodes", 0) > 0)
+    if not state.get("merge_audio") and not state.get("merge_sub") and not has_bank:
         raise ValueError("Send and select at least one audio or subtitle track first.")
-    if state.get("remove_original_audio") and not state.get("merge_audio"):
+    if state.get("remove_original_audio") and not state.get("merge_audio") and not has_bank:
         raise ValueError("Select at least one new audio track before removing current audio.")
-    state["merge_intake"] = False
+    state["merge_intake"] = True
     state["completed"] = True
     event.set()
 
@@ -2579,6 +2580,26 @@ async def _execute_vt_pipeline(listener, input_path, state):
     dir_path = ospath.dirname(input_path)
     extra_inputs = []
     cleanup_paths = []
+
+    # If single-video or work_state wasn't pre-populated, ensure matched bank tracks are wired into extra_inputs
+    if not state.get("external_audio") and state.get("matched_bank"):
+        matched_list = state["matched_bank"].get("matched", [])
+        if matched_list:
+            ext_items = []
+            for a_idx, trk in enumerate(matched_list[0].get("audio_tracks", [])):
+                ext_items.append({
+                    "index": a_idx,
+                    "name": trk.get("audio_name", ""),
+                    "path": trk.get("audio_path", ""),
+                    "stream_index": 0,
+                    "language": trk.get("language", "und"),
+                    "title": trk.get("audio_name", ""),
+                    "delay_ms": state.get("audio_delay_ms", 0),
+                    "duration": 0,
+                })
+            if ext_items:
+                state["external_audio"] = ext_items
+                state["merge_audio"] = list(range(len(ext_items)))
 
     for idx in state.get("merge_audio", []):
         for item in state.get("external_audio", []):

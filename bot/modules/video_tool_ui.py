@@ -204,9 +204,14 @@ async def render_muxing_configuration(vt_msg, state):
     bank_info = await list_audio_bank(user_id)
     bank_files_count = bank_info.get("total_files", 0)
 
-    # Auto-match if folder and bank has audio
-    if is_folder and bank_files_count > 0 and not state.get("matched_bank"):
-        state["matched_bank"] = match_videos_with_bank(state.get("folder_videos", []), bank_info["files"])
+    # Auto-match video(s) with VPS audio bank
+    videos = state.get("folder_videos") or ([state["input_path"]] if state.get("input_path") else [])
+    if bank_files_count > 0 and not state.get("matched_bank") and videos:
+        sel_langs = state.get("selected_bank_languages")
+        if not sel_langs and bank_info.get("languages"):
+            state["selected_bank_languages"] = list(bank_info["languages"].keys())
+            sel_langs = state["selected_bank_languages"]
+        state["matched_bank"] = match_videos_with_bank(videos, bank_info["files"], sel_langs)
 
     external_audio = state.get("external_audio", [])
     external_sub = state.get("external_sub", [])
@@ -336,13 +341,29 @@ async def render_muxing_configuration(vt_msg, state):
         ),
     ])
 
-    # 7. Clear VPS Audio Bank button (if files exist)
+    # 7. Dedicated Merge VPS Audio Bank Button (Primary Action when Bank Audio exists)
+    if bank_files_count > 0:
+        matched_cnt = matched_bank.get("matched_episodes", 0) if matched_bank else 0
+        tot_cnt = matched_bank.get("total_episodes", 0) if matched_bank else 0
+        if matched_cnt > 0:
+            merge_label = f"⚡ Merge VPS Audio into Video ({matched_cnt}/{tot_cnt} Paired)" if tot_cnt > 1 else f"⚡ Merge VPS Audio into Video (1 Paired)"
+        else:
+            merge_label = f"⚡ Merge VPS Audio Bank into Video ({bank_files_count} Files)"
+        rows.append([
+            InlineKeyboardButton(
+                merge_label,
+                callback_data=f"vt_mux_mergebank_{task_id}",
+                style=_btn_style(ButtonStyle.SUCCESS),
+            )
+        ])
+
+    # 8. Clear VPS Audio Bank button (if files exist)
     if bank_files_count > 0:
         rows.append([
             InlineKeyboardButton(f"🧹 Clear Extracted Files ({bank_files_count})", callback_data=f"vt_mux_clearbank_{task_id}", style=_btn_style(ButtonStyle.DANGER))
         ])
 
-    # 8. Cancel & Start Mux
+    # 9. Cancel & Start Mux
     rows.append([
         InlineKeyboardButton(
             "❌ Cancel", callback_data=f"vt_mux_cancel_{task_id}", style=_btn_style(ButtonStyle.DANGER)
@@ -367,10 +388,14 @@ async def render_vps_bank_picker(message, state, bank_info):
     task_id = state["task_id"]
     langs = bank_info.get("languages", {})
     sel_langs = set(state.get("selected_bank_languages", []))
+    matched_bank = state.get("matched_bank")
+    matched_ep = matched_bank.get("matched_episodes", 0) if matched_bank else 0
+    total_ep = matched_bank.get("total_episodes", 0) if matched_bank else 0
+    matched_str = f" ({matched_ep}/{total_ep} paired)" if total_ep > 0 else ""
 
     text = (
         "<b>📦 VPS Extracted Audio Bank</b>\n\n"
-        "Select audio languages to merge into target video(s):\n"
+        f"Select audio languages to merge into target video(s){matched_str}:\n"
     )
     rows = []
     for lang, files in langs.items():
@@ -383,6 +408,18 @@ async def render_vps_bank_picker(message, state, bank_info):
                 style=_state_style(is_sel),
             )
         ])
+
+    # Direct 1-click merge button from within the bank picker
+    if sel_langs or matched_ep > 0:
+        merge_btn_txt = f"⚡ Confirm & Merge Audio into Video ({matched_ep if matched_ep else len(sel_langs)} Paired)"
+        rows.append([
+            InlineKeyboardButton(
+                merge_btn_txt,
+                callback_data=f"vt_mux_mergebank_{task_id}",
+                style=_btn_style(ButtonStyle.SUCCESS),
+            )
+        ])
+
     rows.append([
         InlineKeyboardButton("🔙 Back to Mux Config", callback_data=f"vt_mux_back_{task_id}"),
         InlineKeyboardButton("🧹 Clear VPS Bank", callback_data=f"vt_mux_clearbank_{task_id}", style=_btn_style(ButtonStyle.DANGER)),
@@ -839,6 +876,67 @@ async def video_tools_callback(_, query):
                 await render_vps_bank_picker(query.message, state, bank_info)
                 return
 
+            if mux_action == "mergebank":
+                user_id = query.from_user.id if getattr(query, "from_user", None) else (state.get("user_id") or 0)
+                bank_info = await list_audio_bank(user_id)
+                if bank_info.get("total_files", 0) == 0:
+                    await query.answer("VPS Audio Bank is empty! Extract audio streams first.", show_alert=True)
+                    return
+
+                if not state.get("selected_bank_languages") and bank_info.get("languages"):
+                    state["selected_bank_languages"] = list(bank_info["languages"].keys())
+
+                videos = state.get("folder_videos") or ([state["input_path"]] if state.get("input_path") else [])
+                if videos:
+                    state["matched_bank"] = match_videos_with_bank(videos, bank_info["files"], state.get("selected_bank_languages"))
+
+                matched_bank = state.get("matched_bank")
+                matched_episodes = matched_bank.get("matched_episodes", 0) if matched_bank else 0
+                total_episodes = matched_bank.get("total_episodes", 0) if matched_bank else len(videos)
+
+                if matched_episodes == 0:
+                    await query.answer("⚠️ No audio files could be matched with the video(s)!", show_alert=True)
+                    return
+
+                # For single video file: populate external_audio so _execute_vt_pipeline finds it
+                if not state.get("is_folder") and not state.get("folder_videos"):
+                    matched_list = matched_bank.get("matched", [])
+                    if matched_list:
+                        ext_items = []
+                        for a_idx, trk in enumerate(matched_list[0].get("audio_tracks", [])):
+                            ext_items.append({
+                                "index": a_idx,
+                                "name": trk.get("audio_name", ""),
+                                "path": trk.get("audio_path", ""),
+                                "stream_index": 0,
+                                "language": trk.get("language", "und"),
+                                "title": trk.get("audio_name", ""),
+                                "delay_ms": state.get("audio_delay_ms", 0),
+                                "duration": 0,
+                            })
+                        if ext_items:
+                            state["external_audio"] = ext_items
+                            state["merge_audio"] = list(range(len(ext_items)))
+
+                state["merge_intake"] = True
+                state["completed"] = True
+                event.set()
+
+                langs_str = ", ".join(state.get("selected_bank_languages", [])) or "Matched Audio"
+                await query.answer(f"⚡ Merging {matched_episodes} audio file(s) into video source!", show_alert=False)
+                try:
+                    await query.message.edit_text(
+                        f"🚀 <b>Lossless Muxing Dispatched!</b>\n\n"
+                        f"<b>Target:</b> <code>{state.get('filename')}</code>\n"
+                        f"<b>Matched:</b> <code>{matched_episodes}/{total_episodes}</code> video(s) paired with VPS audio\n"
+                        f"<b>Languages:</b> {langs_str}\n"
+                        f"<b>Engine:</b> <code>mkvmerge</code> stream-copy (Lossless, 0% CPU)\n\n"
+                        f"<i>Output will be automatically uploaded to Telegram.</i>"
+                    )
+                except Exception as e:
+                    LOGGER.warning(f"Error editing message after mergebank: {e}")
+                return
+
             if mux_action == "setdelay":
                 await render_audio_delay_menu(query.message, state)
                 return
@@ -1024,12 +1122,44 @@ async def video_tools_callback(_, query):
                 return
 
             if mux_action == "start":
-                if not state.get("external_audio") and not state.get("external_sub"):
+                has_bank = bool(state.get("matched_bank") and state["matched_bank"].get("matched_episodes", 0) > 0)
+                if not state.get("external_audio") and not state.get("external_sub") and not has_bank:
+                    user_id = query.from_user.id if getattr(query, "from_user", None) else (state.get("user_id") or 0)
+                    bank_info = await list_audio_bank(user_id)
+                    if bank_info.get("total_files", 0) > 0:
+                        if not state.get("selected_bank_languages") and bank_info.get("languages"):
+                            state["selected_bank_languages"] = list(bank_info["languages"].keys())
+                        videos = state.get("folder_videos") or ([state["input_path"]] if state.get("input_path") else [])
+                        if videos:
+                            state["matched_bank"] = match_videos_with_bank(videos, bank_info["files"], state.get("selected_bank_languages"))
+                            has_bank = bool(state["matched_bank"].get("matched_episodes", 0) > 0)
+
+                if not state.get("external_audio") and not state.get("external_sub") and not has_bank:
                     await query.answer(
-                        "Please send at least one audio or subtitle file before starting mux!",
+                        "Please send audio/subtitle files or select audio from VPS Audio Bank before starting mux!",
                         show_alert=True,
                     )
                     return
+
+                # If bank is matched and single video, populate external_audio so _execute_vt_pipeline finds it
+                if has_bank and not state.get("external_audio") and not state.get("is_folder") and not state.get("folder_videos"):
+                    matched_list = state["matched_bank"].get("matched", [])
+                    if matched_list:
+                        ext_items = []
+                        for a_idx, trk in enumerate(matched_list[0].get("audio_tracks", [])):
+                            ext_items.append({
+                                "index": a_idx,
+                                "name": trk.get("audio_name", ""),
+                                "path": trk.get("audio_path", ""),
+                                "stream_index": 0,
+                                "language": trk.get("language", "und"),
+                                "title": trk.get("audio_name", ""),
+                                "delay_ms": state.get("audio_delay_ms", 0),
+                                "duration": 0,
+                            })
+                        if ext_items:
+                            state["external_audio"] = ext_items
+                            state["merge_audio"] = list(range(len(ext_items)))
 
                 state["merge_audio"] = [item["index"] for item in state.get("external_audio", [])]
                 state["merge_sub"] = [item["index"] for item in state.get("external_sub", [])]
