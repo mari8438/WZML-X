@@ -256,7 +256,7 @@ async def clean_target(opath):
             LOGGER.error(str(e))
 
 
-PROTECTED_DOWNLOAD_SUBDIRS = {"vt_audio_bank", "vt_web_sessions"}
+PROTECTED_DOWNLOAD_SUBDIRS = {"vt_audio_bank", "vt_web_sessions", "vt_previews"}
 
 
 async def clean_download(opath):
