@@ -684,14 +684,103 @@ async def qbittorrent_proxy(path: str = "", request: Request = None):
 # --- STARFALL VIDEO TOOLS: MERGE & SYNC STUDIO ENDPOINTS ---
 import base64
 import os
+import mimetypes
 from bot.helper.video_utils.vps_audio_bank import (
     verify_vt_studio_token,
     load_web_session,
     list_audio_bank,
+    get_audio_bank_dir,
     clear_audio_bank,
     write_web_cmd,
     write_web_submission,
 )
+
+
+def stream_local_file(file_path: str, request: Request, default_mime: str = "application/octet-stream"):
+    if not os.path.isfile(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_size = os.path.getsize(file_path)
+    mime_type, _ = mimetypes.guess_type(file_path)
+    if not mime_type:
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in [".mkv"]:
+            mime_type = "video/x-matroska"
+        elif ext in [".mka"]:
+            mime_type = "audio/x-matroska"
+        elif ext in [".mp4", ".m4v"]:
+            mime_type = "video/mp4"
+        elif ext in [".m4a"]:
+            mime_type = "audio/mp4"
+        elif ext in [".aac"]:
+            mime_type = "audio/aac"
+        elif ext in [".mp3"]:
+            mime_type = "audio/mpeg"
+        elif ext in [".opus", ".ogg"]:
+            mime_type = "audio/ogg"
+        elif ext in [".flac"]:
+            mime_type = "audio/flac"
+        elif ext in [".webm"]:
+            mime_type = "video/webm"
+        else:
+            mime_type = default_mime
+
+    range_header = request.headers.get("range")
+    safe_name = os.path.basename(file_path)
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'inline; filename="{safe_name}"',
+        "Cache-Control": "no-cache",
+    }
+
+    if not range_header:
+        headers["Content-Length"] = str(file_size)
+        if request.method == "HEAD":
+            return Response(status_code=200, media_type=mime_type, headers=headers)
+
+        async def full_file_sender():
+            def read_chunk(f, size):
+                return f.read(size)
+            with open(file_path, "rb") as f:
+                chunk_size = 256 * 1024
+                while True:
+                    data = await asyncio.to_thread(read_chunk, f, chunk_size)
+                    if not data:
+                        break
+                    yield data
+
+        return StreamingResponse(full_file_sender(), status_code=200, media_type=mime_type, headers=headers)
+
+    try:
+        byte_range = parse_byte_range(range_header, file_size)
+    except ValueError:
+        headers["Content-Range"] = f"bytes */{file_size}"
+        return Response(status_code=416, headers=headers)
+
+    start, end = byte_range
+    content_length = end - start + 1
+    headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+    headers["Content-Length"] = str(content_length)
+
+    if request.method == "HEAD":
+        return Response(status_code=206, media_type=mime_type, headers=headers)
+
+    async def range_file_sender():
+        def read_chunk(f, size):
+            return f.read(size)
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            remaining = content_length
+            chunk_size = 256 * 1024
+            while remaining > 0:
+                to_read = min(chunk_size, remaining)
+                data = await asyncio.to_thread(read_chunk, f, to_read)
+                if not data:
+                    break
+                remaining -= len(data)
+                yield data
+
+    return StreamingResponse(range_file_sender(), status_code=206, media_type=mime_type, headers=headers)
 
 
 @app.get("/app/video-studio", response_class=HTMLResponse)
@@ -735,6 +824,61 @@ async def video_probe_api(task_id: str = "", token: str = ""):
             "single_sample_for_folder": True,
         }
     )
+
+
+@app.api_route("/api/video/stream", methods=["GET", "HEAD"])
+async def video_stream_api(
+    request: Request,
+    task_id: str = "",
+    token: str = "",
+    source: str = "video",
+    file_idx: int = 0,
+    bank_path: str = "",
+):
+    if not task_id or not token:
+        raise HTTPException(status_code=403, detail="Missing credentials")
+    if not verify_vt_studio_token(task_id, token):
+        raise HTTPException(status_code=403, detail="Invalid token")
+    session = await load_web_session(task_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    target_path = ""
+    if source == "video":
+        base_path = session.get("file_path", "")
+        if os.path.isdir(base_path):
+            videos = session.get("video_files", [])
+            if 0 <= file_idx < len(videos):
+                target_path = os.path.join(base_path, videos[file_idx])
+            else:
+                for v in videos:
+                    p = os.path.join(base_path, v)
+                    if os.path.isfile(p):
+                        target_path = p
+                        break
+        else:
+            target_path = base_path
+    elif source == "audio":
+        ext_audio = session.get("external_audio", [])
+        if 0 <= file_idx < len(ext_audio):
+            target_path = ext_audio[file_idx].get("path", "")
+    elif source == "bank":
+        user_id = session.get("user_id", 0)
+        bank_dir = get_audio_bank_dir(user_id)
+        if bank_path:
+            clean_bank_path = os.path.abspath(bank_path)
+            clean_bank_dir = os.path.abspath(bank_dir)
+            if clean_bank_path.startswith(clean_bank_dir) and os.path.isfile(clean_bank_path):
+                target_path = clean_bank_path
+            else:
+                candidate = os.path.join(bank_dir, os.path.basename(bank_path))
+                if os.path.isfile(candidate):
+                    target_path = candidate
+
+    if not target_path or not os.path.isfile(target_path):
+        raise HTTPException(status_code=404, detail="Media stream file not found on disk")
+
+    return stream_local_file(target_path, request)
 
 
 @app.get("/api/video/frame")

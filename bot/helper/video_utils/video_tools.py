@@ -1777,6 +1777,8 @@ async def _watch_web_session_ipc(task_id, state, done_event, listener):
             submission = await read_and_clear_web_submission(task_id)
             if submission:
                 LOGGER.info(f"Web Studio submission received for task {task_id}")
+                if "audio_delay_ms" in submission:
+                    state["audio_delay_ms"] = int(submission.get("audio_delay_ms") or 0)
                 if "selected_bank_languages" in submission:
                     state["selected_bank_languages"] = submission["selected_bank_languages"]
                     user_id = state.get("user_id") or listener.user_id
@@ -1784,9 +1786,24 @@ async def _watch_web_session_ipc(task_id, state, done_event, listener):
                     videos = state.get("folder_videos") or ([state["input_path"]] if state.get("input_path") else [])
                     if bank_data.get("files") and videos:
                         state["matched_bank"] = match_videos_with_bank(videos, bank_data["files"], state["selected_bank_languages"])
-                if "audio_tracks" in submission and submission["audio_tracks"]:
+                if "selected_audio_file" in submission and submission["selected_audio_file"]:
+                    item = submission["selected_audio_file"]
+                    state["external_audio"] = [{
+                        "index": 0,
+                        "name": item.get("name", "Extracted Audio"),
+                        "path": item.get("path", ""),
+                        "stream_index": 0,
+                        "language": item.get("language", "und"),
+                        "title": item.get("title", item.get("name", "")),
+                        "delay_ms": state.get("audio_delay_ms", 0),
+                        "duration": 0,
+                    }]
+                    state["merge_audio"] = [0]
+                elif "audio_tracks" in submission and submission["audio_tracks"]:
                     state["external_audio"] = submission["audio_tracks"]
                     state["merge_audio"] = list(range(len(submission["audio_tracks"])))
+                for a in state.get("external_audio", []):
+                    a["delay_ms"] = state.get("audio_delay_ms", 0)
                 if "subtitle_tracks" in submission and submission["subtitle_tracks"]:
                     state["external_sub"] = submission["subtitle_tracks"]
                     state["merge_sub"] = list(range(len(submission["subtitle_tracks"])))
@@ -1796,10 +1813,8 @@ async def _watch_web_session_ipc(task_id, state, done_event, listener):
                     state["frame_timestamp"] = submission["frame_timestamp"]
                 if "final_sample" in submission:
                     state["final_sample"] = bool(submission["final_sample"])
-                if "audio_delay_ms" in submission:
-                    state["audio_delay_ms"] = int(submission.get("audio_delay_ms") or 0)
-                    for a in state.get("external_audio", []):
-                        a["delay_ms"] = state["audio_delay_ms"]
+                if "remove_original_audio" in submission:
+                    state["remove_original_audio"] = bool(submission["remove_original_audio"])
                 state["completed"] = True
                 done_event.set()
                 break
