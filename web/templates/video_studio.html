@@ -1564,16 +1564,31 @@
 
         if (mode === "dub") {
           modeDubBtn.classList.add("active");
-          liveVideo.muted = true;
-          liveAudio.muted = false;
-          liveAudio.volume = 1.0;
+          liveVideo.muted = false;
+          liveVideo.volume = 1.0;
+          liveAudio.muted = true;
           playerOverlayTag.classList.remove("dual");
+          if (state.activeSelectedAudioTrack) {
+            selectAudioTrack(state.activeSelectedAudioTrack);
+          }
         } else if (mode === "original") {
           modeOrigBtn.classList.add("active");
           liveVideo.muted = false;
           liveVideo.volume = 1.0;
           liveAudio.muted = true;
           playerOverlayTag.classList.remove("dual");
+          const streamApiPath = ["/api", "video", "stream"].join("/");
+          const targetVideoSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1&audio_mode=original`;
+          if (liveVideo.src !== targetVideoSrc) {
+            const curTime = liveVideo.currentTime || 0;
+            const wasPlaying = !liveVideo.paused;
+            liveVideo.src = targetVideoSrc;
+            liveVideo.addEventListener("loadedmetadata", function onMeta() {
+              liveVideo.currentTime = curTime;
+              if (wasPlaying) liveVideo.play().catch(() => {});
+              liveVideo.removeEventListener("loadedmetadata", onMeta);
+            });
+          }
         } else if (mode === "dual") {
           modeDualBtn.classList.add("active");
           liveVideo.muted = false;
@@ -1718,7 +1733,13 @@
 
         // Delay slider & steppers
         audioDelayRangeSlider.addEventListener("input", (e) => setDelay(e.target.value));
+        audioDelayRangeSlider.addEventListener("change", () => {
+          if (state.activeSelectedAudioTrack) selectAudioTrack(state.activeSelectedAudioTrack);
+        });
         audioDelayNumberInput.addEventListener("input", (e) => setDelay(e.target.value));
+        audioDelayNumberInput.addEventListener("change", () => {
+          if (state.activeSelectedAudioTrack) selectAudioTrack(state.activeSelectedAudioTrack);
+        });
 
         document.querySelectorAll(".stepper-btn").forEach((btn) => {
           btn.addEventListener("click", () => {
@@ -1763,16 +1784,32 @@
         const opt = Array.from(dubLangSelect.options).find((o) => o.value === langCode);
         if (opt) dubLangSelect.value = langCode;
 
-        // Set audio element source
-        if (state.token && state.isLiveBackend) {
-          const apiPath = ["/api", "video", "stream"].join("/");
+        // Update live video preview with audio_path so preview directly contains the dub audio
+        const streamApiPath = ["/api", "video", "stream"].join("/");
+        const audioParam = track.path ? `&audio_path=${encodeURIComponent(track.path)}` : "";
+        const delayParam = state.activeDelayMs ? `&delay_ms=${state.activeDelayMs}` : "";
+        const targetVideoSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1${audioParam}${delayParam}`;
+
+        if (liveVideo.src !== targetVideoSrc) {
+          const curTime = liveVideo.currentTime || 0;
+          const wasPlaying = !liveVideo.paused;
+          liveVideo.src = targetVideoSrc;
+          liveVideo.addEventListener("loadedmetadata", function onMeta() {
+            liveVideo.currentTime = curTime;
+            if (wasPlaying) liveVideo.play().catch(() => {});
+            liveVideo.removeEventListener("loadedmetadata", onMeta);
+          });
+        }
+
+        // Also set audio element source for secondary monitor / echo check
+        if (state.token && state.isLiveBackend && track.path) {
           let audioSrc = "";
-          if (track.is_bank) {
-            audioSrc = `${apiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=bank&bank_path=${encodeURIComponent(track.path)}&preview=1`;
-          } else if (track.is_external) {
-            audioSrc = `${apiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=audio&file_idx=${track.index || 0}&preview=1`;
+          if (track.is_bank || track.path.includes("vt_audio_bank")) {
+            audioSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=bank&bank_path=${encodeURIComponent(track.path)}&preview=1`;
+          } else {
+            audioSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=audio&file_idx=${track.index || 0}&preview=1`;
           }
-          if (audioSrc) {
+          if (audioSrc && liveAudio.src !== audioSrc) {
             liveAudio.src = audioSrc;
             liveAudio.load();
             syncAudioToVideo();
@@ -1782,7 +1819,7 @@
         renderBankFiles();
         applyAudioMode(state.audioMode);
         updateCliCommand();
-        showToast(`🔊 Loaded "${trackTitle}" into Live Sync Player!`);
+        showToast(`🔊 Muxed "${trackTitle}" into Live Preview!`);
       }
 
       function renderBankFiles() {
@@ -1927,18 +1964,20 @@
 
           state.isLiveBackend = true;
 
-          // Set live video stream URL (requesting fast 2-min H.264 preview for 100% browser compatibility)
-          const streamApiPath = ["/api", "video", "stream"].join("/");
-          const videoSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1`;
-          liveVideo.src = videoSrc;
-          liveVideo.load();
+          if (state.bankData && Array.isArray(state.bankData.files)) {
+            state.bankData.files.forEach((f) => { f.is_bank = true; });
+          }
 
-          // Auto-select first bank file if present
-          if (state.bankData.files && state.bankData.files.length > 0) {
+          // Auto-select first bank file if present (this sets liveVideo.src with audio_path)
+          if (state.bankData && state.bankData.files && state.bankData.files.length > 0) {
             selectAudioTrack(state.bankData.files[0]);
           } else if (Array.isArray(data.external_audio) && data.external_audio.length > 0) {
             data.external_audio[0].is_external = true;
             selectAudioTrack(data.external_audio[0]);
+          } else {
+            const streamApiPath = ["/api", "video", "stream"].join("/");
+            liveVideo.src = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1`;
+            liveVideo.load();
           }
 
           if (data.audio_delay_ms !== undefined) {

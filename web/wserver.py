@@ -730,7 +730,7 @@ def stream_local_file(file_path: str, request: Request, default_mime: str = "app
     safe_name = os.path.basename(file_path)
     headers = {
         "Accept-Ranges": "bytes",
-        "Content-Disposition": f'inline; filename="{safe_name}"',
+        "Content-Disposition": content_disposition(safe_name, disposition="inline"),
         "Cache-Control": "no-cache",
     }
 
@@ -808,6 +808,39 @@ async def video_probe_api(task_id: str = "", token: str = ""):
         raise HTTPException(status_code=404, detail="Task session not found or completed")
     user_id = session.get("user_id", 0)
     bank_data = await list_audio_bank(user_id)
+    matched_bank = session.get("matched_bank") or {}
+    external_audio = session.get("external_audio") or []
+    if not external_audio and bank_data.get("files"):
+        try:
+            from bot.helper.video_utils.vps_audio_bank import match_videos_with_bank
+            target_name = session.get("file_name") or ""
+            matched_res = match_videos_with_bank([target_name], bank_data["files"])
+            if matched_res.get("matched"):
+                matched_bank = matched_res
+                matched_ep = matched_res["matched"][0]
+                audio_tracks = matched_ep.get("audio_tracks", [])
+                ext_items = []
+                for a_idx, trk in enumerate(audio_tracks):
+                    ext_items.append({
+                        "index": a_idx,
+                        "name": trk.get("audio_name", ""),
+                        "path": trk.get("audio_path", ""),
+                        "stream_index": 0,
+                        "language": trk.get("language", "und"),
+                        "title": trk.get("audio_name", ""),
+                        "delay_ms": session.get("audio_delay_ms", 0),
+                        "duration": 0,
+                        "is_bank": True,
+                    })
+                external_audio = ext_items
+                session["matched_bank"] = matched_bank
+                session["external_audio"] = external_audio
+                if audio_tracks:
+                    session["matched_audio_path"] = audio_tracks[0].get("audio_path", "")
+                await save_web_session(task_id, session)
+        except Exception as me:
+            LOGGER.warning(f"Video probe bank auto-match failed: {me}")
+
     return JSONResponse(
         {
             "task_id": session.get("task_id", task_id),
@@ -816,9 +849,9 @@ async def video_probe_api(task_id: str = "", token: str = ""):
             "video": session.get("video_stream", {}),
             "audio_tracks": session.get("audio_tracks", []),
             "subtitle_tracks": session.get("sub_tracks", []),
-            "external_audio": session.get("external_audio", []),
+            "external_audio": external_audio,
             "bank_data": bank_data,
-            "matched_bank": session.get("matched_bank") or {},
+            "matched_bank": matched_bank,
             "total_episodes": session.get("total_episodes", 1),
             "video_files": session.get("video_files", []),
             "audio_delay_ms": session.get("audio_delay_ms", 0),
@@ -827,19 +860,65 @@ async def video_probe_api(task_id: str = "", token: str = ""):
     )
 
 
-async def ensure_preview_clip(video_path: str, task_id: str, duration: int = 120) -> str:
+async def ensure_preview_clip(
+    video_path: str,
+    task_id: str,
+    duration: int = 120,
+    audio_path: str = "",
+    delay_ms: int = 0,
+    remove_original: bool = False,
+) -> str:
     if not video_path or not os.path.isfile(video_path):
         return ""
     preview_dir = "/usr/src/app/downloads/vt_previews" if os.path.exists("/usr/src/app/downloads") else "downloads/vt_previews"
     os.makedirs(preview_dir, exist_ok=True)
     ext = os.path.splitext(video_path)[1].lower()
-    preview_path = os.path.join(preview_dir, f"{task_id}_preview.mp4")
+
+    if audio_path and os.path.isfile(audio_path):
+        audio_key = hashlib.md5(audio_path.encode("utf-8", "ignore")).hexdigest()[:10]
+        preview_path = os.path.join(preview_dir, f"{task_id}_{audio_key}_{delay_ms}_preview.mp4")
+    else:
+        preview_path = os.path.join(preview_dir, f"{task_id}_preview.mp4")
 
     if os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
         return preview_path
 
     ss = "00:00:30"
-    # Pure stream copy trim (zero encoding / zero transcode overhead - instant 0.05s copy)
+    start_sec = 30.0
+
+    # 1. Fast MUX with Dub Audio if provided (Zero video re-encoding, pure stream-copy video + fast audio conversion)
+    if audio_path and os.path.isfile(audio_path):
+        delay_sec = float(delay_ms) / 1000.0
+        audio_seek = max(0.0, start_sec - delay_sec)
+        cmd_mux = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", ss,
+            "-i", video_path,
+            "-ss", f"{audio_seek:.3f}",
+            "-i", audio_path,
+            "-t", str(duration),
+            "-map", "0:v:0",
+            "-map", "1:a:0",
+        ]
+        if not remove_original:
+            cmd_mux.extend(["-map", "0:a:0?"])
+        cmd_mux.extend([
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-movflags", "+faststart",
+            preview_path,
+        ])
+        try:
+            proc = await asyncio.create_subprocess_exec(*cmd_mux)
+            await proc.wait()
+            if proc.returncode == 0 and os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+                LOGGER.info(f"Generated fast stream-copy MP4 preview WITH DUB AUDIO: {preview_path}")
+                return preview_path
+        except Exception as e:
+            LOGGER.warning(f"Fast muxed preview attempt failed: {e}")
+
+    # 2. Pure stream copy trim (zero encoding / zero transcode overhead - instant 0.05s copy)
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-ss", ss,
@@ -990,10 +1069,41 @@ async def video_stream_api(
 
     ext = os.path.splitext(target_path)[1].lower()
     if source == "video":
-        if ext != ".mp4" or "preview" in request.query_params:
-            preview_file = await ensure_preview_clip(target_path, task_id)
-            if preview_file and os.path.isfile(preview_file):
-                target_path = preview_file
+        audio_mode = request.query_params.get("audio_mode", "dub").lower()
+        audio_target = ""
+        delay_ms = int(request.query_params.get("delay_ms", 0) or 0)
+        remove_orig = request.query_params.get("remove_orig", "").lower() in ("1", "true", "yes")
+
+        if audio_mode != "original":
+            audio_target = request.query_params.get("audio_path") or request.query_params.get("bank_path") or ""
+            if not audio_target:
+                audio_target = session.get("matched_audio_path") or ""
+            if not audio_target and session.get("external_audio"):
+                audio_target = session["external_audio"][0].get("path", "")
+            if not audio_target and session.get("matched_bank", {}).get("matched"):
+                matched_eps = session["matched_bank"]["matched"]
+                if matched_eps and matched_eps[0].get("audio_tracks"):
+                    audio_target = matched_eps[0]["audio_tracks"][0].get("audio_path", "")
+            if not audio_target and session.get("bank_data", {}).get("files"):
+                try:
+                    from bot.helper.video_utils.vps_audio_bank import match_videos_with_bank
+                    target_name = session.get("file_name") or os.path.basename(target_path)
+                    matched_res = match_videos_with_bank([target_name], session["bank_data"]["files"])
+                    if matched_res.get("matched") and matched_res["matched"][0].get("audio_tracks"):
+                        audio_target = matched_res["matched"][0]["audio_tracks"][0].get("audio_path", "")
+                except Exception:
+                    pass
+
+        preview_file = await ensure_preview_clip(
+            target_path,
+            task_id,
+            duration=120,
+            audio_path=audio_target,
+            delay_ms=delay_ms,
+            remove_original=remove_orig,
+        )
+        if preview_file and os.path.isfile(preview_file):
+            target_path = preview_file
     elif source in ("audio", "bank"):
         if ext not in (".mp4", ".m4a", ".aac", ".mp3") or "preview" in request.query_params:
             preview_audio = await ensure_audio_preview(target_path, task_id)

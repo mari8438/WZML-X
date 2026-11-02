@@ -35,7 +35,7 @@ def parse_byte_range(value, file_size):
     return file_size - suffix_length, file_size - 1
 
 
-def content_disposition(filename):
+def content_disposition(filename, disposition="attachment"):
     """Return an RFC 6266 header that is safe for Starlette's Latin-1 transport."""
     filename = str(filename or "telegram-file").replace("\r", "").replace("\n", "")
     filename = filename.replace('"', "'").replace("\\", "_") or "telegram-file"
@@ -48,7 +48,7 @@ def content_disposition(filename):
     if not fallback:
         fallback = "telegram-file"
     encoded = quote(filename, safe="")
-    return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
+    return f"{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}\""
 
 
 def _secret(bot_token, access_password):

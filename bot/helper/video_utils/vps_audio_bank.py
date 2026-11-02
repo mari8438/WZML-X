@@ -281,6 +281,24 @@ async def clear_audio_bank(user_id: int | str, language: str = None) -> tuple[in
     return deleted_count, freed_bytes
 
 
+def _extract_title_tokens(name: str) -> set[str]:
+    clean = re.sub(r"\[.*?\]|\(.*?\)", " ", name)
+    clean = re.sub(
+        r"\b(1080p|720p|480p|2160p|4k|bluray|brrip|web-dl|webrip|hevc|x265|x264|aac|ddp|dts|remux|pahe|amzn|breeze|sub|dub|multi)\b",
+        " ",
+        clean,
+        flags=re.I,
+    )
+    clean = re.sub(r"[_\W]+", " ", clean)
+    tokens = set(clean.lower().split())
+    tokens.difference_update({
+        "season", "episode", "s1", "s01", "s2", "s02", "e1", "e01", "e2", "e02",
+        "tamil", "hindi", "telugu", "english", "japanese", "the", "a", "an", "and",
+        "or", "to", "in", "of", "mkv", "mp4", "eac3", "aac", "part", "vol"
+    })
+    return tokens
+
+
 def match_videos_with_bank(video_paths: list[str], bank_files: list[dict], selected_languages: list[str] = None) -> dict:
     """
     Matches target videos (e.g. 12 season episodes) against extracted bank audio files.
@@ -304,29 +322,46 @@ def match_videos_with_bank(video_paths: list[str], bank_files: list[dict], selec
     for idx, v_path in enumerate(sorted_videos):
         v_name = os.path.basename(v_path)
         v_s, v_ep = parse_season_episode(v_name)
+        v_tokens = _extract_title_tokens(v_name)
         track_matches = []
 
         for lang, lang_files in bank_by_lang.items():
             best_match = None
             match_type = "none"
 
-            # 1. Exact Season + Episode Match
+            # 1. Exact Season + Episode Match (prioritizing title overlap)
             if v_s is not None and v_ep is not None:
                 for af in lang_files:
                     if af.get("season") == v_s and af.get("episode") == v_ep:
-                        best_match = af
-                        match_type = "exact_se"
-                        break
+                        af_tokens = _extract_title_tokens(af.get("name", ""))
+                        has_overlap = bool(v_tokens & af_tokens)
+                        if has_overlap or not best_match:
+                            best_match = af
+                            match_type = "exact_se"
+                            if has_overlap:
+                                break
 
             # 2. Episode number match
             if not best_match and v_ep is not None:
                 for af in lang_files:
                     if af.get("episode") == v_ep:
-                        best_match = af
-                        match_type = "episode_only"
-                        break
+                        af_tokens = _extract_title_tokens(af.get("name", ""))
+                        has_overlap = bool(v_tokens & af_tokens)
+                        if has_overlap or not best_match:
+                            best_match = af
+                            match_type = "episode_title" if has_overlap else "episode_only"
+                            if has_overlap:
+                                break
 
-            # 3. 1:1 Index order fallback when counts match
+            # 3. Title token match when single bank file exists for this language
+            if not best_match and len(lang_files) == 1:
+                af = lang_files[0]
+                af_tokens = _extract_title_tokens(af.get("name", ""))
+                if bool(v_tokens & af_tokens) or not af_tokens:
+                    best_match = af
+                    match_type = "title_single"
+
+            # 4. 1:1 Index order fallback when counts match
             if not best_match and len(lang_files) == len(sorted_videos):
                 best_match = lang_files[idx]
                 match_type = "index_order"

@@ -876,6 +876,13 @@ async def generate_merge_preview(state):
             with suppress(Exception):
                 await previous.delete()
 
+        preview_dir = "/usr/src/app/downloads/vt_previews" if await aiopath.exists("/usr/src/app/downloads") else "downloads/vt_previews"
+        await aiomakedirs(preview_dir, exist_ok=True)
+        web_preview_target = ospath.join(preview_dir, f"{state['task_id']}_preview.mp4")
+        with suppress(Exception):
+            import shutil
+            await sync_to_async(shutil.copyfile, preview_path, web_preview_target)
+
         caption = (
             f"🎬 <b>Sync Preview ({preview_duration}s • Stream-Copy)</b>\n"
             f"<code>{ospath.basename(input_path)}</code>\n"
@@ -1047,6 +1054,23 @@ async def video_tools_media_collector(client, message):
         first_audio_index = None
     state["preview_stale"] = True
     await _refresh_external_tracks(state, state.get("input_path") or downloaded)
+
+    user_id = getattr(session.get("listener"), "user_id", 0)
+    if ext in AUDIO_EXTENSIONS and user_id:
+        with suppress(Exception):
+            await save_to_audio_bank(user_id, downloaded, custom_name=ospath.basename(downloaded))
+        with suppress(Exception):
+            task_id = state.get("task_id")
+            existing_sess = await load_web_session(task_id) or {}
+            existing_sess["external_audio"] = state.get("external_audio", [])
+            existing_sess["matched_audio_path"] = downloaded
+            await save_web_session(task_id, existing_sess)
+
+    try:
+        create_task(generate_merge_preview(state))
+    except Exception as pe:
+        LOGGER.warning(f"Video Tools: Failed to auto-generate sync preview after media intake: {pe}")
+
     vt_msg = getattr(session.get("listener"), "_vt_msg", None)
     if vt_msg:
         from ...modules.video_tool_ui import render_muxing_configuration
@@ -1401,6 +1425,34 @@ async def process_video_tool(listener, up_path):
         state["web_studio_url"] = f"{base_url}/app/video-studio?task_id={task_id}&token={token}"
 
         bank_data = await list_audio_bank(user_id)
+        bank_files = bank_data.get("files", [])
+        matched_audio_path = ""
+        if bank_files:
+            matched_info = match_videos_with_bank([up_path], bank_files, state.get("selected_bank_languages"))
+            state["matched_bank"] = matched_info
+            if matched_info.get("matched_episodes", 0) > 0:
+                matched_ep = matched_info["matched"][0]
+                audio_tracks = matched_ep.get("audio_tracks", [])
+                if audio_tracks:
+                    matched_trk = audio_tracks[0]
+                    matched_audio_path = matched_trk.get("audio_path", "")
+                    ext_items = []
+                    for a_idx, trk in enumerate(audio_tracks):
+                        ext_items.append({
+                            "index": a_idx,
+                            "name": trk.get("audio_name", ""),
+                            "path": trk.get("audio_path", ""),
+                            "stream_index": 0,
+                            "language": trk.get("language", "und"),
+                            "title": trk.get("audio_name", ""),
+                            "delay_ms": state.get("audio_delay_ms", 0),
+                            "duration": 0,
+                            "is_bank": True,
+                        })
+                    state["external_audio"] = ext_items
+                    state["merge_audio"] = list(range(len(ext_items)))
+                    LOGGER.info(f"Auto-matched video {state['filename']} with bank audio: {matched_trk.get('audio_name')}")
+
         with suppress(Exception):
             await save_web_session(task_id, {
                 "task_id": task_id,
@@ -1421,9 +1473,18 @@ async def process_video_tool(listener, up_path):
                 "external_audio": state.get("external_audio", []),
                 "bank_data": bank_data,
                 "matched_bank": state.get("matched_bank") or {},
+                "matched_audio_path": matched_audio_path,
+                "audio_delay_ms": state.get("audio_delay_ms", 0),
                 "total_episodes": 1,
                 "video_files": [state["filename"]],
             })
+
+        if matched_audio_path and state.get("preview_sync", True):
+            try:
+                LOGGER.info(f"Auto-generating sync preview with matched bank audio for {state['filename']}")
+                create_task(generate_merge_preview(state))
+            except Exception as pe:
+                LOGGER.warning(f"Failed to auto-generate sync preview: {pe}")
 
         ipc_task = create_task(_watch_web_session_ipc(task_id, state, done_event, listener))
 
@@ -1971,9 +2032,30 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
         state["web_studio_url"] = f"{base_url}/app/video-studio?task_id={task_id}&token={token}"
 
         bank_data = await list_audio_bank(user_id)
+        matched_audio_path = ""
         if bank_data.get("files"):
             matched_info = match_videos_with_bank(videos, bank_data["files"], state.get("selected_bank_languages"))
             state["matched_bank"] = matched_info
+            if matched_info.get("matched_episodes", 0) > 0:
+                matched_list = matched_info.get("matched", [])
+                if matched_list and matched_list[0].get("audio_tracks"):
+                    ext_items = []
+                    for a_idx, trk in enumerate(matched_list[0]["audio_tracks"]):
+                        ext_items.append({
+                            "index": a_idx,
+                            "name": trk.get("audio_name", ""),
+                            "path": trk.get("audio_path", ""),
+                            "stream_index": 0,
+                            "language": trk.get("language", "und"),
+                            "title": trk.get("audio_name", ""),
+                            "delay_ms": state.get("audio_delay_ms", 0),
+                            "duration": 0,
+                            "is_bank": True,
+                        })
+                    state["external_audio"] = ext_items
+                    state["merge_audio"] = list(range(len(ext_items)))
+                    matched_audio_path = ext_items[0]["path"]
+                    LOGGER.info(f"Folder mode auto-matched {len(videos)} video(s) with bank audio (first track: {ext_items[0]['name']})")
 
         with suppress(Exception):
             await save_web_session(task_id, {
@@ -1995,9 +2077,17 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
                 "external_audio": state.get("external_audio", []),
                 "bank_data": bank_data,
                 "matched_bank": state.get("matched_bank") or {},
+                "matched_audio_path": matched_audio_path,
+                "audio_delay_ms": state.get("audio_delay_ms", 0),
                 "total_episodes": len(videos),
                 "video_files": [ospath.basename(v) for v in videos],
             })
+
+        if matched_audio_path and state.get("preview_sync", True):
+            try:
+                create_task(generate_merge_preview(state))
+            except Exception as pe:
+                LOGGER.warning(f"Failed to auto-generate sync preview for folder: {pe}")
 
         listener._vt_state = state
         done_event = Event()
