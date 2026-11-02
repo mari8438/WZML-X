@@ -832,31 +832,73 @@ async def ensure_preview_clip(video_path: str, task_id: str, duration: int = 120
         return ""
     preview_dir = "/usr/src/app/downloads/vt_previews" if os.path.exists("/usr/src/app/downloads") else "downloads/vt_previews"
     os.makedirs(preview_dir, exist_ok=True)
+    ext = os.path.splitext(video_path)[1].lower()
     preview_path = os.path.join(preview_dir, f"{task_id}_preview.mp4")
 
     if os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
         return preview_path
 
-    ss = "00:01:00"
+    ss = "00:00:30"
+    # Pure stream copy trim (zero encoding / zero transcode overhead - instant 0.05s copy)
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-ss", ss,
-        "-t", str(duration),
         "-i", video_path,
-        "-vf", "scale=-2:480",
-        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
-        "-c:a", "aac", "-b:a", "96k",
-        "-threads", "2",
+        "-t", str(duration),
+        "-map", "0:v:0",
+        "-map", "0:a:0?",
+        "-c", "copy",
         "-movflags", "+faststart",
-        preview_path
+        preview_path,
     ]
     try:
         proc = await asyncio.create_subprocess_exec(*cmd)
         await proc.wait()
-        if os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+        if proc.returncode == 0 and os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+            LOGGER.info(f"Generated fast stream-copy MP4 preview: {preview_path}")
             return preview_path
     except Exception as e:
-        LOGGER.warning(f"Error generating preview clip: {e}")
+        LOGGER.warning(f"Fast stream-copy MP4 preview attempt failed: {e}")
+
+    # Fallback 1: Stream copy video only into MP4 if audio codec is not permitted in MP4 container
+    cmd_vo = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-ss", ss,
+        "-i", video_path,
+        "-t", str(duration),
+        "-map", "0:v:0",
+        "-c:v", "copy",
+        "-movflags", "+faststart",
+        preview_path,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(*cmd_vo)
+        await proc.wait()
+        if proc.returncode == 0 and os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+            LOGGER.info(f"Generated video-only fast stream-copy MP4 preview: {preview_path}")
+            return preview_path
+    except Exception as e:
+        LOGGER.warning(f"Video-only fast stream-copy MP4 preview attempt failed: {e}")
+
+    # Fallback 2: Stream copy into original container extension (e.g. .mkv)
+    preview_orig = os.path.join(preview_dir, f"{task_id}_preview{ext}")
+    cmd_orig = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-ss", ss,
+        "-i", video_path,
+        "-t", str(duration),
+        "-c", "copy",
+        preview_orig,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(*cmd_orig)
+        await proc.wait()
+        if proc.returncode == 0 and os.path.isfile(preview_orig) and os.path.getsize(preview_orig) > 1000:
+            LOGGER.info(f"Generated original container stream-copy preview: {preview_orig}")
+            return preview_orig
+    except Exception as e:
+        LOGGER.warning(f"Original container stream-copy preview attempt failed: {e}")
+
     return video_path
 
 
@@ -874,12 +916,12 @@ async def ensure_audio_preview(audio_path: str, task_id: str, duration: int = 12
     if os.path.isfile(audio_preview) and os.path.getsize(audio_preview) > 1000:
         return audio_preview
 
-    ss = "00:01:00"
+    ss = "00:00:30"
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-ss", ss,
-        "-t", str(duration),
         "-i", audio_path,
+        "-t", str(duration),
         "-c:a", "aac", "-b:a", "128k",
         "-threads", "2",
         audio_preview

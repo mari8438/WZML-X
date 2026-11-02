@@ -92,6 +92,8 @@ ARCH_EXT = [
     ".md5",
     ".crc32",
     ".crc64",
+    ".ink.rar",
+    ".rar5",
 ]
 
 
@@ -119,6 +121,16 @@ async def is_supported_archive(file):
         return True
     if is_archive_split(file) or not await aiopath.isfile(file):
         return False
+
+    try:
+        with open(file, "rb") as f:
+            header = f.read(16)
+            if header.startswith(b"Rar!\x1a\x07"):
+                return True
+            if header.startswith(b"PK\x03\x04") or header.startswith(b"7z\xbc\xaf\x27\x1c"):
+                return True
+    except Exception:
+        pass
 
     archive_mimes = {
         "application/gzip",
@@ -331,12 +343,13 @@ async def count_files_and_folders(opath):
 
 def get_base_name(orig_path):
     extension = next(
-        (ext for ext in ARCH_EXT if orig_path.strip().lower().endswith(ext)), ""
+        (ext for ext in sorted(ARCH_EXT, key=len, reverse=True) if orig_path.strip().lower().endswith(ext)), ""
     )
     if extension != "":
-        return re_split(f"{extension}$", orig_path, maxsplit=1, flags=I)[0]
+        return re_split(f"{re_escape(extension)}$", orig_path, maxsplit=1, flags=I)[0]
     else:
-        raise NotSupportedExtractionArchive("File format not supported for extraction")
+        root, _ = ospath.splitext(orig_path)
+        return root or f"{orig_path}_extracted"
 
 
 def get_source_container_name(name):
@@ -538,10 +551,29 @@ class SevenZ:
             self._percentage = "0%"
 
     async def extract(self, f_path, t_path, pswd):
-        is_rar = f_path.lower().endswith((".rar", ".r00")) or ".part1.rar" in f_path.lower() or ".part01.rar" in f_path.lower()
+        is_rar = False
+        try:
+            with open(f_path, "rb") as f:
+                magic = f.read(7)
+                if magic.startswith(b"Rar!\x1a\x07"):
+                    is_rar = True
+        except Exception:
+            pass
+
+        if not is_rar:
+            f_lower = f_path.lower()
+            is_rar = (
+                f_lower.endswith((".rar", ".r00", ".r01", ".rev", ".ink.rar", ".rar5"))
+                or ".part1.rar" in f_lower
+                or ".part01.rar" in f_lower
+                or ".part001.rar" in f_lower
+                or ".rar." in f_lower
+                or ".rar" in f_lower
+            )
+
         if is_rar and (await aiopath.exists("/usr/bin/unrar") or await aiopath.exists("unrar")):
             unrar_bin = "/usr/bin/unrar" if await aiopath.exists("/usr/bin/unrar") else "unrar"
-            cmd_unrar = [unrar_bin, "x", "-y"]
+            cmd_unrar = [unrar_bin, "x", "-y", "-o+"]
             if pswd:
                 cmd_unrar.append(f"-p{pswd}")
             else:
@@ -550,6 +582,7 @@ class SevenZ:
             LOGGER.info(f"Extracting RAR archive using unrar: {f_path}")
             if self._listener.is_cancelled:
                 return False
+            await aiomakedirs(t_path, exist_ok=True)
             self._listener.subproc = await create_subprocess_exec(
                 *cmd_unrar,
                 stdout=PIPE,
@@ -557,10 +590,11 @@ class SevenZ:
             )
             stdout, stderr = await self._listener.subproc.communicate()
             code = self._listener.subproc.returncode
-            if code == 0:
+            if code in (0, 1):
                 LOGGER.info(f"Successfully extracted RAR archive: {f_path}")
                 return 0
-            LOGGER.warning(f"unrar returned {code}: {stderr.decode(errors='ignore').strip()}. Trying 7z fallback...")
+            err_msg = stderr.decode(errors="ignore").strip() or stdout.decode(errors="ignore").strip()
+            LOGGER.warning(f"unrar returned {code}: {err_msg}. Trying 7z fallback...")
 
         cmd = [
             "7z",
@@ -584,7 +618,7 @@ class SevenZ:
             stderr=PIPE,
         )
         await self._sevenz_progress()
-        _, stderr = await self._listener.subproc.communicate()
+        stdout, stderr = await self._listener.subproc.communicate()
         code = self._listener.subproc.returncode
         if self._listener.is_cancelled:
             return False
@@ -592,28 +626,30 @@ class SevenZ:
             self._listener.is_cancelled = True
             return False
         elif code != 0:
-            if await aiopath.exists("/usr/bin/unrar"):
-                cmd_unrar = ["/usr/bin/unrar", "x", "-y"]
+            if await aiopath.exists("/usr/bin/unrar") or await aiopath.exists("unrar"):
+                unrar_bin = "/usr/bin/unrar" if await aiopath.exists("/usr/bin/unrar") else "unrar"
+                cmd_unrar = [unrar_bin, "x", "-y", "-o+"]
                 if pswd:
                     cmd_unrar.append(f"-p{pswd}")
                 else:
                     cmd_unrar.append("-p-")
                 cmd_unrar.extend([f_path, f"{t_path}/"])
                 LOGGER.info(f"Attempting unrar fallback for: {f_path}")
+                await aiomakedirs(t_path, exist_ok=True)
                 subproc = await create_subprocess_exec(
                     *cmd_unrar,
                     stdout=PIPE,
                     stderr=PIPE,
                 )
-                _, stderr_unrar = await subproc.communicate()
-                if subproc.returncode == 0:
+                stdout_unrar, stderr_unrar = await subproc.communicate()
+                if subproc.returncode in (0, 1):
                     LOGGER.info(f"Successfully extracted archive using unrar fallback: {f_path}")
                     return 0
             try:
-                stderr = stderr.decode().strip()
+                err_text = stderr.decode().strip() or stdout.decode().strip()
             except Exception:
-                stderr = "Unable to decode the error!"
-            LOGGER.error(f"{stderr}. Unable to extract archive!. Path: {f_path}")
+                err_text = "Unable to decode the error!"
+            LOGGER.error(f"{err_text}. Unable to extract archive!. Path: {f_path}")
         return code
 
     async def zip(self, dl_path, up_path, pswd):

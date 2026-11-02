@@ -847,7 +847,6 @@ class TaskConfig:
                         t_path = get_base_name(f_path)
                     except Exception:
                         t_path = f"{f_path}_extracted"
-                    output_path = t_path
                 else:
                     t_path = ospath.dirname(f_path)
                     self.subname = ospath.basename(f_path)
@@ -857,10 +856,18 @@ class TaskConfig:
                 extracted_files.add(f_path)
                 if code == 0:
                     extracted_this_round += 1
+                    if self.is_file and f_path == dl_path:
+                        output_path = t_path
                     try:
                         await remove(f_path)
                     except Exception as error:
                         LOGGER.warning(f"Unable to remove extracted archive {f_path}: {error}")
+                else:
+                    if self.is_file and f_path == dl_path and await aiopath.exists(t_path):
+                        try:
+                            await remove(t_path)
+                        except Exception:
+                            pass
             if not recursive or not extracted_this_round:
                 break
         else:

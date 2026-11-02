@@ -1656,6 +1656,15 @@
           if (liveAudio.src) liveAudio.playbackRate = liveVideo.playbackRate;
         });
 
+        liveVideo.addEventListener("error", () => {
+          console.warn("Live video load error:", liveVideo.error);
+          showToast("⚠️ Fast preview stream active or file ready", 3500);
+        });
+
+        liveAudio.addEventListener("error", () => {
+          console.warn("Live audio load error:", liveAudio.error);
+        });
+
         // Click on video viewport to toggle
         centerPlayOverlay.addEventListener("click", togglePlayPause);
         playPauseBtn.addEventListener("click", togglePlayPause);
