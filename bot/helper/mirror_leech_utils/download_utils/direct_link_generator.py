@@ -1082,8 +1082,8 @@ def racaty(url):
 
 
 def fichier(link):
-    """1Fichier direct link generator
-    Based on https://github.com/Maujar
+    """1Fichier direct link generator with Official API and Web fallback
+    Based on https://github.com/Maujar & 1fichier API v1
     """
     regex = r"^([http:\/\/|https:\/\/]+)?.*1fichier\.com\/\?.+"
     gan = match(regex, link)
@@ -1095,6 +1095,41 @@ def fichier(link):
     else:
         pswd = None
         url = link
+
+    # 1. Use Debrid-Link API if configured
+    if getattr(Config, "DEBRID_LINK_API", ""):
+        try:
+            return debrid_link(link)
+        except Exception:
+            pass
+
+    # 2. Use Official 1fichier API Key if configured
+    api_key = (getattr(Config, "FICHIER_API_KEY", "") or environ.get("FICHIER_API_KEY", "")).strip()
+    if api_key:
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {"url": url, "single": 1}
+        if pswd:
+            payload["pass"] = pswd
+        try:
+            resp = post(
+                "https://api.1fichier.com/v1/download/get_token.cgi",
+                json=payload,
+                headers=headers,
+                timeout=30,
+            ).json()
+            if resp.get("status") == "OK" and resp.get("url"):
+                return resp["url"]
+            elif resp.get("message"):
+                raise DirectDownloadLinkException(f"ERROR: 1fichier API: {resp.get('message')}")
+        except DirectDownloadLinkException:
+            raise
+        except Exception as e:
+            raise DirectDownloadLinkException(f"ERROR: 1fichier API request failed: {e}") from e
+
+    # 3. Web scraping fallback
     cget = create_scraper().request
     try:
         if pswd is None:
@@ -1111,6 +1146,15 @@ def fichier(link):
     html = HTML(req.text)
     if dl_url := html.xpath('//a[@class="ok btn-general btn-orange"]/@href'):
         return dl_url[0]
+
+    # Check for datacenter IP restriction from 1fichier
+    if any(m in req.text for m in ("professional infrastructure detected", "Accès restreint", "CDN Credits")):
+        raise DirectDownloadLinkException(
+            "⚠️ <b>1fichier Datacenter IP Blocked</b>\n"
+            "<code>1fichier has restricted free web downloads from datacenter/VPS IPs ('professional infrastructure detected').</code>\n\n"
+            "<i>To resolve this, please provide a 1fichier API Key (FICHIER_API_KEY) or a Debrid-Link API Key (DEBRID_LINK_API).</i>"
+        )
+
     if not (ct_warn := html.xpath('//div[@class="ct_warn"]')):
         raise DirectDownloadLinkException(
             "ERROR: Error trying to generate Direct Link from 1fichier!"
