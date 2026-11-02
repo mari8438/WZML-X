@@ -792,7 +792,7 @@ async def generate_merge_preview(state):
 
     state["busy"] = True
     preview_path = ospath.join(
-        ospath.dirname(input_path), f"vt_preview_{state['task_id']}.mkv"
+        ospath.dirname(input_path), f"vt_preview_{state['task_id']}.mp4"
     )
     try:
         from ..ext_utils.media_utils import get_media_info
@@ -864,6 +864,7 @@ async def generate_merge_preview(state):
                 "-c:a", "aac",
                 "-b:a", "192k",
                 "-avoid_negative_ts", "make_zero",
+                "-movflags", "+faststart",
                 preview_path,
             ]
             result = await cmd_exec(fallback_cmd)
@@ -877,7 +878,7 @@ async def generate_merge_preview(state):
                 await previous.delete()
 
         preview_dir = "/usr/src/app/downloads/vt_previews" if await aiopath.exists("/usr/src/app/downloads") else "downloads/vt_previews"
-        await aiomakedirs(preview_dir, exist_ok=True)
+        await makedirs(preview_dir, exist_ok=True)
         web_preview_target = ospath.join(preview_dir, f"{state['task_id']}_preview.mp4")
         with suppress(Exception):
             import shutil

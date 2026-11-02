@@ -1561,12 +1561,14 @@
       function applyAudioMode(mode) {
         state.audioMode = mode;
         [modeDubBtn, modeOrigBtn, modeDualBtn].forEach((btn) => btn.classList.remove("active"));
+        const streamApiPath = ["/api", "video", "stream"].join("/");
 
         if (mode === "dub") {
           modeDubBtn.classList.add("active");
           liveVideo.muted = false;
           liveVideo.volume = 1.0;
           liveAudio.muted = true;
+          liveAudio.pause();
           playerOverlayTag.classList.remove("dual");
           if (state.activeSelectedAudioTrack) {
             selectAudioTrack(state.activeSelectedAudioTrack);
@@ -1576,8 +1578,8 @@
           liveVideo.muted = false;
           liveVideo.volume = 1.0;
           liveAudio.muted = true;
+          liveAudio.pause();
           playerOverlayTag.classList.remove("dual");
-          const streamApiPath = ["/api", "video", "stream"].join("/");
           const targetVideoSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1&audio_mode=original`;
           if (liveVideo.src !== targetVideoSrc) {
             const curTime = liveVideo.currentTime || 0;
@@ -1596,6 +1598,26 @@
           liveAudio.muted = false;
           liveAudio.volume = 0.5;
           playerOverlayTag.classList.add("dual");
+          const targetVideoSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1&audio_mode=original`;
+          if (liveVideo.src !== targetVideoSrc) {
+            const curTime = liveVideo.currentTime || 0;
+            const wasPlaying = !liveVideo.paused;
+            liveVideo.src = targetVideoSrc;
+            liveVideo.addEventListener("loadedmetadata", function onMeta() {
+              liveVideo.currentTime = curTime;
+              syncAudioToVideo();
+              if (wasPlaying) {
+                liveVideo.play().catch(() => {});
+                liveAudio.play().catch(() => {});
+              }
+              liveVideo.removeEventListener("loadedmetadata", onMeta);
+            });
+          } else {
+            syncAudioToVideo();
+            if (!liveVideo.paused) {
+              liveAudio.play().catch(() => {});
+            }
+          }
           showToast("🎧 Dual-Overlay Mode: Nudge delay until echo disappears!");
         }
       }

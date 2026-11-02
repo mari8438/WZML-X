@@ -12,6 +12,8 @@ from asyncio import new_event_loop, set_event_loop
 bot_loop = new_event_loop()
 set_event_loop(bot_loop)
 
+import hashlib
+import os
 from asyncio import sleep
 from html import escape
 from importlib import import_module
