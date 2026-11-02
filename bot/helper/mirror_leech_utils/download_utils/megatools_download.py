@@ -1,3 +1,4 @@
+import os
 import asyncio
 import re
 from contextlib import suppress
@@ -8,6 +9,7 @@ from aiofiles.os import makedirs, listdir
 from aiofiles.os import path as aiopath
 
 from .... import LOGGER, task_dict, task_dict_lock
+from ....core.config_manager import Config
 from ...ext_utils.bot_utils import sync_to_async
 from ...ext_utils.task_manager import (
     check_running_tasks,
@@ -57,7 +59,13 @@ class MegaToolsDownloader:
         link = self.listener.link.strip()
         await makedirs(self.path, exist_ok=True)
 
-        cmd = ["megatools", "dl", "--path", self.path, link]
+        cmd = ["megatools", "dl", "--path", self.path]
+        mega_email = (getattr(Config, "MEGA_EMAIL", "") or os.environ.get("MEGA_EMAIL", "")).strip()
+        mega_password = (getattr(Config, "MEGA_PASSWORD", "") or os.environ.get("MEGA_PASSWORD", "")).strip()
+        if mega_email and mega_password:
+            cmd.extend(["-u", mega_email, "-p", mega_password, "--no-ask-password"])
+            LOGGER.info(f"Using authenticated MEGA account: {mega_email}")
+        cmd.append(link)
         LOGGER.info(f"Starting Mega download via megatools: {link}")
 
         try:
@@ -114,6 +122,18 @@ class MegaToolsDownloader:
                             self.eta = f"{secs}s"
                 except Exception:
                     pass
+            elif any(q in line.lower() for q in ("bandwidth limit", "transfer quota", "quota exceeded")):
+                error_lines.append(line)
+                LOGGER.warning(f"megatools quota error: {line}")
+                if self._process:
+                    with suppress(Exception):
+                        self._process.kill()
+                await self.listener.on_download_error(
+                    f"⚠️ <b>MEGA Bandwidth/Transfer Quota Exceeded</b>\n"
+                    f"<code>{line}</code>\n\n"
+                    "<i>Free bandwidth limit reached (~3-5GB limit per IP). Please wait for quota reset or configure a MEGA account (MEGA_EMAIL & MEGA_PASSWORD).</i>"
+                )
+                return
             elif line.startswith("ERROR:"):
                 error_lines.append(line)
                 LOGGER.warning(f"megatools: {line}")

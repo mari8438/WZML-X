@@ -3,7 +3,7 @@ from hashlib import sha256
 from http.cookiejar import MozillaCookieJar
 from json import loads
 from lxml.etree import HTML
-from os import path as ospath
+from os import path as ospath, environ
 from re import findall, match, search
 from requests import Session, post, get
 from requests.adapters import HTTPAdapter
@@ -450,10 +450,11 @@ def hubcloud(url):
 
 def gdflix(url):
     with CurlSession(impersonate="chrome") as session:
-        response = session.get(url)
+        response = session.get(url, allow_redirects=True, timeout=25)
         tree = HTML(response.text)
+        host = f"https://{urlparse(response.url).netloc}"
+
         if "/pack/" in url:
-            host = f"https://{urlparse(response.url).netloc}"
             details = {
                 "contents": [],
                 "title": (tree.xpath("//title/text()") or [""])[0]
@@ -474,16 +475,76 @@ def gdflix(url):
             if not details["contents"]:
                 raise DirectDownloadLinkException("ERROR: No files found in pack")
             return details
+
+        candidate_links = []
+
+        # 1. Cloud Download [R2] direct link
+        r2_links = tree.xpath(
+            "//a[contains(@href, 'r2.dev') or contains(@href, 'r2.cloudflarestorage.com') or contains(., 'CLOUD DOWNLOAD') or contains(., 'R2')]/@href"
+        )
+        for r2 in r2_links:
+            r2 = r2.strip()
+            if r2 and not r2.startswith("#"):
+                candidate_links.append(r2 if r2.startswith("http") else f"{host}{r2}")
+
+        # 2. Fast Cloud / ZipDisk (/cloud/...)
+        cloud_links = tree.xpath("//a[contains(@href, '/cloud/') or contains(., 'FAST CLOUD') or contains(., 'ZIPDISK')]/@href")
+        for cl in cloud_links:
+            cl = cl.strip()
+            if cl and not cl.startswith("#"):
+                full_cl = cl if cl.startswith("http") else f"{host}{cl}"
+                try:
+                    c_resp = session.get(full_cl, timeout=15)
+                    c_tree = HTML(c_resp.text)
+                    w_links = c_tree.xpath(
+                        "//a[contains(@href, 'workers.dev') or contains(@href, 'cloud-dl') or contains(., 'Cloud Resume') or contains(., 'Download Now')]/@href"
+                    )
+                    for wl in w_links:
+                        wl = wl.strip()
+                        if wl and wl.startswith("http"):
+                            candidate_links.append(wl)
+                except Exception:
+                    pass
+
+        # 3. Legacy instant link
         instant = tree.xpath("//a[contains(@href, 'instant')]/@href")
-        if not instant:
-            raise DirectDownloadLinkException("ERROR: Instant DL link not found")
-        response = session.get(instant[0], allow_redirects=False)
-        location = response.headers.get("location", "").strip()
-        if not location:
-            raise DirectDownloadLinkException("ERROR: File Not Found or Expired")
-        if link := parse_qs(urlparse(location).query).get("url"):
-            return link[0]
-        return location
+        if instant:
+            try:
+                resp_inst = session.get(instant[0] if instant[0].startswith("http") else f"{host}{instant[0]}", allow_redirects=False, timeout=15)
+                location = resp_inst.headers.get("location", "").strip()
+                if location:
+                    if link := parse_qs(urlparse(location).query).get("url"):
+                        candidate_links.append(link[0])
+                    else:
+                        candidate_links.append(location)
+            except Exception:
+                pass
+
+        # 4. Any direct download button links on page
+        other_links = tree.xpath(
+            "//a[contains(@class, 'btn') and (contains(@href, '/download/') or contains(@href, '/dl/'))]/@href"
+        )
+        for ol in other_links:
+            ol = ol.strip()
+            if ol and not ol.startswith("#"):
+                candidate_links.append(ol if ol.startswith("http") else f"{host}{ol}")
+
+        if not candidate_links:
+            raise DirectDownloadLinkException("ERROR: No valid GDFlix download mirrors found on page")
+
+        # Test candidate links in order to return the first alive stream
+        for cand in candidate_links:
+            try:
+                chk = session.get(cand, stream=True, allow_redirects=True, timeout=12)
+                if chk.status_code < 400:
+                    c_type = chk.headers.get("Content-Type", "").lower()
+                    if "text/html" not in c_type:
+                        return cand
+            except Exception:
+                continue
+
+        # Fallback to the first candidate if head checks were inconclusive
+        return candidate_links[0]
 
 
 def gdshare(url):
@@ -1160,6 +1221,7 @@ def terabox(url):
     COOKIE_DOMAINS = (
         "terabox",
         "1024tera",
+        "1024terabox",
         "freeterabox",
         "nephobox",
         "4funbox",
@@ -1181,24 +1243,46 @@ def terabox(url):
     }
 
     def __load_cookies():
-        if not ospath.isfile("cookies.txt"):
-            return None
         cookies = {}
-        try:
-            with open("cookies.txt") as f:
-                for line in f:
-                    line = line.rstrip("\r\n")
-                    if line.startswith("#HttpOnly_"):
-                        line = line[len("#HttpOnly_") :]
-                    if not line or line.startswith("#"):
-                        continue
-                    parts = line.split("\t")
-                    if len(parts) < 7:
-                        continue
-                    if any(k in parts[0].lower() for k in COOKIE_DOMAINS):
-                        cookies[parts[5]] = parts[6]
-        except Exception:
-            return None
+        cookie_paths = [
+            "cookies.txt",
+            "/usr/src/app/cookies.txt",
+            ospath.join(ospath.dirname(__file__), "../../../../../cookies.txt"),
+        ]
+        for cpath in cookie_paths:
+            if ospath.isfile(cpath):
+                try:
+                    with open(cpath, "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            line = line.rstrip("\r\n")
+                            if line.startswith("#HttpOnly_"):
+                                line = line[len("#HttpOnly_") :]
+                            if not line or line.startswith("#"):
+                                continue
+                            parts = line.split("\t")
+                            if len(parts) < 7:
+                                continue
+                            if any(k in parts[0].lower() for k in COOKIE_DOMAINS):
+                                cookies[parts[5]] = parts[6]
+                except Exception:
+                    pass
+                if cookies.get("ndus") or cookies.get("BDUSS"):
+                    break
+
+        if not cookies.get("ndus") and not cookies.get("BDUSS"):
+            cfg_cookie = getattr(Config, "TERABOX_COOKIE", "") or environ.get("TERABOX_COOKIE", "")
+            if cfg_cookie:
+                if "ndus=" in cfg_cookie:
+                    for part in cfg_cookie.split(";"):
+                        part = part.strip()
+                        if part.startswith("ndus="):
+                            cookies["ndus"] = part.split("ndus=", 1)[1].strip()
+                        elif "=" in part:
+                            k, v = part.split("=", 1)
+                            cookies[k.strip()] = v.strip()
+                else:
+                    cookies["ndus"] = cfg_cookie.strip()
+
         if not cookies.get("BDUSS") and not cookies.get("ndus"):
             return None
         return cookies
@@ -1220,49 +1304,75 @@ def terabox(url):
             )
         return surl, password
 
-    def __bootstrap(session, surl, password):
-        try:
-            resp = session.get(
-                f"https://www.terabox.com/sharing/link?surl={surl}",
-                timeout=30,
-                allow_redirects=True,
-            )
-        except Exception as e:
-            raise DirectDownloadLinkException(f"ERROR: {e.__class__.__name__}") from e
-        html_text = resp.text
-        m = search(r"fn%28%22([0-9A-F]+)%22%29", html_text) or search(
-            r'fn\("([0-9A-F]+)"\)', html_text
-        )
-        if not m:
-            raise DirectDownloadLinkException(
-                "ERROR: jsToken not found (login expired?)"
-            )
-        js_token = m.group(1)
-        pcf = search(r'pcftoken["\']?\s*[:=]\s*["\']([0-9a-f]+)', html_text)
-        pcftoken = pcf[1] if pcf else "0"
-        if password:
+    def __bootstrap(session, surl, password, domain="www.1024terabox.com"):
+        candidate_domains = [
+            domain,
+            f"www.{domain}" if not domain.startswith("www.") else domain,
+            "www.1024terabox.com",
+            "1024terabox.com",
+            "www.terabox.com",
+            "terabox.app",
+        ]
+        seen_domains = set()
+        last_error = None
+        js_token = None
+        pcftoken = "0"
+        active_domain = domain
+
+        session.headers.update({
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
+
+        for d in candidate_domains:
+            if d in seen_domains:
+                continue
+            seen_domains.add(d)
             try:
-                v = session.post(
-                    f"https://{resp.url.split('/')[2]}/share/verify",
-                    params={**API_PARAMS, "surl": surl},
-                    data={"pwd": password},
+                resp = session.get(
+                    f"https://{d}/sharing/link?surl={surl}",
                     timeout=30,
-                ).json()
-                if v.get("errno") != 0:
-                    raise DirectDownloadLinkException(
-                        f"ERROR: Share password verification failed "
-                        f"(errno={v.get('errno')})"
-                    )
+                    allow_redirects=True,
+                )
+                html_text = resp.text
+                m = search(r"fn%28%22([0-9A-F]+)%22%29", html_text) or search(
+                    r'fn\("([0-9A-F]+)"\)', html_text
+                )
+                if m:
+                    js_token = m.group(1)
+                    pcf = search(r'pcftoken["\']?\s*[:=]\s*["\']([0-9a-f]+)', html_text)
+                    pcftoken = pcf[1] if pcf else "0"
+                    active_domain = d
+                    if password:
+                        try:
+                            v = session.post(
+                                f"https://{resp.url.split('/')[2]}/share/verify",
+                                params={**API_PARAMS, "surl": surl},
+                                data={"pwd": password},
+                                timeout=30,
+                            ).json()
+                            if v.get("errno") != 0:
+                                raise DirectDownloadLinkException(
+                                    f"ERROR: Share password verification failed (errno={v.get('errno')})"
+                                )
+                        except DirectDownloadLinkException:
+                            raise
+                        except Exception as e:
+                            raise DirectDownloadLinkException(f"ERROR: {e.__class__.__name__}") from e
+                    break
             except DirectDownloadLinkException:
                 raise
             except Exception as e:
-                raise DirectDownloadLinkException(
-                    f"ERROR: {e.__class__.__name__}"
-                ) from e
-        return js_token, pcftoken
+                last_error = e
+
+        if not js_token:
+            raise DirectDownloadLinkException(
+                f"ERROR: jsToken not found (login expired or verification challenge). {last_error or ''}"
+            )
+        return js_token, pcftoken, active_domain
 
     def __share_list(
-        session, surl, js_token, pcftoken, *, dir_path=None, root=False, page=1, num=200
+        session, api_host, surl, js_token, pcftoken, *, dir_path=None, root=False, page=1, num=200
     ):
         params = {
             **API_PARAMS,
@@ -1281,7 +1391,7 @@ def terabox(url):
             params["dir"] = dir_path
         try:
             data = session.get(
-                "https://dm.terabox.com/share/list",
+                f"https://{api_host}/share/list",
                 params=params,
                 timeout=30,
             ).json()
@@ -1293,10 +1403,10 @@ def terabox(url):
             )
         return data
 
-    def __shorturlinfo(session, surl, js_token):
+    def __shorturlinfo(session, api_host, surl, js_token):
         try:
             data = session.get(
-                "https://www.terabox.com/api/shorturlinfo",
+                f"https://{api_host}/api/shorturlinfo",
                 params={
                     **API_PARAMS,
                     "jsToken": js_token,
@@ -1315,12 +1425,12 @@ def terabox(url):
             )
         return data
 
-    def __resolve_dlinks(session, js_token, meta, fs_ids):
+    def __resolve_dlinks(session, api_host, js_token, meta, fs_ids):
         out = {}
         for fid in fs_ids:
             try:
                 data = session.post(
-                    "https://www.terabox.com/share/download",
+                    f"https://{api_host}/share/download",
                     params={
                         **API_PARAMS,
                         "jsToken": js_token,
@@ -1352,18 +1462,23 @@ def terabox(url):
 
     def __crawl_with_cookies(cookies):
         surl, password = __parse_share(url)
+        parsed_origin = urlparse(url)
+        origin_netloc = parsed_origin.netloc or "1024terabox.com"
+        bootstrap_host = origin_netloc if origin_netloc.startswith("www.") else f"www.{origin_netloc}"
+        api_host = "dm.1024terabox.com" if "1024tera" in origin_netloc else "dm.terabox.com"
+
         session = Session()
         session.cookies.update(cookies)
         session.headers.update(
             {
                 "User-Agent": user_agent,
-                "Accept": "application/json, text/plain, */*",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
-                "Referer": f"https://www.terabox.com/sharing/link?surl={surl}",
+                "Referer": f"https://{bootstrap_host}/sharing/link?surl={surl}",
             }
         )
-        js_token, pcftoken = __bootstrap(session, surl, password)
-        info = __shorturlinfo(session, surl, js_token)
+        js_token, pcftoken, resolved_domain = __bootstrap(session, surl, password, bootstrap_host)
+        info = __shorturlinfo(session, api_host, surl, js_token)
         meta = {
             "sign": info.get("sign", ""),
             "timestamp": info.get("timestamp", ""),
@@ -1378,6 +1493,7 @@ def terabox(url):
             while True:
                 data = __share_list(
                     session,
+                    api_host,
                     surl,
                     js_token,
                     pcftoken,
@@ -1415,7 +1531,7 @@ def terabox(url):
 
         if pending:
             resolved = __resolve_dlinks(
-                session, js_token, meta, [fid for fid, _ in pending]
+                session, api_host, js_token, meta, [fid for fid, _ in pending]
             )
             for fid, idx in pending:
                 if fid in resolved:
@@ -1440,7 +1556,7 @@ def terabox(url):
         details["header"] = (
             f"Cookie: {cookie_header}\n"
             f"User-Agent: {user_agent}\n"
-            f"Referer: https://www.terabox.com/"
+            f"Referer: https://{resolved_domain}/"
         )
         if len(details["contents"]) == 1:
             return details["contents"][0]["url"], details["header"]
