@@ -1241,6 +1241,10 @@ def terabox(url):
         "channel": "dubox",
         "clienttype": "0",
     }
+    CHROME_USER_AGENT = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
 
     def __load_cookies():
         cookies = {}
@@ -1310,6 +1314,7 @@ def terabox(url):
             f"www.{domain}" if not domain.startswith("www.") else domain,
             "www.1024terabox.com",
             "1024terabox.com",
+            "dm.1024tera.com",
             "www.terabox.com",
             "terabox.app",
         ]
@@ -1318,8 +1323,10 @@ def terabox(url):
         js_token = None
         pcftoken = "0"
         active_domain = domain
+        discovered_api_host = None
 
         session.headers.update({
+            "User-Agent": CHROME_USER_AGENT,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
         })
@@ -1335,14 +1342,17 @@ def terabox(url):
                     allow_redirects=True,
                 )
                 html_text = resp.text
-                m = search(r"fn%28%22([0-9A-F]+)%22%29", html_text) or search(
-                    r'fn\("([0-9A-F]+)"\)', html_text
+                m = search(r"fn%28%22([0-9A-Fa-f]+)%22%29", html_text) or search(
+                    r'fn\("([0-9A-Fa-f]+)"\)', html_text
                 )
                 if m:
                     js_token = m.group(1)
                     pcf = search(r'pcftoken["\']?\s*[:=]\s*["\']([0-9a-f]+)', html_text)
                     pcftoken = pcf[1] if pcf else "0"
                     active_domain = d
+                    thost = search(r'"newDomain"\s*:\s*\{[^}]*"host"\s*:\s*"([^"]+)"', html_text)
+                    if thost:
+                        discovered_api_host = thost.group(1)
                     if password:
                         try:
                             v = session.post(
@@ -1369,61 +1379,66 @@ def terabox(url):
             raise DirectDownloadLinkException(
                 f"ERROR: jsToken not found (login expired or verification challenge). {last_error or ''}"
             )
-        return js_token, pcftoken, active_domain
+        return js_token, pcftoken, active_domain, discovered_api_host
 
     def __share_list(
         session, api_host, surl, js_token, pcftoken, *, dir_path=None, root=False, page=1, num=200
     ):
-        params = {
-            **API_PARAMS,
-            "jsToken": js_token,
-            "pcftoken": pcftoken,
-            "shorturl": surl,
-            "page": str(page),
-            "num": str(num),
-            "by": "name",
-            "order": "asc",
-            "scene": "",
-        }
-        if root:
-            params["root"] = "1"
-        if dir_path is not None:
-            params["dir"] = dir_path
-        try:
-            data = session.get(
-                f"https://{api_host}/share/list",
-                params=params,
-                timeout=30,
-            ).json()
-        except Exception as e:
-            raise DirectDownloadLinkException(f"ERROR: {e.__class__.__name__}") from e
-        if data.get("errno") not in (0, None):
-            raise DirectDownloadLinkException(
-                f"ERROR: share/list errno={data.get('errno')}"
-            )
-        return data
+        hosts_to_try = [api_host, "dm.1024tera.com", "dm.1024terabox.com", "dm.terabox.app", "dm.terabox.com"]
+        surls_to_try = [surl, f"1{surl}" if not surl.startswith("1") else surl]
+        last_error = None
 
-    def __shorturlinfo(session, api_host, surl, js_token):
-        try:
-            data = session.get(
-                f"https://{api_host}/api/shorturlinfo",
-                params={
+        for h in dict.fromkeys(hosts_to_try):
+            for s in surls_to_try:
+                params = {
                     **API_PARAMS,
                     "jsToken": js_token,
-                    "shorturl": f"1{surl}",
-                    "root": "1",
-                    "page": "1",
-                    "num": "20",
-                },
-                timeout=30,
-            ).json()
-        except Exception as e:
-            raise DirectDownloadLinkException(f"ERROR: {e.__class__.__name__}") from e
-        if data.get("errno") not in (0, None):
-            raise DirectDownloadLinkException(
-                f"ERROR: shorturlinfo errno={data.get('errno')}"
-            )
-        return data
+                    "pcftoken": pcftoken,
+                    "shorturl": s,
+                    "page": str(page),
+                    "num": str(num),
+                    "by": "name",
+                    "order": "asc",
+                    "scene": "",
+                }
+                if root:
+                    params["root"] = "1"
+                if dir_path is not None:
+                    params["dir"] = dir_path
+                try:
+                    data = session.get(
+                        f"https://{h}/share/list",
+                        params=params,
+                        timeout=30,
+                    ).json()
+                    if data.get("errno") == 0:
+                        return data, h
+                    last_error = f"errno={data.get('errno')}"
+                except Exception as e:
+                    last_error = e
+        raise DirectDownloadLinkException(f"ERROR: share/list failed across all endpoints ({last_error})")
+
+    def __shorturlinfo(session, api_host, surl, js_token):
+        hosts_to_try = [api_host, "dm.1024tera.com", "dm.1024terabox.com", "dm.terabox.app", "dm.terabox.com"]
+        for h in dict.fromkeys(hosts_to_try):
+            try:
+                data = session.get(
+                    f"https://{h}/api/shorturlinfo",
+                    params={
+                        **API_PARAMS,
+                        "jsToken": js_token,
+                        "shorturl": f"1{surl}" if not surl.startswith("1") else surl,
+                        "root": "1",
+                        "page": "1",
+                        "num": "20",
+                    },
+                    timeout=30,
+                ).json()
+                if data.get("errno") == 0:
+                    return data
+            except Exception:
+                pass
+        return {}
 
     def __resolve_dlinks(session, api_host, js_token, meta, fs_ids):
         out = {}
@@ -1434,15 +1449,15 @@ def terabox(url):
                     params={
                         **API_PARAMS,
                         "jsToken": js_token,
-                        "sign": meta["sign"],
-                        "timestamp": str(meta["timestamp"]),
+                        "sign": meta.get("sign", ""),
+                        "timestamp": str(meta.get("timestamp", "")),
                     },
                     data={
-                        "shareid": str(meta["shareid"]),
-                        "uk": str(meta["uk"]),
+                        "shareid": str(meta.get("shareid", "")),
+                        "uk": str(meta.get("uk", "")),
                         "product": "share",
                         "fid_list": f"[{str(fid)}]",
-                        "primaryid": str(meta["shareid"]),
+                        "primaryid": str(meta.get("shareid", "")),
                         "type": "nolimit",
                     },
                     timeout=30,
@@ -1465,35 +1480,40 @@ def terabox(url):
         parsed_origin = urlparse(url)
         origin_netloc = parsed_origin.netloc or "1024terabox.com"
         bootstrap_host = origin_netloc if origin_netloc.startswith("www.") else f"www.{origin_netloc}"
-        api_host = "dm.1024terabox.com" if "1024tera" in origin_netloc else "dm.terabox.com"
+        api_host = "dm.1024tera.com" if "1024tera" in origin_netloc else "dm.terabox.com"
 
         session = Session()
         session.cookies.update(cookies)
         session.headers.update(
             {
-                "User-Agent": user_agent,
+                "User-Agent": CHROME_USER_AGENT,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
                 "Referer": f"https://{bootstrap_host}/sharing/link?surl={surl}",
             }
         )
-        js_token, pcftoken, resolved_domain = __bootstrap(session, surl, password, bootstrap_host)
+        js_token, pcftoken, resolved_domain, discovered_host = __bootstrap(session, surl, password, bootstrap_host)
+        if discovered_host:
+            api_host = discovered_host
+
         info = __shorturlinfo(session, api_host, surl, js_token)
         meta = {
             "sign": info.get("sign", ""),
             "timestamp": info.get("timestamp", ""),
-            "shareid": info.get("shareid") or info.get("share_id"),
-            "uk": info.get("uk"),
+            "shareid": info.get("shareid") or info.get("share_id", ""),
+            "uk": info.get("uk", ""),
         }
         details = {"contents": [], "title": "", "total_size": 0}
         pending = []
+        active_api_host = api_host
 
         def __walk(dir_path=None, root=False):
+            nonlocal active_api_host
             page = 1
             while True:
-                data = __share_list(
+                data, used_host = __share_list(
                     session,
-                    api_host,
+                    active_api_host,
                     surl,
                     js_token,
                     pcftoken,
@@ -1502,6 +1522,7 @@ def terabox(url):
                     page=page,
                     num=200,
                 )
+                active_api_host = used_host
                 if root and page == 1 and not details["title"]:
                     details["title"] = (data.get("title") or surl).lstrip("/")
                 items = data.get("list") or []
@@ -1531,7 +1552,7 @@ def terabox(url):
 
         if pending:
             resolved = __resolve_dlinks(
-                session, api_host, js_token, meta, [fid for fid, _ in pending]
+                session, active_api_host, js_token, meta, [fid for fid, _ in pending]
             )
             for fid, idx in pending:
                 if fid in resolved:
@@ -1555,7 +1576,7 @@ def terabox(url):
         cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
         details["header"] = (
             f"Cookie: {cookie_header}\n"
-            f"User-Agent: {user_agent}\n"
+            f"User-Agent: {CHROME_USER_AGENT}\n"
             f"Referer: https://{resolved_domain}/"
         )
         if len(details["contents"]) == 1:
@@ -1568,41 +1589,12 @@ def terabox(url):
             return __crawl_with_cookies(cookies)
         except DirectDownloadLinkException:
             raise
-        except Exception:
-            pass
+        except Exception as e:
+            raise DirectDownloadLinkException(f"ERROR: {e.__class__.__name__}") from e
 
-    api_url = "https://teraboxdl.site/api/proxy"
-    headers = {"Referer": "https://teraboxdl.site/", "User-Agent": user_agent}
-    payload = {"url": url}
-
-    try:
-        with Session() as session:
-            req = session.post(
-                api_url, json=payload, headers=headers, timeout=30
-            ).json()
-    except Exception as e:
-        raise DirectDownloadLinkException(f"ERROR: {e.__class__.__name__}") from e
-
-    details = {"contents": [], "title": "", "total_size": 0}
-
-    if req.get("errno") != 0 or not req.get("list"):
-        raise DirectDownloadLinkException("ERROR: File not found!")
-
-    for data in req["list"]:
-        item = {
-            "path": data.get("path", ""),
-            "filename": data["server_filename"],
-            "url": data["direct_link"],
-        }
-        details["contents"].append(item)
-        details["total_size"] += data.get("size", 0)
-
-    details["title"] = req["list"][0]["server_filename"]
-
-    if len(details["contents"]) == 1:
-        return details["contents"][0]["url"]
-    return details
-
+    raise DirectDownloadLinkException(
+        "ERROR: Terabox cookie not found. Add ndus cookie or place cookies.txt in root directory."
+    )
 
 def filepress(url):
     try:
