@@ -1143,6 +1143,7 @@
         <span id="specBitDepth" class="spec-badge sakura">🌈 10-bit</span>
         <span id="specAspect" class="spec-badge">🖼 16:9</span>
         <span id="specDuration" class="spec-badge emerald">⏱ 00:00:00</span>
+        <span id="specLengthDiff" class="spec-badge amber" style="display:none;">⏱ Δ Length: +0 ms</span>
       </div>
     </section>
 
@@ -1561,64 +1562,36 @@
       function applyAudioMode(mode) {
         state.audioMode = mode;
         [modeDubBtn, modeOrigBtn, modeDualBtn].forEach((btn) => btn.classList.remove("active"));
-        const streamApiPath = ["/api", "video", "stream"].join("/");
+        if (mode === "dub") modeDubBtn.classList.add("active");
+        else if (mode === "original") modeOrigBtn.classList.add("active");
+        else if (mode === "dual") modeDualBtn.classList.add("active");
 
-        if (mode === "dub") {
-          modeDubBtn.classList.add("active");
-          liveVideo.muted = false;
-          liveVideo.volume = 1.0;
-          liveAudio.muted = true;
-          liveAudio.pause();
-          playerOverlayTag.classList.remove("dual");
-          if (state.activeSelectedAudioTrack) {
-            selectAudioTrack(state.activeSelectedAudioTrack);
-          }
-        } else if (mode === "original") {
-          modeOrigBtn.classList.add("active");
-          liveVideo.muted = false;
-          liveVideo.volume = 1.0;
-          liveAudio.muted = true;
-          liveAudio.pause();
-          playerOverlayTag.classList.remove("dual");
-          const targetVideoSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1&audio_mode=original`;
-          if (liveVideo.src !== targetVideoSrc) {
-            const curTime = liveVideo.currentTime || 0;
-            const wasPlaying = !liveVideo.paused;
-            liveVideo.src = targetVideoSrc;
-            liveVideo.addEventListener("loadedmetadata", function onMeta() {
-              liveVideo.currentTime = curTime;
-              if (wasPlaying) liveVideo.play().catch(() => {});
-              liveVideo.removeEventListener("loadedmetadata", onMeta);
-            });
-          }
-        } else if (mode === "dual") {
-          modeDualBtn.classList.add("active");
-          liveVideo.muted = false;
-          liveVideo.volume = 0.5;
-          liveAudio.muted = false;
-          liveAudio.volume = 0.5;
+        liveVideo.muted = false;
+        liveVideo.volume = 1.0;
+        liveAudio.muted = true;
+        liveAudio.pause();
+        if (mode === "dual") {
           playerOverlayTag.classList.add("dual");
-          const targetVideoSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1&audio_mode=original`;
-          if (liveVideo.src !== targetVideoSrc) {
-            const curTime = liveVideo.currentTime || 0;
-            const wasPlaying = !liveVideo.paused;
-            liveVideo.src = targetVideoSrc;
-            liveVideo.addEventListener("loadedmetadata", function onMeta() {
-              liveVideo.currentTime = curTime;
-              syncAudioToVideo();
-              if (wasPlaying) {
-                liveVideo.play().catch(() => {});
-                liveAudio.play().catch(() => {});
-              }
-              liveVideo.removeEventListener("loadedmetadata", onMeta);
-            });
-          } else {
-            syncAudioToVideo();
-            if (!liveVideo.paused) {
-              liveAudio.play().catch(() => {});
-            }
-          }
-          showToast("🎧 Dual-Overlay Mode: Nudge delay until echo disappears!");
+          showToast("🎧 Dual-Overlay Mode: Hardware-mixed echo check!");
+        } else {
+          playerOverlayTag.classList.remove("dual");
+        }
+
+        const streamApiPath = ["/api", "video", "stream"].join("/");
+        const track = state.activeSelectedAudioTrack;
+        const audioParam = track && track.path ? `&audio_path=${encodeURIComponent(track.path)}` : "";
+        const delayParam = state.activeDelayMs ? `&delay_ms=${state.activeDelayMs}` : "";
+        const targetVideoSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1${audioParam}${delayParam}&audio_mode=${mode}`;
+
+        if (liveVideo.src !== targetVideoSrc) {
+          const curTime = liveVideo.currentTime || 0;
+          const wasPlaying = !liveVideo.paused;
+          liveVideo.src = targetVideoSrc;
+          liveVideo.addEventListener("loadedmetadata", function onMeta() {
+            liveVideo.currentTime = curTime;
+            if (wasPlaying) liveVideo.play().catch(() => {});
+            liveVideo.removeEventListener("loadedmetadata", onMeta);
+          });
         }
       }
 
@@ -1720,9 +1693,12 @@
           state.isLoopingDialogue = !state.isLoopingDialogue;
           loopDialogueBtn.classList.toggle("active", state.isLoopingDialogue);
           if (state.isLoopingDialogue) {
-            state.loopStart = Math.max(0, liveVideo.currentTime - 1.0);
+            const cur = liveVideo.currentTime || 0;
+            state.loopStart = Math.max(0, cur - 1.0);
             state.loopEnd = state.loopStart + 5.0;
-            showToast("🔁 5-Second Dialogue Loop Active");
+            liveVideo.currentTime = state.loopStart;
+            liveVideo.play().catch(() => {});
+            showToast(`🔁 5s Loop: ${formatTime(state.loopStart)} - ${formatTime(state.loopEnd)}`);
           } else {
             showToast("🔁 Dialogue Loop Off");
           }
@@ -1806,40 +1782,8 @@
         const opt = Array.from(dubLangSelect.options).find((o) => o.value === langCode);
         if (opt) dubLangSelect.value = langCode;
 
-        // Update live video preview with audio_path so preview directly contains the dub audio
-        const streamApiPath = ["/api", "video", "stream"].join("/");
-        const audioParam = track.path ? `&audio_path=${encodeURIComponent(track.path)}` : "";
-        const delayParam = state.activeDelayMs ? `&delay_ms=${state.activeDelayMs}` : "";
-        const targetVideoSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=video&preview=1${audioParam}${delayParam}`;
-
-        if (liveVideo.src !== targetVideoSrc) {
-          const curTime = liveVideo.currentTime || 0;
-          const wasPlaying = !liveVideo.paused;
-          liveVideo.src = targetVideoSrc;
-          liveVideo.addEventListener("loadedmetadata", function onMeta() {
-            liveVideo.currentTime = curTime;
-            if (wasPlaying) liveVideo.play().catch(() => {});
-            liveVideo.removeEventListener("loadedmetadata", onMeta);
-          });
-        }
-
-        // Also set audio element source for secondary monitor / echo check
-        if (state.token && state.isLiveBackend && track.path) {
-          let audioSrc = "";
-          if (track.is_bank || track.path.includes("vt_audio_bank")) {
-            audioSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=bank&bank_path=${encodeURIComponent(track.path)}&preview=1`;
-          } else {
-            audioSrc = `${streamApiPath}?token=${encodeURIComponent(state.token)}&task_id=${encodeURIComponent(state.taskId)}&source=audio&file_idx=${track.index || 0}&preview=1`;
-          }
-          if (audioSrc && liveAudio.src !== audioSrc) {
-            liveAudio.src = audioSrc;
-            liveAudio.load();
-            syncAudioToVideo();
-          }
-        }
-
         renderBankFiles();
-        applyAudioMode(state.audioMode);
+        applyAudioMode(state.audioMode || "dub");
         updateCliCommand();
         showToast(`🔊 Muxed "${trackTitle}" into Live Preview!`);
       }
@@ -1970,6 +1914,20 @@
           if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
           const data = await resp.json();
 
+          if (data.length_diff_ms !== undefined && data.length_diff_ms !== null) {
+            state.lengthDiffMs = data.length_diff_ms;
+            const sign = data.length_diff_ms > 0 ? "+" : "";
+            const el = document.getElementById("specLengthDiff");
+            if (el) {
+              el.textContent = `⏱ Δ Length: ${sign}${data.length_diff_ms} ms`;
+              el.style.display = "inline-flex";
+              if (Math.abs(data.length_diff_ms) <= 250) {
+                el.className = "spec-badge emerald";
+              } else {
+                el.className = "spec-badge amber";
+              }
+            }
+          }
           if (data.file_name) state.fileName = data.file_name;
           document.getElementById("probeFileName").textContent = state.fileName;
           document.getElementById("probeTaskLabel").textContent = `TASK #${state.taskId} • STREAM HIERARCHY PROBED`;

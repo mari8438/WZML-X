@@ -4,5 +4,6 @@ progress
 progressbar2
 httplib2shim
 google_auth_oauthlib
-pyrotgfork
+wzgram>=3.1.6
+warpcrypto>=2.1.0
 tgcrypto

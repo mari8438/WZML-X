@@ -798,6 +798,8 @@ class TelegramUploader:
         if self._listener.is_cancelled:
             return
         LOGGER.info(f"Leech Completed: {self._listener.name}")
+        from ...ext_utils.performance import trim_memory
+        trim_memory()
         await self._listener.on_upload_complete(
             None, self._msgs_dict, self._total_files, self._corrupted
         )

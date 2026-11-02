@@ -162,3 +162,20 @@ def resources_overloaded():
         reasons.append(f"free RAM {int(telem['avail_ram_mb'])}MB <= {ram_limit_mb}MB")
 
     return bool(reasons), ", ".join(reasons)
+
+
+def trim_memory():
+    """Trigger Python garbage collection and glibc malloc_trim to return RAM to the OS."""
+    try:
+        import gc
+        gc.collect()
+        import ctypes
+        if hasattr(ctypes, "CDLL"):
+            try:
+                libc = ctypes.CDLL(None)
+                if hasattr(libc, "malloc_trim"):
+                    libc.malloc_trim(0)
+            except Exception:
+                pass
+    except Exception:
+        pass

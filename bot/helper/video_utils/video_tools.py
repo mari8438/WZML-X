@@ -814,8 +814,20 @@ async def generate_merge_preview(state):
         if not selected and state.get("external_audio"):
             selected = state.get("external_audio", [])
 
+        if not selected and state.get("matched_bank") and state["matched_bank"].get("matched"):
+            first_m = state["matched_bank"]["matched"][0]
+            if first_m.get("audio_tracks"):
+                trk = first_m["audio_tracks"][0]
+                selected = [{
+                    "index": 0,
+                    "name": trk.get("audio_name", "Dub Audio"),
+                    "path": trk.get("audio_path", ""),
+                    "delay_ms": state.get("audio_delay_ms", 0),
+                    "stream_index": 0,
+                }]
+
         if not selected:
-            raise ValueError("Send and select a new audio track before creating a preview.")
+            raise ValueError("Send and select a new audio track or match from VPS Bank before creating a preview.")
 
         base_cmd = [
             BinConfig.FFMPEG_NAME, "-hide_banner", "-loglevel", "error", "-y",

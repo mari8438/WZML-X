@@ -71,12 +71,16 @@ class TelegramDownloadHelper:
         self._processed_bytes = current
 
     async def _on_download_error(self, error):
+        from ...ext_utils.performance import trim_memory
+        trim_memory()
         async with global_lock:
             if self._id in GLOBAL_GID:
                 GLOBAL_GID.pop(self._id)
         await self._listener.on_download_error(error)
 
     async def _on_download_complete(self):
+        from ...ext_utils.performance import trim_memory
+        trim_memory()
         await self._listener.on_download_complete()
         async with global_lock:
             GLOBAL_GID.pop(self._id, None)
@@ -112,7 +116,7 @@ class TelegramDownloadHelper:
             elif getattr(getattr(message, message.media.value, None), "file_size", 0) >= 10 * 1024 * 1024:
                 file_size = getattr(getattr(message, message.media.value, None), "file_size", 0)
                 source_client = getattr(message, "_client", None) or self._listener.client
-                parts = min(8, max(2, file_size // (25 * 1024 * 1024)))
+                parts = min(4, max(2, file_size // (25 * 1024 * 1024)))
                 try:
                     download = await HyperTGDownload(
                         clients={0: source_client}, num_parts=parts
@@ -154,8 +158,12 @@ class TelegramDownloadHelper:
 
     async def add_download(self, message, path, session):
         self.session = session
+        media = getattr(message, message.media.value) if message.media else None
+        f_size = getattr(media, "file_size", 0) if media else 0
         if not self.session:
-            if self._hyper_dl:
+            if f_size > TgClient.NON_PREMIUM_SPLIT_SIZE and TgClient.user:
+                self.session = "user"
+            elif self._hyper_dl:
                 self.session = "hbots"
             elif self._listener.user_transmission and self._listener.is_super_chat:
                 self.session = "user"

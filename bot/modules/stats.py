@@ -58,6 +58,7 @@ commands = {
     ),
     "7z": (["7z", "i"], r"7-Zip\s*(?:\[\d+\])?\s*([\d.]+)"),
     "aiohttp": (["uv", "pip", "show", "aiohttp"], r"Version: ([\d.]+)"),
+    "wzgram": (["uv", "pip", "show", "wzgram"], r"Version: ([\d.]+)"),
     "pyrotgfork": (["uv", "pip", "show", "pyrotgfork"], r"Version: ([\d.]+)"),
     "gapi": (["uv", "pip", "show", "google-api-python-client"], r"Version: ([\d.]+)"),
     "mkvmerge": ([BinConfig.MKVMERGE_NAME, "-V"], r"mkvmerge v([\d.]+)"),
@@ -228,7 +229,7 @@ async def get_stats(event, key="home"):
 ┠ <b>ffmpeg:</b> v{ver.get("ffmpeg", "N/A")}
 ┠ <b>7z:</b> v{ver.get("7z", "N/A")}
 ┠ <b>Aiohttp:</b> v{ver.get("aiohttp", "N/A")}
-┠ <b>PyroTgFork:</b> v{ver.get("pyrotgfork", "N/A")}
+┠ <b>WZGram:</b> v{ver.get("wzgram", ver.get("pyrotgfork", "N/A"))}
 ┠ <b>Google API:</b> v{ver.get("gapi", "N/A")}
 ┖ <b>MKVToolNix:</b> v{ver.get("mkvmerge", "N/A")}
 """

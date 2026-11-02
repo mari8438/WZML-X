@@ -843,6 +843,30 @@ async def video_probe_api(task_id: str = "", token: str = ""):
         except Exception as me:
             LOGGER.warning(f"Video probe bank auto-match failed: {me}")
 
+    video_dur = float(session.get("video_duration") or 0)
+    audio_dur = 0.0
+    if external_audio:
+        audio_dur = float(external_audio[0].get("duration") or 0)
+        if not audio_dur and external_audio[0].get("path") and os.path.isfile(external_audio[0]["path"]):
+            try:
+                from bot.helper.ext_utils.media_utils import get_media_info
+                a_info = await get_media_info(external_audio[0]["path"])
+                audio_dur = float(a_info[0] or 0)
+                external_audio[0]["duration"] = audio_dur
+            except Exception:
+                pass
+    elif bank_data.get("files"):
+        first_b = bank_data["files"][0].get("path")
+        if first_b and os.path.isfile(first_b):
+            try:
+                from bot.helper.ext_utils.media_utils import get_media_info
+                a_info = await get_media_info(first_b)
+                audio_dur = float(a_info[0] or 0)
+            except Exception:
+                pass
+
+    diff_ms = int(round((audio_dur - video_dur) * 1000)) if (video_dur > 0 and audio_dur > 0) else session.get("length_diff_ms", 0)
+
     return JSONResponse(
         {
             "task_id": session.get("task_id", task_id),
@@ -857,6 +881,9 @@ async def video_probe_api(task_id: str = "", token: str = ""):
             "total_episodes": session.get("total_episodes", 1),
             "video_files": session.get("video_files", []),
             "audio_delay_ms": session.get("audio_delay_ms", 0),
+            "video_duration_ms": int(round(video_dur * 1000)) if video_dur > 0 else 0,
+            "audio_duration_ms": int(round(audio_dur * 1000)) if audio_dur > 0 else 0,
+            "length_diff_ms": diff_ms,
             "single_sample_for_folder": True,
         }
     )
@@ -868,28 +895,54 @@ async def ensure_preview_clip(
     duration: int = 120,
     audio_path: str = "",
     delay_ms: int = 0,
-    remove_original: bool = False,
+    mode: str = "dub",
 ) -> str:
     if not video_path or not os.path.isfile(video_path):
         return ""
     preview_dir = "/usr/src/app/downloads/vt_previews" if os.path.exists("/usr/src/app/downloads") else "downloads/vt_previews"
     os.makedirs(preview_dir, exist_ok=True)
-    ext = os.path.splitext(video_path)[1].lower()
-
-    if audio_path and os.path.isfile(audio_path):
-        audio_key = hashlib.md5(audio_path.encode("utf-8", "ignore")).hexdigest()[:10]
-        preview_path = os.path.join(preview_dir, f"{task_id}_{audio_key}_{delay_ms}_preview.mp4")
-    else:
-        preview_path = os.path.join(preview_dir, f"{task_id}_preview.mp4")
-
-    if os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
-        return preview_path
 
     ss = "00:00:30"
     start_sec = 30.0
 
-    # 1. Fast MUX with Dub Audio if provided (Zero video re-encoding, pure stream-copy video + fast audio conversion)
-    if audio_path and os.path.isfile(audio_path):
+    # 1. Echo Check mode: blend original audio + delayed dub audio into 1 stream with amix
+    if mode == "dual" and audio_path and os.path.isfile(audio_path):
+        audio_key = hashlib.md5(audio_path.encode("utf-8", "ignore")).hexdigest()[:10]
+        preview_path = os.path.join(preview_dir, f"{task_id}_{audio_key}_{delay_ms}_echo_preview.mp4")
+        if os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+            return preview_path
+        delay_sec = float(delay_ms) / 1000.0
+        audio_seek = max(0.0, start_sec - delay_sec)
+        cmd_echo = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-ss", ss, "-i", video_path,
+            "-ss", f"{audio_seek:.3f}", "-i", audio_path,
+            "-t", str(duration),
+            "-filter_complex", "[0:a:0]volume=0.5[a0];[1:a:0]volume=0.5[a1];[a0][a1]amix=inputs=2:duration=first[aout]",
+            "-map", "0:v:0",
+            "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-disposition:a:0", "default",
+            "-movflags", "+faststart",
+            preview_path,
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(*cmd_echo)
+            await proc.wait()
+            if proc.returncode == 0 and os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+                LOGGER.info(f"Generated Echo Check (dual-mix) MP4 preview: {preview_path}")
+                return preview_path
+        except Exception as e:
+            LOGGER.warning(f"Echo check preview failed: {e}")
+
+    # 2. Pure Dub Audio Only mode: Video + ONLY Dub Audio (NO original audio, so browser MUST play dub!)
+    if mode != "original" and audio_path and os.path.isfile(audio_path):
+        audio_key = hashlib.md5(audio_path.encode("utf-8", "ignore")).hexdigest()[:10]
+        preview_path = os.path.join(preview_dir, f"{task_id}_{audio_key}_{delay_ms}_dub_preview.mp4")
+        if os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+            return preview_path
         delay_sec = float(delay_ms) / 1000.0
         audio_seek = max(0.0, start_sec - delay_sec)
         cmd_mux = [
@@ -901,26 +954,27 @@ async def ensure_preview_clip(
             "-t", str(duration),
             "-map", "0:v:0",
             "-map", "1:a:0",
-        ]
-        if not remove_original:
-            cmd_mux.extend(["-map", "0:a:0?"])
-        cmd_mux.extend([
             "-c:v", "copy",
             "-c:a", "aac",
             "-b:a", "192k",
+            "-disposition:a:0", "default",
             "-movflags", "+faststart",
             preview_path,
-        ])
+        ]
         try:
             proc = await asyncio.create_subprocess_exec(*cmd_mux)
             await proc.wait()
             if proc.returncode == 0 and os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
-                LOGGER.info(f"Generated fast stream-copy MP4 preview WITH DUB AUDIO: {preview_path}")
+                LOGGER.info(f"Generated pure dub MP4 preview: {preview_path}")
                 return preview_path
         except Exception as e:
             LOGGER.warning(f"Fast muxed preview attempt failed: {e}")
 
-    # 2. Pure stream copy trim (zero encoding / zero transcode overhead - instant 0.05s copy)
+    # 3. Original Audio Only mode: Video + Original audio
+    preview_path = os.path.join(preview_dir, f"{task_id}_preview.mp4")
+    if os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+        return preview_path
+
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-ss", ss,
@@ -928,7 +982,10 @@ async def ensure_preview_clip(
         "-t", str(duration),
         "-map", "0:v:0",
         "-map", "0:a:0?",
-        "-c", "copy",
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-disposition:a:0", "default",
         "-movflags", "+faststart",
         preview_path,
     ]
@@ -936,10 +993,10 @@ async def ensure_preview_clip(
         proc = await asyncio.create_subprocess_exec(*cmd)
         await proc.wait()
         if proc.returncode == 0 and os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
-            LOGGER.info(f"Generated fast stream-copy MP4 preview: {preview_path}")
+            LOGGER.info(f"Generated original audio MP4 preview: {preview_path}")
             return preview_path
     except Exception as e:
-        LOGGER.warning(f"Fast stream-copy MP4 preview attempt failed: {e}")
+        LOGGER.warning(f"Original audio preview attempt failed: {e}")
 
     # Fallback 1: Stream copy video only into MP4 if audio codec is not permitted in MP4 container
     cmd_vo = [
@@ -1102,7 +1159,7 @@ async def video_stream_api(
             duration=120,
             audio_path=audio_target,
             delay_ms=delay_ms,
-            remove_original=remove_orig,
+            mode=audio_mode,
         )
         if preview_file and os.path.isfile(preview_file):
             target_path = preview_file

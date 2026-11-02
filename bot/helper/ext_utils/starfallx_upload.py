@@ -728,10 +728,11 @@ class StarFallXUploadManager:
         if not self.enabled() or not getattr(listener, "is_leech", False):
             return UploadRoute("current", "Current Engine", listener.client)
         if file_size > BOT_UPLOAD_LIMIT:
+            client = TgClient.user if TgClient.user else listener.client
             return UploadRoute(
-                "current",
-                "Premium User" if listener.user_transmission else "Current Engine",
-                listener.client,
+                "user",
+                "Premium User String Session" if (TgClient.user and TgClient.IS_PREMIUM_USER) else "User String Session",
+                client,
             )
         while True:
             async with self._lock:
@@ -744,6 +745,12 @@ class StarFallXUploadManager:
                         listener.upload_engine = f"{Config.UPLOAD_ENGINE} v{Config.UPLOAD_ENGINE_VERSION}"
                         listener.upload_client = route.label
                         return route
+                    # Fallback to Main Bot or available client for <= 2GB files
+                    main_client = TgClient.bot or listener.client
+                    if main_client:
+                        listener.upload_engine = f"{Config.UPLOAD_ENGINE} v{Config.UPLOAD_ENGINE_VERSION}"
+                        listener.upload_client = "Main Bot"
+                        return UploadRoute("main", "Main Bot", main_client)
                     self._last_queue_reason = "Queue"
             if not Config.UPLOAD_QUEUE_ENABLED:
                 return UploadRoute("current", "Current Engine", listener.client)

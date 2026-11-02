@@ -243,6 +243,56 @@ async def render_muxing_configuration(vt_msg, state):
     bank_summary_str = f"{bank_files_count} file(s) on VPS" if bank_files_count else "None"
     matched_summary_str = f"{matched_bank.get('matched_episodes', 0)}/{matched_bank.get('total_episodes', 0)} episodes paired" if matched_bank else ""
 
+    video_dur = float(state.get("video_duration") or 0)
+    if not video_dur and state.get("input_path"):
+        try:
+            from ..helper.ext_utils.media_utils import get_media_info
+            v_info = await get_media_info(state["input_path"])
+            video_dur = float(v_info[0] or 0)
+            state["video_duration"] = video_dur
+        except Exception:
+            pass
+
+    audio_dur = 0.0
+    if external_audio:
+        first_a = external_audio[0]
+        audio_dur = float(first_a.get("duration") or 0)
+        if not audio_dur and first_a.get("path"):
+            try:
+                from ..helper.ext_utils.media_utils import get_media_info
+                a_info = await get_media_info(first_a["path"])
+                audio_dur = float(a_info[0] or 0)
+                first_a["duration"] = audio_dur
+            except Exception:
+                pass
+    elif matched_bank and matched_bank.get("matched"):
+        first_m = matched_bank["matched"][0]
+        if first_m.get("audio_tracks"):
+            trk_path = first_m["audio_tracks"][0].get("audio_path")
+            if trk_path:
+                try:
+                    from ..helper.ext_utils.media_utils import get_media_info
+                    a_info = await get_media_info(trk_path)
+                    audio_dur = float(a_info[0] or 0)
+                except Exception:
+                    pass
+
+    length_diff_ms = None
+    if video_dur > 0 and audio_dur > 0:
+        length_diff_ms = int(round((audio_dur - video_dur) * 1000))
+        state["video_duration_ms"] = int(round(video_dur * 1000))
+        state["audio_duration_ms"] = int(round(audio_dur * 1000))
+        state["length_diff_ms"] = length_diff_ms
+        try:
+            from ..helper.video_utils.vps_audio_bank import load_web_session, save_web_session
+            sess = await load_web_session(task_id) or {}
+            sess["video_duration_ms"] = state["video_duration_ms"]
+            sess["audio_duration_ms"] = state["audio_duration_ms"]
+            sess["length_diff_ms"] = length_diff_ms
+            await save_web_session(task_id, sess)
+        except Exception:
+            pass
+
     lines = [
         "<b>⬡ Muxing Configuration :</b>",
         f"├ Base Video → <code>{filename}</code>" + (f" <i>(Season Pack: {len(state.get('folder_videos', []))} Episodes)</i>" if is_folder else ""),
@@ -250,6 +300,14 @@ async def render_muxing_configuration(vt_msg, state):
         f"├ Task Mode → <code>{task_mode}</code>",
         f"├ VPS Audio Bank → <code>{bank_summary_str}</code>" + (f" <i>({matched_summary_str})</i>" if matched_summary_str else ""),
         f"├ Audio Delay → <b>{audio_delay_ms:+d} ms</b>",
+    ]
+    if length_diff_ms is not None:
+        v_min, v_sec = divmod(int(video_dur), 60)
+        a_min, a_sec = divmod(int(audio_dur), 60)
+        diff_str = f"{length_diff_ms:+d} ms"
+        lines.append(f"├ Length Diff → <b>{diff_str}</b> <i>(Audio: {a_min}m {a_sec:02d}s vs Video: {v_min}m {v_sec:02d}s)</i>")
+
+    lines.extend([
         f"├ Auto Sync → <b>{auto_sync}</b>",
         f"├ Final Sample → <b>{final_sample}</b>",
         f"├ Source Audio → <code>{source_audio_str}</code>",
@@ -257,7 +315,7 @@ async def render_muxing_configuration(vt_msg, state):
         f"├ Save Settings → <b>{save_settings}</b>",
         f"├ Output Name → <code>{output_name}</code>",
         "│",
-    ]
+    ])
 
     total_ext = len(external_audio) + len(external_sub)
     downloading_status = state.get("downloading_status")
@@ -279,6 +337,8 @@ async def render_muxing_configuration(vt_msg, state):
             size_display = f"{size_mb:.2f}MB" if size_mb else "N/A"
             delay = item.get("delay_ms", 0)
             sync_info = f" | Sync: {delay:+d}ms"
+            if length_diff_ms is not None:
+                sync_info += f" | Δ: {length_diff_ms:+d}ms"
             lines.append(
                 f"{prefix} Audio {i} → {lang} ({codec} {channels}) [{tag}] [Trk {trk_idx}] - {size_display}{sync_info}"
             )
@@ -1106,9 +1166,10 @@ async def video_tools_callback(_, query):
                 return
 
             if mux_action == "preview":
-                if not state.get("external_audio"):
+                has_audio = bool(state.get("external_audio") or (state.get("matched_bank") and state["matched_bank"].get("matched")))
+                if not has_audio:
                     await query.answer(
-                        "Please send an audio file to chat before previewing delay!",
+                        "Please select audio from VPS Bank or send an audio file before previewing delay!",
                         show_alert=True,
                     )
                     return
