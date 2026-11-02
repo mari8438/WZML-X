@@ -538,6 +538,30 @@ class SevenZ:
             self._percentage = "0%"
 
     async def extract(self, f_path, t_path, pswd):
+        is_rar = f_path.lower().endswith((".rar", ".r00")) or ".part1.rar" in f_path.lower() or ".part01.rar" in f_path.lower()
+        if is_rar and (await aiopath.exists("/usr/bin/unrar") or await aiopath.exists("unrar")):
+            unrar_bin = "/usr/bin/unrar" if await aiopath.exists("/usr/bin/unrar") else "unrar"
+            cmd_unrar = [unrar_bin, "x", "-y"]
+            if pswd:
+                cmd_unrar.append(f"-p{pswd}")
+            else:
+                cmd_unrar.append("-p-")
+            cmd_unrar.extend([f_path, f"{t_path}/"])
+            LOGGER.info(f"Extracting RAR archive using unrar: {f_path}")
+            if self._listener.is_cancelled:
+                return False
+            self._listener.subproc = await create_subprocess_exec(
+                *cmd_unrar,
+                stdout=PIPE,
+                stderr=PIPE,
+            )
+            stdout, stderr = await self._listener.subproc.communicate()
+            code = self._listener.subproc.returncode
+            if code == 0:
+                LOGGER.info(f"Successfully extracted RAR archive: {f_path}")
+                return 0
+            LOGGER.warning(f"unrar returned {code}: {stderr.decode(errors='ignore').strip()}. Trying 7z fallback...")
+
         cmd = [
             "7z",
             "x",
@@ -568,6 +592,23 @@ class SevenZ:
             self._listener.is_cancelled = True
             return False
         elif code != 0:
+            if await aiopath.exists("/usr/bin/unrar"):
+                cmd_unrar = ["/usr/bin/unrar", "x", "-y"]
+                if pswd:
+                    cmd_unrar.append(f"-p{pswd}")
+                else:
+                    cmd_unrar.append("-p-")
+                cmd_unrar.extend([f_path, f"{t_path}/"])
+                LOGGER.info(f"Attempting unrar fallback for: {f_path}")
+                subproc = await create_subprocess_exec(
+                    *cmd_unrar,
+                    stdout=PIPE,
+                    stderr=PIPE,
+                )
+                _, stderr_unrar = await subproc.communicate()
+                if subproc.returncode == 0:
+                    LOGGER.info(f"Successfully extracted archive using unrar fallback: {f_path}")
+                    return 0
             try:
                 stderr = stderr.decode().strip()
             except Exception:

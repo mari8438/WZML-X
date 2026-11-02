@@ -827,6 +827,73 @@ async def video_probe_api(task_id: str = "", token: str = ""):
     )
 
 
+async def ensure_preview_clip(video_path: str, task_id: str, duration: int = 120) -> str:
+    if not video_path or not os.path.isfile(video_path):
+        return ""
+    preview_dir = "/usr/src/app/downloads/vt_previews" if os.path.exists("/usr/src/app/downloads") else "downloads/vt_previews"
+    os.makedirs(preview_dir, exist_ok=True)
+    preview_path = os.path.join(preview_dir, f"{task_id}_preview.mp4")
+
+    if os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+        return preview_path
+
+    ss = "00:01:00"
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-ss", ss,
+        "-t", str(duration),
+        "-i", video_path,
+        "-vf", "scale=-2:480",
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-c:a", "aac", "-b:a", "96k",
+        "-threads", "2",
+        "-movflags", "+faststart",
+        preview_path
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(*cmd)
+        await proc.wait()
+        if os.path.isfile(preview_path) and os.path.getsize(preview_path) > 1000:
+            return preview_path
+    except Exception as e:
+        LOGGER.warning(f"Error generating preview clip: {e}")
+    return video_path
+
+
+async def ensure_audio_preview(audio_path: str, task_id: str, duration: int = 120) -> str:
+    if not audio_path or not os.path.isfile(audio_path):
+        return ""
+    ext = os.path.splitext(audio_path)[1].lower()
+    if ext in [".m4a", ".aac", ".mp3"]:
+        return audio_path
+
+    preview_dir = "/usr/src/app/downloads/vt_previews" if os.path.exists("/usr/src/app/downloads") else "downloads/vt_previews"
+    os.makedirs(preview_dir, exist_ok=True)
+    audio_preview = os.path.join(preview_dir, f"{task_id}_{abs(hash(audio_path))}_preview.m4a")
+
+    if os.path.isfile(audio_preview) and os.path.getsize(audio_preview) > 1000:
+        return audio_preview
+
+    ss = "00:01:00"
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-ss", ss,
+        "-t", str(duration),
+        "-i", audio_path,
+        "-c:a", "aac", "-b:a", "128k",
+        "-threads", "2",
+        audio_preview
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(*cmd)
+        await proc.wait()
+        if os.path.isfile(audio_preview) and os.path.getsize(audio_preview) > 1000:
+            return audio_preview
+    except Exception as e:
+        LOGGER.warning(f"Error generating audio preview: {e}")
+    return audio_path
+
+
 @app.api_route("/api/video/stream", methods=["GET", "HEAD"])
 async def video_stream_api(
     request: Request,
@@ -878,6 +945,18 @@ async def video_stream_api(
 
     if not target_path or not os.path.isfile(target_path):
         raise HTTPException(status_code=404, detail="Media stream file not found on disk")
+
+    ext = os.path.splitext(target_path)[1].lower()
+    if source == "video":
+        if ext != ".mp4" or "preview" in request.query_params:
+            preview_file = await ensure_preview_clip(target_path, task_id)
+            if preview_file and os.path.isfile(preview_file):
+                target_path = preview_file
+    elif source in ("audio", "bank"):
+        if ext not in (".mp4", ".m4a", ".aac", ".mp3") or "preview" in request.query_params:
+            preview_audio = await ensure_audio_preview(target_path, task_id)
+            if preview_audio and os.path.isfile(preview_audio):
+                target_path = preview_audio
 
     return stream_local_file(target_path, request)
 
