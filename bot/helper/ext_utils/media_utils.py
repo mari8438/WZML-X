@@ -62,10 +62,12 @@ TITLE_NOISE_PATTERN = (
     r"\b(?:"
     r"19\d{2}|20[0-3]\d|2160p|1080p|720p|480p|4K|DS4K|"
     r"WEB\s?DL|WEB\s?Rip|WEBRIP|Blu\s?Ray|BRRip|BDRip|HDRip|HDTV|DVDRip|REMUX|"
-    r"DSNP|AMZN|NF|JHS|Hotstar|HBO|IMAX|CR|MULTI\d*|MULTi\d*|Dual|"
+    r"DSNP|AMZN|NF|JHS|Hotstar|HBO|IMAX|CR|ZEE5|AHA|SonyLIV|JioCinema|SunNXT|MULTI\d*|MULTi\d*|Dual|"
     r"EAC3|E\s?AC3|DDP|AC3|AAC|DTS|TrueHD|Atmos|Opus|FLAC|MP3|"
     r"HEVC|H265|H264|x265|x264|×265|×264|AV1|10bit|8bit|12bit|"
-    r"Tamil|Telugu|Hindi|English|Malayalam|Kannada|ESub|MSub|Sub"
+    r"Tamil|Telugu|Hindi|English|Malayalam|Kannada|TEL|TAM|HIN|ENG|MAL|KAN|BEN|MAR|KOR|JAP|PUN|"
+    r"5\.1|7\.1|2\.0|"
+    r"ESub|MSub|SoftSub|Subs|Subtitles|MultiSub"
     r")\b"
 )
 
@@ -1397,6 +1399,28 @@ def _extract_part_tag(filename):
     return f"P{int(match.group(1)):02}" if match else ""
 
 
+def _extract_languages_tag(filename):
+    multi_match = re.search(
+        r"\b((?:TEL|TAM|HIN|ENG|MAL|KAN|BEN|MAR|KOR|JAP)(?:[-+](?:TEL|TAM|HIN|ENG|MAL|KAN|BEN|MAR|KOR|JAP))+)\b",
+        str(filename or ""),
+        re.IGNORECASE,
+    )
+    if multi_match:
+        return multi_match.group(1).upper()
+    lang_match = re.search(
+        r"\b(Tamil|Telugu|Hindi|English|Malayalam|Kannada|Bengali|Marathi|Korean|Japanese|TEL|TAM|HIN|ENG|MAL|KAN)\b",
+        str(filename or ""),
+        re.IGNORECASE,
+    )
+    if lang_match:
+        return lang_match.group(1)
+    if re.search(r"\b(?:Multi\s*Audio|Multi)\b", str(filename or ""), re.IGNORECASE):
+        return "Multi"
+    if re.search(r"\bDual\s*Audio\b", str(filename or ""), re.IGNORECASE):
+        return "Dual"
+    return ""
+
+
 def _short_language_tag(languages):
     if not languages:
         return ""
@@ -1585,9 +1609,28 @@ def _clean_title_from_filename(filename):
     )
     stem = re.sub(r"^[^\w\[\(]{1,12}\s*[-_. ]+", "", stem, flags=re.UNICODE)
     stem = re.sub(r"^[A-Z0-9]{1,8}\s*[-_. ]+(?=\[?[Ss]\d{1,2}[Ee]\d{1,4}\]?)", "", stem)
-    stem = re.sub(r"(?:^|\s)-\s*[A-Za-z0-9][A-Za-z0-9._-]{1,30}$", "", stem)
+    stem = re.sub(r"(?:^|\s)-\s*[A-Za-z0-9][A-Za-z0-9._-]{1,30}(?:\)|\]|$)", "", stem)
+
+    # If the filename has an explicit year in brackets or parentheses e.g. (2026) or [2026],
+    # the title is everything preceding the year unless it's a TV series.
+    year_bracket = re.search(r"[\(\[]\s*(19\d{2}|20[0-3]\d)\s*[\)\]]", stem)
+    if year_bracket and year_bracket.start() > 1:
+        pre_year = stem[:year_bracket.start()].strip(" -._")
+        tv_check = re.search(
+            r"(?<![A-Za-z0-9])[Ss]0*(\d{1,2})[\s._-]*[Ee]0*(\d{1,4})(?![A-Za-z0-9])",
+            pre_year,
+        )
+        if not tv_check and len(re.findall(r"[A-Za-z0-9]", pre_year)) >= 2:
+            clean_pre = re.sub(r"[\[\](){}]", " ", pre_year)
+            clean_pre = clean_pre.replace(".", " ").replace("_", " ")
+            clean_pre = re.sub(r"(?<=\s)-(?=\s)|(?<=\s)-|-(?=\s)|^[-_.\s]+|[-_.\s]+$", " ", clean_pre)
+            clean_pre = re.sub(r"\s+", " ", clean_pre).strip(" -._")
+            if clean_pre:
+                return clean_pre
+
     title = re.sub(r"[\[\](){}]", " ", stem)
-    title = title.replace(".", " ").replace("_", " ").replace("-", " ")
+    title = title.replace(".", " ").replace("_", " ")
+    title = re.sub(r"(?<=\s)-(?=\s)|(?<=\s)-|-(?=\s)|^[-_.\s]+|[-_.\s]+$", " ", title)
     title = re.sub(r"\s+", " ", title).strip()
 
     title = re.sub(
@@ -2256,8 +2299,8 @@ async def extract_metadata_from_filename(filename, filepath=None):
     """
     metadata = {
         "title": "Unknown",
-        "season": "1",
-        "episode": "01",
+        "season": "",
+        "episode": "",
         "resolution": "",
         "bit": "",
         "ott": "",
@@ -2456,17 +2499,23 @@ async def extract_metadata_from_filename(filename, filepath=None):
                     continue
 
         if not episode_found:
-            title_part = re.split(r"[\.\-\s]+\d{3,4}p", filename)[0]
-            title_part = re.sub(r"\[.*?\]|\(.*?\)", "", title_part).strip()
-            fallback_match = re.search(
-                r"[\s\.\-]+0*(\d{1,4})(?=[\s\.\-]|$)", title_part
-            )
-            if fallback_match:
-                ep_num = int(fallback_match.group(1))
-                if 1 <= ep_num <= 9999:
-                    metadata["episode"] = str(ep_num).zfill(
-                        4 if ep_num >= 1000 else 3 if ep_num >= 100 else 2
-                    )
+            has_explicit_year = bool(re.search(r"[\(\[]\s*(19\d{2}|20[0-3]\d)\s*[\)\]]|\b(19\d{2}|20[0-3]\d)\b", filename))
+            if not has_explicit_year:
+                title_part = re.split(r"[\.\-\s]+\d{3,4}p", filename)[0]
+                title_part = re.sub(r"\[.*?\]|\(.*?\)", "", title_part).strip()
+                fallback_match = re.search(
+                    r"[\s\.\-]+0*(\d{1,4})(?=[\s\.\-]|$)", title_part
+                )
+                if fallback_match:
+                    ep_num = int(fallback_match.group(1))
+                    if 1 <= ep_num <= 9999:
+                        metadata["episode"] = str(ep_num).zfill(
+                            4 if ep_num >= 1000 else 3 if ep_num >= 100 else 2
+                        )
+                        episode_found = True
+
+    if metadata.get("episode") and not metadata.get("season"):
+        metadata["season"] = "1"
 
     resolution_match = re.search(r"(\d{3,4}p|4K|2160p)", filename, re.IGNORECASE)
     if resolution_match:
@@ -2525,6 +2574,12 @@ async def extract_metadata_from_filename(filename, filepath=None):
         metadata["acodec"] = parts[0]
         if len(parts) > 1:
             metadata["audio_channels"] = parts[1]
+
+    if not metadata.get("languages"):
+        lang_tag = _extract_languages_tag(filename)
+        if lang_tag:
+            metadata["languages"] = lang_tag
+            metadata["language"] = lang_tag
 
     stream_info = await _extract_stream_rename_info(filepath)
     for key, value in stream_info.items():
@@ -2611,6 +2666,13 @@ async def apply_template_rename(filename, template, filepath=None, **extra):
 
     try:
         renamed = template.format_map(_SafeFormatDict(metadata))
+        # If season and episode are empty (e.g. movies), clean up unfilled series tags
+        renamed = re.sub(r"\[\s*S\s*E\s*\]\s*", "", renamed, flags=re.IGNORECASE)
+        renamed = re.sub(r"\[\s*S\s*-\s*EP\(\s*\)\s*\]\s*", "", renamed, flags=re.IGNORECASE)
+        renamed = re.sub(r"\[\s*-\s*\]\s*", "", renamed)
+        renamed = re.sub(r"\[\s*\]\s*", "", renamed)
+        renamed = re.sub(r"\(\s*\)\s*", "", renamed)
+        renamed = re.sub(r"\s+", " ", renamed).strip()
         original_ext = Path(filename).suffix
         if original_ext and not renamed.lower().endswith(original_ext.lower()):
             renamed += original_ext
@@ -2857,27 +2919,37 @@ def format_clean_poster_title(raw_title, rename_regex=None):
     )
     if merge_season_match:
         season = f"Season {int(merge_season_match.group(1))}"
+    has_tv_indicator = bool(
+        merge_season_match
+        or re.search(r"(?<![A-Za-z0-9])[Ss]0*(\d{1,2})[\s._-]*[Ee]0*(\d{1,4})(?![A-Za-z0-9])", normalized)
+        or re.search(r"\bSeason\s*\d+\b", normalized, re.IGNORECASE)
+        or re.search(r"\b(?:Episode|EP)\s*0*\d+\b", normalized, re.IGNORECASE)
+    )
+
     season_match = re.search(
         r"(?<![A-Za-z0-9])(?:Season\s*|S)0*(\d{1,2})(?:\s*E\d{1,4})?(?![A-Za-z0-9])",
         normalized,
         re.IGNORECASE,
     )
-    if season_match and not season:
+    if season_match and not season and has_tv_indicator:
         season = f"Season {int(season_match.group(1))}"
     year_match = re.search(r"\b(19\d{2}|20[0-3]\d)\b", normalized)
     if year_match:
         year = year_match.group(1)
+        if not has_tv_indicator:
+            season = None
 
     title = _clean_title_from_filename(raw_title)
     if title:
         if year:
             title = re.sub(rf"\b{re.escape(year)}\b", " ", title)
         title = re.sub(TITLE_NOISE_PATTERN, " ", title, flags=re.IGNORECASE)
-        title = re.sub(
-            r"(?i)(?<![A-Za-z0-9])(?:season\s*|s)0*\d{1,2}(?![A-Za-z0-9])",
-            " ",
-            title,
-        )
+        if has_tv_indicator:
+            title = re.sub(
+                r"(?i)(?<![A-Za-z0-9])(?:season\s*|s)0*\d{1,2}(?![A-Za-z0-9])",
+                " ",
+                title,
+            )
         if _looks_like_anime_name(raw_title, title):
             title = re.sub(r"\s+\d{1,4}$", "", title).strip()
         title = clean_part_suffix(

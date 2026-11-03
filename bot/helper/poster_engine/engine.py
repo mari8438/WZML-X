@@ -535,6 +535,16 @@ async def _tmdb_search(title, year=None, season=None, episode=None):
             for item in res.json().get("results", [])
             if item.get("media_type") in {"movie", "tv"}
         ]
+        if not results and year:
+            params_no_year = params.copy()
+            params_no_year.pop("year", None)
+            res = await client.get("https://api.themoviedb.org/3/search/multi", params=params_no_year)
+            if res.status_code == 200:
+                results = [
+                    item
+                    for item in res.json().get("results", [])
+                    if item.get("media_type") in {"movie", "tv"}
+                ]
         if not results:
             return {}
         wanted_year = search(r"\d{4}", _safe_text(year))
@@ -891,8 +901,15 @@ async def _metadata(
         (group for group in (episode_match.groups() if episode_match else ()) if group),
         None,
     )
-    season = parsed_season or (f"Season {int(season_no)}" if season_no else "")
-    episode = str(int(episode_no)) if episode_no else ""
+    if parsed_season:
+        season = parsed_season
+        episode = str(int(episode_no)) if episode_no else ""
+    elif parsed_year:
+        season = ""
+        episode = ""
+    else:
+        season = f"Season {int(season_no)}" if season_no else ""
+        episode = str(int(episode_no)) if episode_no else ""
     year = base.get("year") or parsed_year or ""
     title = _clean_search_title(parsed_title or seed, base.get("title") or "")
     if not title or title.lower() == "unknown":

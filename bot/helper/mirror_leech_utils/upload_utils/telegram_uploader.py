@@ -963,14 +963,16 @@ class TelegramUploader:
                         if thumb:
                             raise StopAsyncIteration
                         custom_name = getattr(self._listener, "custom_name", "")
+                        orig_name = getattr(self._listener, "name", "") or file
                         thumb_lookup_name = choose_media_title_seed(
-                            file,
+                            orig_name,
                             first_file=getattr(self._listener, "file_details", {}).get("first_file", ""),
                             file_caption=getattr(self._listener, "file_details", {}).get("caption", ""),
                             custom_name=custom_name,
                             link=getattr(self._listener, "source_url", ""),
                             merge_source_name=getattr(self._listener, "merge_source_name", ""),
                             prefer_filename=True,
+                            source_filename=orig_name,
                         )
                         force_anime_thumb = (
                             getattr(self._listener, "force_anime_thumbnail", False)
