@@ -2775,7 +2775,8 @@ async def _execute_vt_pipeline(listener, input_path, state):
     stem, ext = ospath.splitext(base_name)
     output_ext = ".mkv" if (extra_inputs or base_name.endswith(".mkv")) else ext
     output_path = ospath.join(dir_path, f"vt_{stem}{output_ext}")
-    await _send_track_merge_planner(listener, input_path, state, extra_inputs, output_path)
+    # Disabled Video Tools Merge Planner message to prevent chat spam
+    # await _send_track_merge_planner(listener, input_path, state, extra_inputs, output_path)
 
     # Try mkvmerge fast remux if input is MKV or output is MKV
     if input_path.lower().endswith(".mkv") or output_ext == ".mkv":
