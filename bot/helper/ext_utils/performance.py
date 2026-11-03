@@ -172,7 +172,10 @@ def trim_memory():
         import ctypes
         if hasattr(ctypes, "CDLL"):
             try:
-                libc = ctypes.CDLL(None)
+                try:
+                    libc = ctypes.CDLL("libc.so.6")
+                except Exception:
+                    libc = ctypes.CDLL(None)
                 if hasattr(libc, "malloc_trim"):
                     libc.malloc_trim(0)
             except Exception:

@@ -23,6 +23,8 @@ class TelegramStatus:
 
     def status(self):
         if self._status == "up":
+            if getattr(self._obj, "is_uploading", True) is False:
+                return "Preparing"
             return MirrorStatus.STATUS_UPLOAD
         return MirrorStatus.STATUS_DOWNLOAD
 

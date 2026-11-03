@@ -57,6 +57,7 @@ from ...ext_utils.media_utils import (
     clean_autorename_separators,
     clean_rss_filename,
     download_image_thumb,
+    ensure_hd_video_thumb,
     get_anime_landscape_thumbnail,
     get_audio_thumbnail,
     get_document_type,
@@ -65,6 +66,7 @@ from ...ext_utils.media_utils import (
     get_telegram_document_thumb,
     get_media_info,
     get_multiple_frames_thumbnail,
+    get_video_dimensions,
     get_video_thumbnail,
 )
 from ...telegram_helper.message_utils import delete_message
@@ -104,8 +106,12 @@ class TelegramUploader:
         self._path = path
         self._client = None
         self._start_time = time()
+        self._transfer_start_time = None
+        self._last_speed_update = 0.0
+        self._bytes_in_window = 0
+        self._current_speed = 0.0
         self._total_files = 0
-        self._thumb = self._listener.thumb or f"thumbnails/{listener.user_id}.jpg"
+        self._thumb = self._listener.thumb
         self._msgs_dict = {}
         self._corrupted = 0
         self._is_corrupted = False
@@ -142,9 +148,23 @@ class TelegramUploader:
                 TgClient.user.stop_transmission()
             else:
                 self._listener.client.stop_transmission()
+        now = time()
+        if self._transfer_start_time is None:
+            self._transfer_start_time = now
+            self._last_speed_update = now
+            self._bytes_in_window = 0
+            self._current_speed = 0.0
+
         chunk_size = current - self._last_uploaded
         self._last_uploaded = current
         self._processed_bytes += chunk_size
+        self._bytes_in_window += chunk_size
+
+        elapsed = now - getattr(self, "_last_speed_update", now)
+        if elapsed >= 1.0:
+            self._current_speed = self._bytes_in_window / elapsed
+            self._bytes_in_window = 0
+            self._last_speed_update = now
 
     async def _user_settings(self):
         settings_map = {
@@ -745,6 +765,10 @@ class TelegramUploader:
                         )
                     self._last_msg_in_group = False
                     self._last_uploaded = 0
+                    self._transfer_start_time = None
+                    self._last_speed_update = 0.0
+                    self._bytes_in_window = 0
+                    self._current_speed = 0.0
                     await self._upload_file(cap_mono, file_, f_path)
                     if self._log_msg and not is_log_del and Config.CLEAN_LOG_MSG:
                         await delete_message(self._log_msg)
@@ -843,6 +867,7 @@ class TelegramUploader:
                 width=width,
                 height=height,
                 thumb=thumb,
+                video_cover=thumb,
                 supports_streaming=True,
                 **common,
             )
@@ -1130,11 +1155,11 @@ class TelegramUploader:
                     if thumb:
                         LOGGER.info(f"Using FFmpeg video thumbnail for: {file}")
                 if thumb is not None and thumb != "none":
-                    with Image.open(thumb) as img:
-                        width, height = img.size
-                else:
-                    width = 480
-                    height = 320
+                    thumb = await ensure_hd_video_thumb(thumb)
+
+                vid_w, vid_h = await get_video_dimensions(self._up_path)
+                width = vid_w or 1280
+                height = vid_h or 720
                 if self._listener.is_cancelled:
                     await starfallx_upload.release_route(route)
                     self._active_route = None
@@ -1160,6 +1185,7 @@ class TelegramUploader:
                         width=width,
                         height=height,
                         thumb=thumb,
+                        video_cover=thumb,
                         supports_streaming=True,
                         disable_notification=True,
                         progress=self._upload_progress,
@@ -1328,9 +1354,18 @@ class TelegramUploader:
             raise err
 
     @property
+    def is_uploading(self):
+        return self._transfer_start_time is not None
+
+    @property
     def speed(self):
+        if not self._transfer_start_time or self._processed_bytes == 0:
+            return 0
+        if getattr(self, "_current_speed", 0.0) > 0:
+            return self._current_speed
         try:
-            return self._processed_bytes / (time() - self._start_time)
+            elapsed = time() - self._transfer_start_time
+            return self._processed_bytes / max(elapsed, 0.1)
         except ZeroDivisionError:
             return 0
 

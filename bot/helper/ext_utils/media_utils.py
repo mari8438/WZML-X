@@ -573,6 +573,79 @@ async def get_telegram_document_thumb(thumb_path):
         return thumb_path
 
 
+async def ensure_hd_video_thumb(thumb_path):
+    """Ensure a video thumbnail is formatted in crisp HD 16:9 (1280x720) without distortion."""
+    if not thumb_path or thumb_path == "none" or not await aiopath.exists(thumb_path):
+        return thumb_path
+    output_dir = f"{DOWNLOAD_DIR}thumbnails"
+    await makedirs(output_dir, exist_ok=True)
+    output = ospath.join(output_dir, f"{time()}_hd.jpg")
+
+    def _process(src, dst):
+        with Image.open(src) as im:
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            w, h = im.size
+            target_w, target_h = 1280, 720
+            aspect = w / max(h, 1)
+
+            # If already ~16:9 (1.70 to 1.85) and HD width, resize to target HD
+            if 1.70 <= aspect <= 1.85 and w >= 1200:
+                if (w, h) != (target_w, target_h):
+                    im = im.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            elif aspect > 1.85:
+                # Ultra-wide: scale to 720h and center-crop to 1280w
+                scale = target_h / max(h, 1)
+                new_w = int(w * scale)
+                im = im.resize((new_w, target_h), Image.Resampling.LANCZOS)
+                left = (new_w - target_w) // 2
+                im = im.crop((left, 0, left + target_w, target_h))
+            else:
+                # Square (1:1), Portrait (<1.6), or non-widescreen:
+                # Center crop to 16:9 HD canvas so Telegram displays full HD
+                scale = max(target_w / max(w, 1), target_h / max(h, 1))
+                scaled_w, scaled_h = int(w * scale), int(h * scale)
+                im_scaled = im.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
+                left = max(0, (scaled_w - target_w) // 2)
+                top = max(0, (scaled_h - target_h) // 2)
+                im = im_scaled.crop((left, top, left + target_w, top + target_h))
+
+            im.save(dst, "JPEG", quality=_thumb_quality(), optimize=True)
+
+    try:
+        await sync_to_async(_process, thumb_path, output)
+        return output
+    except Exception as e:
+        LOGGER.warning(f"HD video thumb processing failed: {e}")
+        return thumb_path
+
+
+async def get_video_dimensions(video_file):
+    """Retrieve exact width and height of the primary video stream via ffprobe."""
+    try:
+        result = await cmd_exec(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=s=x:p=0",
+                video_file,
+            ]
+        )
+        if result[0] and result[2] == 0:
+            line = result[0].strip().split("\n")[0]
+            parts = line.split("x")
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                return int(parts[0]), int(parts[1])
+    except Exception as e:
+        LOGGER.error(f"Failed to get video dimensions: {e}")
+    return 1280, 720
+
+
 async def get_multiple_frames_thumbnail(video_file, layout, keep_screenshots):
     layout = re.sub(r"(\d+)\D+(\d+)", r"\1x\2", layout)
     ss_nb = layout.split("x")

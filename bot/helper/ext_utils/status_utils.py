@@ -278,6 +278,11 @@ def is_starfall_theme():
     return _status_theme() == "starfall"
 
 
+def _real_ram_percent():
+    vm = virtual_memory()
+    return round((vm.used / max(vm.total, 1)) * 100, 1)
+
+
 def get_starfall_system_status():
     disk = disk_usage(DOWNLOAD_DIR)
     uptime = get_readable_time(time() - bot_start_time) or "0s"
@@ -286,7 +291,7 @@ def get_starfall_system_status():
         "◉⃝     <b>Starfall Status</b>  ◉⃝\n"
         "╔══════════════════\n"
         f"╠ CPU ➥ {cpu_percent()}% | F ➥ {get_readable_file_size(disk.free)}\n"
-        f"╠ RAM ➥ {virtual_memory().percent}% | UP ➥ {uptime}\n"
+        f"╠ RAM ➥ {_real_ram_percent()}% | UP ➥ {uptime}\n"
         f"╠ NET ➥ {get_readable_file_size(total_net)} | "
         f"↓ {get_readable_file_size(rx_rate)}/s ↑ {get_readable_file_size(tx_rate)}/s\n"
         "╚══════════════════"
@@ -301,7 +306,7 @@ def get_legacy_system_status():
         "⌬ <b><u>Bot Stats</u></b>\n"
         f"┟ <b>CPU</b> → {cpu_percent()}% | <b>F</b> → "
         f"{get_readable_file_size(disk.free)}\n"
-        f"┠ <b>RAM</b> → {virtual_memory().percent}% | <b>UP</b> → {uptime}\n"
+        f"┠ <b>RAM</b> → {_real_ram_percent()}% | <b>UP</b> → {uptime}\n"
         f"┖ <b>NET</b> → {get_readable_file_size(total_net)} | ↓ {get_readable_file_size(rx_rate)}/s ↑ {get_readable_file_size(tx_rate)}/s"
     )
 
@@ -514,7 +519,7 @@ async def _get_readable_message_legacy(sid, is_user, page_no=1, status="All", pa
     buttons.data_button(f"{GREEN_DOT} Refresh", f"status {sid} ref", position="header", style=ButtonStyle.SUCCESS)
     button = buttons.build_menu(8)
     msg += f"\n┟ <b>CPU</b> → {cpu_percent()}% | <b>F</b> → {get_readable_file_size(disk_usage(DOWNLOAD_DIR).free)} [{round(100 - disk_usage(DOWNLOAD_DIR).percent, 1)}%]"
-    msg += f"\n┖ <b>RAM</b> → {virtual_memory().percent}% | <b>UP</b> → {get_readable_time(time() - bot_start_time)}"
+    msg += f"\n┖ <b>RAM</b> → {_real_ram_percent()}% | <b>UP</b> → {get_readable_time(time() - bot_start_time)}"
     active_count = len(non_queued_dl) + len(non_queued_up)
     queue_count = len(queued_dl) + len(queued_up)
     msg += f"\n<b>Active/Queued</b> -> {active_count}/{queue_count}"
