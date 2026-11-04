@@ -142,76 +142,76 @@ async def get_stats(event, key="home"):
     limits_icon = safe_emoji(PREMIUM_TRAFFIC, "🚦")
 
     bot_stats_block = format_accordion_block(
-        f"{bot_icon} BOT STATS",
-        "uptime, RAM, disk",
+        f"{bot_icon} CORE RUNTIME",
+        "hardware & memory matrix",
         [
-            ("Uptime", uptime),
-            ("CPU", f"{cpu:.1f}%"),
-            ("RAM", f"{used_ram_pct}% ({used_ram} / {total_ram})"),
-            ("Bot RSS", bot_memory),
-            ("Free Disk", free_disk),
+            ("Runtime", uptime),
+            ("CPU Load", f"{cpu:.1f}%"),
+            ("RAM Alloc", f"{used_ram_pct}% ({used_ram} / {total_ram})"),
+            ("Process RSS", bot_memory),
+            ("NVMe Free", free_disk),
         ],
         curved=True,
     )
 
     os_stats_block = format_accordion_block(
-        f"{os_icon} OS STATS",
-        "system and network",
+        f"{os_icon} HOST & NETWORK",
+        "node infrastructure",
         [
-            ("OS", os_name),
+            ("Platform", os_name),
             ("Kernel", kernel_ver),
-            ("Total Net", total_net),
-            ("Current Speed", f"↓ {rx_speed}/s | ↑ {tx_speed}/s"),
-        ],
-        curved=True,
-    )
-
-    repo_stats_block = format_accordion_block(
-        f"{repo_icon} REPO STATS",
-        "commits and branch",
-        [
-            ("Branch", "starfallx-v1.2-vps-2core-4gb"),
-            ("Commit", last_commit_hash),
-            ("Version", bot_ver),
-            ("Changelog", last_commit_msg),
+            ("Total Bandwidth", total_net),
+            ("Transfer Rate", f"↓ {rx_speed}/s • ↑ {tx_speed}/s"),
         ],
         curved=True,
     )
 
     pkgs_stats_block = format_accordion_block(
-        f"{pkgs_icon} PKGS STATS",
-        "engine versions",
+        f"{pkgs_icon} ENGINE SUITE",
+        "acceleration pipeline",
         [
-            ("Python", python_ver),
-            ("Aria2", aria2_ver),
-            ("qBittorrent", qbit_ver),
-            ("FFmpeg", ffmpeg_ver),
-            ("WZGram", wzgram_ver),
-            ("WarpCrypto", warpcrypto_ver),
+            ("Python Core", f"v{python_ver}"),
+            ("Aria2 Turbo", f"v{aria2_ver}"),
+            ("qBittorrent", f"v{qbit_ver}"),
+            ("FFmpeg Stack", f"v{ffmpeg_ver}"),
+            ("WZGram Client", f"v{wzgram_ver}"),
+            ("WarpCrypto", f"v{warpcrypto_ver}"),
         ],
         curved=True,
     )
 
     limits_block = format_accordion_block(
-        f"{limits_icon} TASK LIMITS",
-        "per-task caps",
+        f"{limits_icon} TASK POLICIES",
+        "execution & concurrency caps",
         [
-            ("Leech Limit", leech_limit),
-            ("Torrent Limit", torrent_limit),
-            ("Direct Limit", direct_limit),
-            ("Max Parallel", "2 DL / 1 UP"),
+            ("Leech Cap", leech_limit),
+            ("Torrent Cap", torrent_limit),
+            ("Direct DL Cap", direct_limit),
+            ("Concurrency", "2 DL / 1 UP (VPS Safe)"),
+        ],
+        curved=True,
+    )
+
+    repo_stats_block = format_accordion_block(
+        f"{repo_icon} FIRMWARE BUILD",
+        "git revision & channel",
+        [
+            ("Active Branch", "starfallx-v1.2-vps-2core-4gb"),
+            ("Commit Hash", last_commit_hash),
+            ("Engine Version", bot_ver),
+            ("Revision Info", last_commit_msg),
         ],
         curved=True,
     )
 
     msg = (
-        "<b>StarFallX — Statistics</b>\n"
-        "<i>Tap a group to open it.</i>\n\n"
+        "⚡ <b>StarFallX Neo — System Telemetry</b> ⚡\n"
+        "<i>◈ Tap any sector to expand partition metrics ◈</i>\n\n"
         f"{bot_stats_block}\n\n"
         f"{os_stats_block}\n\n"
-        f"{repo_stats_block}\n\n"
         f"{pkgs_stats_block}\n\n"
-        f"{limits_block}"
+        f"{limits_block}\n\n"
+        f"{repo_stats_block}"
     )
 
     bot_username = getattr(TgClient, "BNAME", "")
@@ -221,18 +221,16 @@ async def get_stats(event, key="home"):
         bot_username = "Nothing_leech_robot"
     use_group_url = f"https://t.me/{bot_username}?startgroup=true"
 
-    dev_url = getattr(Config, "AUTHOR_URL", "") or "https://t.me/SilentDemonSD"
-
     repo_url = getattr(Config, "UPSTREAM_REPO", "") or "https://github.com/mari8438/WZML-X"
     if repo_url.startswith("git@github.com:"):
         repo_url = "https://github.com/" + repo_url.split(":", 1)[1]
     repo_url = repo_url.removesuffix(".git").rstrip("/")
 
     btns = ButtonMaker()
-    btns.url_button("👥 USE BOT IN GROUP", use_group_url)
-    btns.url_button("👤 DEVELOPER ↗", dev_url)
-    btns.url_button("📦 SOURCE ↗", repo_url)
-    btns.data_button("❌ Close", f"stats {user_id} close", position="footer", style=ButtonStyle.DANGER)
+    btns.url_button("✦ Add to Group", use_group_url)
+    btns.url_button("📡 Live Monitor", f"https://t.me/{bot_username}")
+    btns.url_button("📦 Source", repo_url)
+    btns.data_button("✖ Dismiss Panel", f"stats {user_id} close", position="footer", style=ButtonStyle.DANGER)
 
     return msg, btns.build_menu(b_cols=3, f_cols=1)
 
