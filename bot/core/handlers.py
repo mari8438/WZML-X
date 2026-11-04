@@ -260,20 +260,6 @@ def add_handlers():
     ssh_command = f"ssh{Config.CMD_SUFFIX}"
     TgClient.bot.add_handler(
         MessageHandler(
-            handle_agy_prompt,
-            filters=command(BotCommands.PromptCommand, case_sensitive=True)
-            & CustomFilters.sudo,
-        )
-    )
-    TgClient.bot.add_handler(
-        EditedMessageHandler(
-            handle_agy_prompt,
-            filters=command(BotCommands.PromptCommand, case_sensitive=True)
-            & CustomFilters.owner,
-        )
-    )
-    TgClient.bot.add_handler(
-        MessageHandler(
             run_shell,
             filters=command(ssh_command, case_sensitive=True) & CustomFilters.owner,
         )

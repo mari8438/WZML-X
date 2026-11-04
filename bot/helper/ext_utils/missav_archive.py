@@ -166,6 +166,8 @@ class MissAVArchive:
             "quality": quality,
             "backup_copied": bool(backup_copied),
             "supergroups_copied": bool(supergroups_copied),
+            "genres": getattr(item, "genres", []) if hasattr(item, "genres") else [],
+            "actresses": (getattr(item, "actors", []) or getattr(item, "actresses", [])) if hasattr(item, "actors") or hasattr(item, "actresses") else [],
             "time": time(),
         }
 
@@ -207,6 +209,48 @@ class MissAVArchive:
                 )
         except Exception as e:
             LOGGER.warning(f"Failed updating MissAV archive backup status for {code}: {e}")
+
+    @classmethod
+    async def mark_supergroups_copied(cls, item_or_code, supergroups_copied: bool = True):
+        if not _INITIALIZED:
+            await cls.init()
+        code = _extract_video_code(item_or_code)
+        if not code:
+            return
+        if code in _ARCHIVE_CACHE:
+            _ARCHIVE_CACHE[code]["supergroups_copied"] = supergroups_copied
+            await to_thread(cls._save_local_sync)
+        try:
+            from .db_handler import database
+            if database.db is not None:
+                await database.db.missav_archive.update_one(
+                    {"_id": code},
+                    {"$set": {"supergroups_copied": supergroups_copied}},
+                )
+        except Exception as e:
+            LOGGER.warning(f"Failed updating MissAV archive supergroups status for {code}: {e}")
+
+    @classmethod
+    async def get_pending_supergroup_titles(cls) -> list[dict]:
+        if not _INITIALIZED:
+            await cls.init()
+        pending = [
+            rec for rec in _ARCHIVE_CACHE.values()
+            if not rec.get("supergroups_copied", False) and rec.get("message_ids")
+        ]
+        try:
+            from .db_handler import database
+            if database.db is not None:
+                cursor = database.db.missav_archive.find(
+                    {"supergroups_copied": False, "message_ids": {"$exists": True, "$ne": []}}
+                )
+                async for doc in cursor:
+                    code = doc.get("_id")
+                    if code and not any(p.get("code") == code for p in pending):
+                        pending.append(doc)
+        except Exception as e:
+            LOGGER.debug(f"Pending supergroup lookup note: {e}")
+        return pending
 
     @classmethod
     async def remove(cls, item_or_url):

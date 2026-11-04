@@ -1,5 +1,6 @@
 import gc
 from asyncio import (
+    QueueEmpty,
     CancelledError,
     FIRST_COMPLETED,
     Event,
@@ -50,6 +51,7 @@ from ..helper.telegram_helper.message_utils import edit_message, send_message
 from .batch_task_registry import BatchTaskController
 
 _RUN_LOCK = Lock()
+_CHANNEL_POST_LOCK = Lock()
 _ACTIVE_RUNS = {}
 _QUALITY_TIMEOUT = 50 * 60
 _INVALID_FILENAME = r'[\\/:*?"<>|]'
@@ -909,306 +911,198 @@ async def _upload_title(prepared, destination, thread_id, cancel_event, upload_c
     if not prepared or cancel_event.is_set():
         return 0
 
-    main_dump = getattr(Config, "LEECH_DUMP_CHAT", "")
-    try:
-        main_dump = int(main_dump) if main_dump else None
-    except (ValueError, TypeError):
-        pass
-
     backup_channel = _get_backup_channel()
+    target_channel = backup_channel or destination
+    if not target_channel:
+        LOGGER.error("No valid destination or backup channel for MissAV upload!")
+        return 0
 
-    use_dump_stage = bool(main_dump and main_dump != destination)
-    stage_chat = main_dump if use_dump_stage else destination
+    async with _CHANNEL_POST_LOCK:
+        if cancel_event.is_set():
+            return 0
 
-    kwargs = {"chat_id": stage_chat}
-    if not use_dump_stage and thread_id is not None:
-        kwargs["message_thread_id"] = thread_id
+        kwargs = {"chat_id": target_channel}
+        if target_channel == destination and thread_id is not None:
+            kwargs["message_thread_id"] = thread_id
 
-    stage_msg_ids = []
-    backup_msg_ids = []
-    dest_msg_ids = []
-    backup_copied_success = False
+        posted_msg_ids = []
+        upload_bot = upload_client or _get_upload_client()
 
-    item = prepared.get("item")
-    explicit_dest = destination if (destination != getattr(Config, "MISSAV_TOPIC_GROUP", "") or thread_id is not None) else None
-    targets = await _resolve_all_target_topics(item, explicit_destination=explicit_dest, explicit_thread_id=thread_id)
-    if not targets and destination:
-        targets = [(destination, thread_id)]
+        # 1. Preview Video / Poster + Caption
+        poster_msg = None
+        preview_vid = prepared.get("preview_video")
+        poster_img = prepared.get("poster")
+        thumb_img = prepared.get("thumb") or poster_img
 
-    async def _copy_to_destination(msg, reply_to_id=None):
-        nonlocal backup_copied_success
-        if not msg:
-            return None
-
-        copy_bot = upload_client or _get_upload_client()
-
-        # 1. Copy to backup channel (e.g. Jav - 1) if configured and distinct
-        if backup_channel and backup_channel != msg.chat.id:
+        if preview_vid and ospath.isfile(preview_vid):
             try:
-                b_msg = await _telegram_call(
-                    copy_bot.copy_message,
-                    chat_id=backup_channel,
-                    from_chat_id=msg.chat.id,
-                    message_id=msg.id,
+                poster_msg = await _telegram_call(
+                    upload_bot.send_video,
+                    video=preview_vid,
+                    thumb=thumb_img if thumb_img and ospath.isfile(thumb_img) else None,
+                    caption=prepared["caption"],
+                    supports_streaming=True,
+                    **kwargs,
                 )
-                if b_msg and hasattr(b_msg, "id"):
-                    backup_msg_ids.append(b_msg.id)
-                backup_copied_success = True
-            except Exception as b_err:
-                try:
-                    b_msg = await _telegram_call(
-                        TgClient.bot.copy_message,
-                        chat_id=backup_channel,
-                        from_chat_id=msg.chat.id,
-                        message_id=msg.id,
-                    )
-                    if b_msg and hasattr(b_msg, "id"):
-                        backup_msg_ids.append(b_msg.id)
-                    backup_copied_success = True
-                except Exception as b_err2:
-                    LOGGER.warning(f"copy_message to backup channel failed: {b_err2}")
-
-        # 2. Copy to all target topics across supergroups
-        first_copied = None
-        for target_chat, target_thread in targets:
-            if target_chat == msg.chat.id and target_thread is None:
-                continue
-            copy_kwargs = {
-                "chat_id": target_chat,
-                "from_chat_id": msg.chat.id,
-                "message_id": msg.id,
-            }
-            if target_thread is not None:
-                copy_kwargs["message_thread_id"] = target_thread
-            try:
-                copied = await _telegram_call(copy_bot.copy_message, **copy_kwargs)
-                if copied and hasattr(copied, "id"):
-                    dest_msg_ids.append(copied.id)
-                    if first_copied is None:
-                        first_copied = copied
-                await sleep(0.2)
             except Exception as error:
-                try:
-                    copied = await _telegram_call(TgClient.bot.copy_message, **copy_kwargs)
-                    if copied and hasattr(copied, "id"):
-                        dest_msg_ids.append(copied.id)
-                        if first_copied is None:
-                            first_copied = copied
-                    await sleep(0.2)
-                except Exception as error2:
-                    LOGGER.warning(f"copy_message to {target_chat} (topic {target_thread}) failed: {error2}")
+                LOGGER.warning(f"MissAV preview video upload failed, falling back to photo: {error}")
 
-        return first_copied or msg
-
-    # 1. Preview Video / Poster + Caption
-    poster_msg = None
-    preview_vid = prepared.get("preview_video")
-    poster_img = prepared.get("poster")
-    thumb_img = prepared.get("thumb") or poster_img
-    upload_bot = upload_client or _get_upload_client()
-
-    if preview_vid and ospath.isfile(preview_vid):
-        try:
-            poster_msg = await _telegram_call(
-                upload_bot.send_video,
-                video=preview_vid,
-                thumb=thumb_img if thumb_img and ospath.isfile(thumb_img) else None,
-                caption=prepared["caption"],
-                supports_streaming=True,
-                **kwargs,
-            )
-        except Exception as error:
-            LOGGER.warning(f"MissAV preview video upload failed, falling back to photo: {error}")
-
-    if not poster_msg and poster_img and ospath.isfile(poster_img):
-        try:
-            poster_msg = await _telegram_call(
-                upload_bot.send_photo,
-                photo=poster_img,
-                caption=prepared["caption"],
-                **kwargs,
-            )
-        except Exception as error:
-            LOGGER.warning(f"MissAV poster upload failed, sending text: {error}")
+        if not poster_msg and poster_img and ospath.isfile(poster_img):
+            try:
+                poster_msg = await _telegram_call(
+                    upload_bot.send_photo,
+                    photo=poster_img,
+                    caption=prepared["caption"],
+                    **kwargs,
+                )
+            except Exception as error:
+                LOGGER.warning(f"MissAV poster upload failed, sending text: {error}")
+                poster_msg = await _telegram_call(
+                    upload_bot.send_message,
+                    text=prepared["caption"],
+                    **kwargs,
+                )
+        elif not poster_msg:
             poster_msg = await _telegram_call(
                 upload_bot.send_message,
                 text=prepared["caption"],
                 **kwargs,
             )
-    elif not poster_msg:
-        poster_msg = await _telegram_call(
-            upload_bot.send_message,
-            text=prepared["caption"],
-            **kwargs,
-        )
 
-    if poster_msg:
-        stage_msg_ids.append(poster_msg.id)
-    final_poster_msg = await _copy_to_destination(poster_msg) if poster_msg else None
-
-    for reply in prepared.get("caption_replies", []):
-        if cancel_event.is_set():
-            break
-        reply_kwargs = dict(kwargs)
         if poster_msg:
-            reply_kwargs["reply_to_message_id"] = poster_msg.id
-        reply_msg = await _telegram_call(upload_bot.send_message, text=reply, **reply_kwargs)
-        if reply_msg:
-            stage_msg_ids.append(reply_msg.id)
-        await _copy_to_destination(
-            reply_msg,
-            reply_to_id=final_poster_msg.id if final_poster_msg else None,
-        )
+            posted_msg_ids.append(poster_msg.id)
 
-    # 2. Upload video qualities
-    uploaded = 0
-    for quality, path in prepared["videos"]:
-        if cancel_event.is_set():
-            break
-        info = await _video_info(path)
-        height = info["height"] or quality.height or 720
-        width = info["width"] or round(height * 16 / 9)
-        file_size = ospath.getsize(path) if ospath.isfile(path) else 0
+        for reply in prepared.get("caption_replies", []):
+            if cancel_event.is_set():
+                break
+            reply_kwargs = dict(kwargs)
+            if poster_msg:
+                reply_kwargs["reply_to_message_id"] = poster_msg.id
+            reply_msg = await _telegram_call(upload_bot.send_message, text=reply, **reply_kwargs)
+            if reply_msg:
+                posted_msg_ids.append(reply_msg.id)
 
-        # Select client: route large files (> 2000 MiB) through Premium user session if available
-        client = (
-            TgClient.user
-            if (TgClient.user and (file_size > TgClient.NON_PREMIUM_SPLIT_SIZE or not TgClient.bot))
-            else (upload_client or _get_upload_client())
-        )
+        # 2. Upload video qualities directly after poster
+        uploaded = 0
+        for quality, path in prepared["videos"]:
+            if cancel_event.is_set():
+                break
+            info = await _video_info(path)
+            height = info["height"] or quality.height or 720
+            width = info["width"] or round(height * 16 / 9)
+            file_size = ospath.getsize(path) if ospath.isfile(path) else 0
 
-        media = {
-            **kwargs,
-            "video": path,
-            "caption": f"<b>{escape(ospath.basename(path), quote=False)}</b>",
-            "duration": info["duration"],
-            "width": width,
-            "height": height,
-            "supports_streaming": True,
-        }
-        if prepared["thumb"] and ospath.isfile(prepared["thumb"]):
-            media["thumb"] = prepared["thumb"]
-        if prepared["cover"] and ospath.isfile(prepared["cover"]):
-            media["cover"] = prepared["cover"]
+            client = (
+                TgClient.user
+                if (TgClient.user and (file_size > TgClient.NON_PREMIUM_SPLIT_SIZE or not TgClient.bot))
+                else upload_bot
+            )
 
-        max_upload_size = (
-            TgClient.PREMIUM_SPLIT_SIZE
-            if (client == TgClient.user and TgClient.IS_PREMIUM_USER)
-            else TgClient.NON_PREMIUM_SPLIT_SIZE
-        )
-
-        async def _send_media_or_doc(c, m, p):
-            try:
-                return await _telegram_call(c.send_video, **m)
-            except Exception as err:
-                LOGGER.warning(f"send_video failed ({err}), falling back to document...")
-                doc_m = dict(m)
-                doc_m.pop("video", None)
-                doc_m.pop("supports_streaming", None)
-                doc_m.pop("duration", None)
-                doc_m.pop("width", None)
-                doc_m.pop("height", None)
-                doc_m.pop("cover", None)
-                doc_m["document"] = p
-                try:
-                    return await _telegram_call(c.send_document, **doc_m)
-                except Exception as doc_err:
-                    if c != TgClient.user and TgClient.user:
-                        LOGGER.info(f"Retrying upload via TgClient.user for {p}: {doc_err}")
-                        return await _telegram_call(TgClient.user.send_document, **doc_m)
-                    raise doc_err
-
-        if file_size > max_upload_size:
-            LOGGER.info(f"File {path} ({file_size} bytes) exceeds limit {max_upload_size}. Splitting...")
-            listener = _DirectListener(prepared.get("user_id", 0), cancel_event)
-            split_ok = await split_file(path, max_upload_size, listener)
-            if split_ok:
-                parent = ospath.dirname(path)
-                stem = ospath.splitext(ospath.basename(path))[0]
-                ext = ospath.splitext(path)[1]
-                parts = sorted(
-                    [
-                        ospath.join(parent, f)
-                        for f in oslistdir(parent)
-                        if f.startswith(f"{stem}.part") and f.endswith(ext)
-                    ]
-                )
-                if parts:
-                    for part_idx, part_path in enumerate(parts, start=1):
-                        part_media = dict(media)
-                        part_media["video"] = part_path
-                        part_media["caption"] = (
-                            f"<b>{escape(ospath.basename(part_path), quote=False)} "
-                            f"[Part {part_idx}/{len(parts)}]</b>"
-                        )
-                        part_msg = await _send_media_or_doc(client, part_media, part_path)
-                        if part_msg:
-                            stage_msg_ids.append(part_msg.id)
-                        await _copy_to_destination(part_msg)
-                    uploaded += 1
-                    continue
-
-        video_msg = await _send_media_or_doc(client, media, path)
-        if video_msg:
-            stage_msg_ids.append(video_msg.id)
-        await _copy_to_destination(video_msg)
-        uploaded += 1
-
-    # 3. Sample collage
-    collage = prepared.get("sample_collage")
-    if not cancel_event.is_set() and collage and ospath.isfile(collage):
-        try:
-            collage_msg = await _telegram_call(
-                TgClient.bot.send_photo,
-                photo=collage,
-                caption=f"<b>Sample Images</b>\n<b>{escape(prepared['item'].title, quote=False)}</b>",
+            media = {
                 **kwargs,
+                "video": path,
+                "caption": f"<b>{escape(ospath.basename(path), quote=False)}</b>",
+                "duration": info["duration"],
+                "width": width,
+                "height": height,
+                "supports_streaming": True,
+            }
+            if prepared["thumb"] and ospath.isfile(prepared["thumb"]):
+                media["thumb"] = prepared["thumb"]
+            if prepared["cover"] and ospath.isfile(prepared["cover"]):
+                media["cover"] = prepared["cover"]
+
+            max_upload_size = (
+                TgClient.PREMIUM_SPLIT_SIZE
+                if (client == TgClient.user and TgClient.IS_PREMIUM_USER)
+                else TgClient.NON_PREMIUM_SPLIT_SIZE
             )
-            if collage_msg:
-                stage_msg_ids.append(collage_msg.id)
-            await _copy_to_destination(collage_msg)
-        except Exception as error:
-            LOGGER.warning(f"MissAV sample collage upload failed: {error}")
 
-    # Record in MissAVArchive for fast-forward deduplication
-    archive_chat = backup_channel if (backup_channel and backup_msg_ids) else (destination if dest_msg_ids else stage_chat)
-    archive_msg_ids = backup_msg_ids if (backup_channel and backup_msg_ids) else (dest_msg_ids if dest_msg_ids else stage_msg_ids)
+            async def _send_media_or_doc(c, m, p):
+                try:
+                    return await _telegram_call(c.send_video, **m)
+                except Exception as err:
+                    LOGGER.warning(f"send_video failed ({err}), falling back to document...")
+                    doc_m = dict(m)
+                    doc_m.pop("video", None)
+                    doc_m.pop("supports_streaming", None)
+                    doc_m.pop("duration", None)
+                    doc_m.pop("width", None)
+                    doc_m.pop("height", None)
+                    doc_m.pop("cover", None)
+                    doc_m["document"] = p
+                    try:
+                        return await _telegram_call(c.send_document, **doc_m)
+                    except Exception as doc_err:
+                        if c != TgClient.user and TgClient.user:
+                            LOGGER.info(f"Retrying upload via TgClient.user for {p}: {doc_err}")
+                            return await _telegram_call(TgClient.user.send_document, **doc_m)
+                        raise doc_err
 
-    if archive_msg_ids and prepared.get("item"):
-        try:
-            await MissAVArchive.save(
-                item=prepared["item"],
-                chat_id=archive_chat,
-                message_ids=archive_msg_ids,
-                quality=prepared.get("quality_label", ""),
-                backup_copied=backup_copied_success,
-                supergroups_copied=True,
-            )
-        except Exception as arc_err:
-            LOGGER.warning(f"Failed archiving MissAV title {prepared['item'].title}: {arc_err}")
+            if file_size > max_upload_size:
+                LOGGER.info(f"File {path} ({file_size} bytes) exceeds limit {max_upload_size}. Splitting...")
+                listener = _DirectListener(prepared.get("user_id", 0), cancel_event)
+                split_ok = await split_file(path, max_upload_size, listener)
+                if split_ok:
+                    parent = ospath.dirname(path)
+                    stem = ospath.splitext(ospath.basename(path))[0]
+                    ext = ospath.splitext(path)[1]
+                    parts = sorted(
+                        [
+                            ospath.join(parent, f)
+                            for f in oslistdir(parent)
+                            if f.startswith(f"{stem}.part") and f.endswith(ext)
+                        ]
+                    )
+                    if parts:
+                        for part_idx, part_path in enumerate(parts, start=1):
+                            part_media = dict(media)
+                            part_media["video"] = part_path
+                            part_media["caption"] = (
+                                f"<b>{escape(ospath.basename(part_path), quote=False)} "
+                                f"[Part {part_idx}/{len(parts)}]</b>"
+                            )
+                            part_msg = await _send_media_or_doc(client, part_media, part_path)
+                            if part_msg:
+                                posted_msg_ids.append(part_msg.id)
+                        uploaded += 1
+                        continue
 
-    # Delete staged messages from main dump after forward
-    if use_dump_stage and stage_msg_ids:
-        LOGGER.info(f"Deleting {len(stage_msg_ids)} staged messages from main dump ({stage_chat}) after forward...")
-        for i in range(0, len(stage_msg_ids), 100):
-            chunk = stage_msg_ids[i : i + 100]
+            video_msg = await _send_media_or_doc(client, media, path)
+            if video_msg:
+                posted_msg_ids.append(video_msg.id)
+            uploaded += 1
+
+        # 3. Sample collage
+        collage = prepared.get("sample_collage")
+        if not cancel_event.is_set() and collage and ospath.isfile(collage):
             try:
-                await _telegram_call(
-                    TgClient.bot.delete_messages,
-                    chat_id=stage_chat,
-                    message_ids=chunk,
+                collage_msg = await _telegram_call(
+                    upload_bot.send_photo,
+                    photo=collage,
+                    caption=f"<b>Sample Images</b>\n<b>{escape(prepared['item'].title, quote=False)}</b>",
+                    **kwargs,
                 )
-            except Exception as del_err:
-                LOGGER.warning(f"Bot failed deleting staged messages from main dump ({stage_chat}): {del_err}")
-                if TgClient.user:
-                    with suppress(Exception):
-                        await _telegram_call(
-                            TgClient.user.delete_messages,
-                            chat_id=stage_chat,
-                            message_ids=chunk,
-                        )
+                if collage_msg:
+                    posted_msg_ids.append(collage_msg.id)
+            except Exception as error:
+                LOGGER.warning(f"MissAV sample collage upload failed: {error}")
 
-    return uploaded
+        # 4. Record in MissAVArchive (supergroups_copied = False for Stage 2)
+        if posted_msg_ids and prepared.get("item"):
+            try:
+                await MissAVArchive.save(
+                    item=prepared["item"],
+                    chat_id=target_channel,
+                    message_ids=posted_msg_ids,
+                    quality=prepared.get("quality_label", ""),
+                    backup_copied=True,
+                    supergroups_copied=False,
+                )
+            except Exception as arc_err:
+                LOGGER.warning(f"Failed archiving MissAV title {prepared['item'].title}: {arc_err}")
+
+        return uploaded
 
 
 async def _prepare_single_title(
@@ -1418,9 +1312,7 @@ async def missav_leech(_, message):
                 item_index = 0
                 total_estimated = None
                 backup_channel = _get_backup_channel()
-                last_break_time = time()
-                WORK_INTERVAL_SECONDS = 30 * 60
-                COOLING_BREAK_SECONDS = 5 * 60
+
                 MAX_DOWNLOAD_CONCURRENCY = 25
                 MAX_UPLOAD_CONCURRENCY = 6
 
@@ -1555,29 +1447,7 @@ async def missav_leech(_, message):
                         await upload_queue.put(None)
                     await gather(*upload_workers, return_exceptions=True)
 
-                    # 30-minute cooling break
-                    now = time()
-                    if now - last_break_time >= WORK_INTERVAL_SECONDS and not cancel_event.is_set():
-                        LOGGER.info("MissAV 30-minute work cycle reached. Starting 5-minute cooling break...")
-                        resume_time_str = strftime("%I:%M:%S %p", localtime(time() + COOLING_BREAK_SECONDS))
-                        if status and not cancel_event.is_set():
-                            with suppress(Exception):
-                                status = await edit_message(
-                                    status,
-                                    f"⏸ <b>MissAV Cooling Break (5 Min)</b>\n"
-                                    f"Processed: <code>{item_index}</code> (Page {page_num}/{total_pages})\n"
-                                    f"Uploaded: <code>{uploaded}</code> | Failed: <code>{failed}</code>\n"
-                                    f"Clearing RAM and resting CPU...\n"
-                                    f"▶️ Resuming automatically at <b>{resume_time_str}</b>\n"
-                                    f"{controls}",
-                                )
-                        gc.collect()
-                        break_target = time() + COOLING_BREAK_SECONDS
-                        while time() < break_target and not cancel_event.is_set():
-                            await sleep(2)
-
-                        last_break_time = time()
-                        LOGGER.info("MissAV cooling break finished. Resuming work...")
+                    gc.collect()
 
                 if item_index == 0:
                     raise RuntimeError("No eligible MissAV videos found.")
@@ -1589,6 +1459,11 @@ async def missav_leech(_, message):
                     f"<b>MissAV leech {final_state}.</b>\n"
                     f"Uploaded: <code>{uploaded}</code> | Failed: <code>{failed}</code>",
                 )
+
+            if not cancel_event.is_set():
+                LOGGER.info("Starting automatic multi-bot supergroup forwarding...")
+                with suppress(Exception):
+                    await _forward_all_to_supergroups(cancel_event, status_msg=status)
 
         except Exception as error:
             LOGGER.error(f"MissAV leech run error: {error}", exc_info=True)
@@ -1605,3 +1480,118 @@ async def missav_leech(_, message):
             _ACTIVE_RUNS.pop(controller.gid, None)
             controller.close()
             gc.collect()
+
+
+async def _forward_all_to_supergroups(cancel_event: Event, status_msg=None):
+    pending = await MissAVArchive.get_pending_supergroup_titles()
+    if not pending:
+        LOGGER.info("No pending MissAV titles to forward to supergroups.")
+        if status_msg:
+            with suppress(Exception):
+                await edit_message(status_msg, "<b>MissAV Forwarder:</b> All titles are already forwarded to supergroups!")
+        return 0
+
+    total_pending = len(pending)
+    LOGGER.info(f"Starting multi-bot supergroup forwarding for {total_pending} titles...")
+    if status_msg:
+        with suppress(Exception):
+            await edit_message(
+                status_msg,
+                f"<b>MissAV Multi-Bot Forwarder Active</b>\n"
+                f"Titles to forward: <code>{total_pending}</code>\n"
+                f"Distributing across 6 helper bots...",
+            )
+
+    helper_list = list(TgClient.helper_bots.values()) if getattr(TgClient, "helper_bots", None) else []
+    clients = [TgClient.bot, *helper_list] if (TgClient.bot and helper_list) else (helper_list or [TgClient.bot])
+
+    queue = Queue()
+    for item in pending:
+        await queue.put(item)
+
+    forwarded_count = 0
+    failed_count = 0
+    progress_lock = Lock()
+
+    async def _forward_worker(bot_client, worker_id):
+        nonlocal forwarded_count, failed_count
+        while not cancel_event.is_set():
+            try:
+                rec = queue.get_nowait()
+            except QueueEmpty:
+                break
+
+            code = rec.get("code") or rec.get("_id")
+            source_chat = rec.get("chat_id")
+            msg_ids = rec.get("message_ids", [])
+            if not source_chat or not msg_ids:
+                queue.task_done()
+                continue
+
+            class _DummyTitle:
+                def __init__(self, d):
+                    self.title = d.get("title", code)
+                    self.genres = d.get("genres", [])
+                    self.actresses = d.get("actresses", [])
+                    self.actors = d.get("actresses", [])
+                    self.url = d.get("url", "")
+                    self.qualities = []
+
+            item = _DummyTitle(rec)
+            try:
+                targets = await _resolve_all_target_topics(item)
+                for target_chat, target_thread in targets:
+                    if cancel_event.is_set():
+                        break
+                    for mid in msg_ids:
+                        copy_kwargs = {
+                            "chat_id": target_chat,
+                            "from_chat_id": source_chat,
+                            "message_id": mid,
+                        }
+                        if target_thread is not None:
+                            copy_kwargs["message_thread_id"] = target_thread
+                        try:
+                            await _telegram_call(bot_client.copy_message, **copy_kwargs)
+                            await sleep(0.1)
+                        except Exception as e:
+                            LOGGER.warning(f"[Worker {worker_id}] copy_message to {target_chat}|{target_thread} failed: {e}")
+
+                await MissAVArchive.mark_supergroups_copied(code, True)
+                async with progress_lock:
+                    forwarded_count += 1
+            except Exception as e:
+                LOGGER.error(f"[Worker {worker_id}] Failed forwarding {code}: {e}")
+                async with progress_lock:
+                    failed_count += 1
+            finally:
+                queue.task_done()
+
+    workers = [
+        create_task(_forward_worker(client, idx))
+        for idx, client in enumerate(clients)
+    ]
+    await gather(*workers, return_exceptions=True)
+
+    LOGGER.info(f"Multi-bot supergroup forwarding finished: {forwarded_count} forwarded, {failed_count} failed.")
+    if status_msg and not cancel_event.is_set():
+        with suppress(Exception):
+            await edit_message(
+                status_msg,
+                f"✅ <b>MissAV Multi-Bot Forwarding Completed!</b>\n"
+                f"Forwarded: <code>{forwarded_count}</code> | Failed: <code>{failed_count}</code>\n"
+                f"All topics in Tags, Actress, and Codes supergroups updated.",
+            )
+    return forwarded_count
+
+
+async def missav_forward(_, message):
+    cancel_event = Event()
+    status = await send_message(
+        message,
+        "<b>Checking for pending MissAV titles to forward...</b>"
+    )
+    count = await _forward_all_to_supergroups(cancel_event, status_msg=status)
+    if count == 0 and status:
+        with suppress(Exception):
+            await edit_message(status, "<b>All MissAV titles are already forwarded to supergroups!</b>")
