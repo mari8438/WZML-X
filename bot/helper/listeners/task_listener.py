@@ -82,33 +82,11 @@ from ..telegram_helper.tg_ui_formatter import (
     PREMIUM_STATS,
     PREMIUM_TIMER,
     PREMIUM_USER,
+    format_accordion_block,
     format_card,
     publish_telegraph_article,
     safe_emoji,
 )
-
-
-def _single_user_mention(user, raw_tag: str = "") -> str:
-    if user:
-        username = getattr(user, "username", None)
-        if username:
-            return f"@{str(username).lstrip('@')}"
-        mention = getattr(user, "mention", None)
-        if mention:
-            return str(mention)
-        title = getattr(user, "title", None)
-        if title:
-            return escape(str(title))
-    cleaned = str(raw_tag or "").strip()
-    if not cleaned:
-        return "Unknown"
-    parts = cleaned.split()
-    if len(parts) > 1 and len(set(parts)) == 1:
-        return parts[0]
-    deduped = list(dict.fromkeys(parts))
-    if all(p.startswith("@") for p in deduped):
-        return deduped[0]
-    return cleaned
 
 _VIDEO_EXTENSIONS = {
     ".mkv",
@@ -739,45 +717,40 @@ class TaskListener(TaskConfig):
             and Config.DATABASE_URL
         ):
             await database.rm_complete_task(self.message.link)
-        size = get_readable_file_size(self.size)
-        elapsed = get_readable_time(time() - self.message.date.timestamp()) or "0s"
-        upload_mode = escape(str(self.mode[1] if len(self.mode) > 1 else "Upload"))
-        user_mention = _single_user_mention(self.user, self.tag)
-        clean_filename = escape(str(self.name or ""))
-
-        if self.is_leech:
-            total_files = (
-                folders
-                if folders
-                else (len(files) if isinstance(files, dict) and files else 1)
-            )
-        elif self.is_yt:
-            total_files = files if mime_type == "Folder/Playlist" and files else 1
-        else:
-            total_files = (
-                files
-                if isinstance(files, int) and files > 0
-                else (len(files) if isinstance(files, dict) and files else 1)
-            )
+        size_str = get_readable_file_size(self.size)
+        elapsed_str = get_readable_time(time() - self.message.date.timestamp())
+        upload_mode = self.mode[1] if len(self.mode) > 1 else "Upload"
+        user_str = self.tag
 
         bolt_icon = safe_emoji(PREMIUM_BOLT, "✦")
         movie_icon = safe_emoji(PREMIUM_MOVIE, "🎬")
         stats_icon = safe_emoji(PREMIUM_STATS, "📊")
         gear_icon = safe_emoji(PREMIUM_GEAR, "⚙️")
 
-        base_msg = (
-            f"<b>{bolt_icon} STARFALLX • TASK COMPLETED {bolt_icon}</b>\n\n"
-            f"{movie_icon} <code>{clean_filename}</code>\n\n"
+        clean_filename = escape(self.name)
+        total_files = str(
+            folders
+            if self.is_leech
+            else (
+                files
+                if isinstance(files, int)
+                else (len(files) if isinstance(files, dict) else 1)
+            )
+        )
+
+        metrics_block = (
             f"<blockquote expandable><b>{stats_icon} TASK METRICS</b> · transfer summary\n"
-            f"╭ <b>Size:</b> <code>{size}</code>\n"
-            f"├ <b>Elapsed:</b> <code>{elapsed}</code>\n"
+            f"╭ <b>Size:</b> <code>{size_str}</code>\n"
+            f"├ <b>Elapsed:</b> <code>{elapsed_str}</code>\n"
             f"├ <b>Mode:</b> <code>{upload_mode}</code>\n"
             f"├ <b>Files:</b> <code>{total_files}</code>\n"
-            f"╰ <b>User:</b> {user_mention}</blockquote>"
+            f"╰ <b>User:</b> {user_str}</blockquote>"
         )
+
         msg = (
-            f"{base_msg}\n\n"
-            f"{gear_icon} <b>Action:</b> <i>File(s) have been sent to User PM</i>"
+            f"<b>{bolt_icon} STARFALLX • TASK COMPLETED {bolt_icon}</b>\n\n"
+            f"{movie_icon} <code>{clean_filename}</code>\n\n"
+            f"{metrics_block}"
         )
 
         LOGGER.info(f"Task Done: {self.name}")
@@ -786,18 +759,20 @@ class TaskListener(TaskConfig):
             if mime_type == "Folder/Playlist":
                 if link:
                     buttons.url_button("🔗 View Playlist", link)
+                user_message = f"{self.tag}\nYour playlist ({files} videos) has been uploaded to YouTube successfully!"
             else:
                 if link:
                     buttons.url_button("🔗 View Video", link)
+                user_message = (
+                    f"{self.tag}\nYour video has been uploaded to YouTube successfully!"
+                )
 
             button = buttons.build_menu(1) if link else None
 
             await send_message(self.user_id, msg, button, photo="IMAGES")
             if Config.LEECH_DUMP_CHAT:
-                await send_message(
-                    int(Config.LEECH_DUMP_CHAT), msg, button, photo="IMAGES"
-                )
-            await send_message(self.message, msg, button, photo="IMAGES")
+                await send_message(int(Config.LEECH_DUMP_CHAT), msg, button, photo="IMAGES")
+            await send_message(self.message, user_message, button, photo="IMAGES")
 
         elif self.is_leech:
             complete_msg = (
@@ -806,8 +781,11 @@ class TaskListener(TaskConfig):
                 else Config.LEECH_COMPLETE_MSG
             )
 
-            if complete_msg and self.bot_pm and self.is_super_chat:
-                await send_message(self.message, msg, photo="IMAGES")
+            pmsg = msg + f"\n\n{gear_icon} <b>Action:</b> <i>File(s) have been sent to User PM</i>"
+
+            if complete_msg and self.bot_pm:
+                if self.is_super_chat:
+                    await send_message(self.message, pmsg, photo="IMAGES")
 
             if complete_msg and not files and not self.is_super_chat:
                 await send_message(self.message, msg, photo="IMAGES")
@@ -815,8 +793,8 @@ class TaskListener(TaskConfig):
                 log_chat = self.user_id if self.bot_pm else self.message
                 if isinstance(files, dict) and len(files) > 1:
                     telegraph_html = (
-                        f"<h3>Task: {clean_filename}</h3>"
-                        f"<p><b>Total Files:</b> {len(files)} | <b>Size:</b> {size} | <b>User:</b> {user_mention}</p>"
+                        f"<h3>Task: {escape(self.name)}</h3>"
+                        f"<p><b>Total Files:</b> {len(files)} | <b>Size:</b> {size_str} | <b>User:</b> {user_str}</p>"
                         "<hr/>"
                         "<ol>"
                     )
@@ -831,29 +809,27 @@ class TaskListener(TaskConfig):
 
                     buttons = ButtonMaker()
                     if telegraph_url:
-                        buttons.url_button(
-                            "📄 View All Files (Telegraph)", telegraph_url
-                        )
+                        buttons.url_button("📄 View All Files (Telegraph)", telegraph_url)
                     button = buttons.build_menu(1) if telegraph_url else None
                     await send_message(log_chat, msg, button, photo="IMAGES")
                 else:
                     fmsg = ""
-                    if isinstance(files, dict):
-                        for index, (link, name) in enumerate(files.items(), start=1):
-                            chat_id, msg_id = link.split("/")[-2:]
-                            fmsg += f"\n• <a href='{link}'>{escape(str(name))}</a>"
-                            if Config.MEDIA_STORE and (
-                                self.is_super_chat or Config.LEECH_DUMP_CHAT
-                            ):
-                                if chat_id.isdigit():
-                                    chat_id = f"-100{chat_id}"
-                                flink = f"https://t.me/{TgClient.BNAME}?start={encode_slink('file' + chat_id + '&&' + msg_id)}"
-                                fmsg += f"\n  ╰ <b>Media Store</b> → <a href='{flink}'>Store Link</a> | <a href='https://t.me/share/url?url={flink}'>Share Link</a>"
+                    for index, (link, name) in enumerate(files.items(), start=1):
+                        chat_id, msg_id = link.split("/")[-2:]
+                        fmsg += f"\n• <a href='{link}'>{name}</a>"
+                        if Config.MEDIA_STORE and (
+                            self.is_super_chat or Config.LEECH_DUMP_CHAT
+                        ):
+                            if chat_id.isdigit():
+                                chat_id = f"-100{chat_id}"
+                            flink = f"https://t.me/{TgClient.BNAME}?start={encode_slink('file' + chat_id + '&&' + msg_id)}"
+                            fmsg += f"\n  └ <b>Media Store</b> → <a href='{flink}'>Store Link</a> | <a href='https://t.me/share/url?url={flink}'>Share Link</a>"
                     await send_message(log_chat, msg + fmsg, photo="IMAGES")
         else:
             multi_link_msg = ""
             multi_links = []
             if isinstance(link, dict) and not self.is_yt:
+                # MultiUphoster result
                 for service, result in link.items():
                     if "error" in result:
                         multi_link_msg += (
@@ -864,7 +840,7 @@ class TaskListener(TaskConfig):
                             (f"{service.capitalize()} Link", result["link"])
                         )
                 multi_link_msg = multi_link_msg.strip()
-                link = None
+                link = None  # Disable single link button logic
 
             if (
                 link
@@ -909,13 +885,16 @@ class TaskListener(TaskConfig):
                     msg += f"\n\nPath: <code>{rclone_path}</code>"
                 button = None
 
-            group_msg = msg
+            group_msg = (
+                msg + f"\n\n{gear_icon} <b>Action:</b> <i>Cloud link(s) have been sent to User PM</i>\n\n"
+            )
+
             if multi_link_msg:
-                group_msg += f"\n{multi_link_msg}"
-                msg += f"\n{multi_link_msg}"
+                group_msg += multi_link_msg + "\n"
+                msg += multi_link_msg + "\n"
             if attach_link := getattr(self, "attach_link", ""):
-                msg += f"\nAttach: <code>{escape(str(attach_link))}</code>"
-                group_msg += f"\nAttach: <code>{escape(str(attach_link))}</code>"
+                msg += f"Attach: <code>{escape(str(attach_link))}</code>\n"
+                group_msg += f"Attach: <code>{escape(str(attach_link))}</code>\n"
 
             if self.bot_pm and self.is_super_chat:
                 await send_message(self.user_id, msg, button, photo="IMAGES")
@@ -988,18 +967,16 @@ class TaskListener(TaskConfig):
         await self.remove_from_same_dir()
         size_str = get_readable_file_size(self.size)
         elapsed_str = get_readable_time(time() - self.message.date.timestamp())
-        user_mention = _single_user_mention(self.user, self.tag)
         msg = (
-            f"<b>✦ STARFALLX • TASK ABORTED ✦</b>\n\n"
-            f"🎬 <code>{escape(str(self.name or 'Unnamed Task'))}</code>\n\n"
-            f"<blockquote expandable><b>⚠️ ERROR DIAGNOSTICS</b> · download stopped\n"
-            f"╭ <b>Reason:</b> <i>{escape(str(error))}</i>\n"
-            f"├ <b>Size:</b> <code>{size_str}</code>\n"
-            f"├ <b>Elapsed:</b> <code>{elapsed_str}</code>\n"
-            f"╰ <b>User:</b> {user_mention}</blockquote>"
+            f"<b>✦ 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗔𝗕𝗢𝗥𝗧𝗘𝗗 ✦</b>\n\n"
+            f"🎬 <code>{escape(self.name)}</code>\n"
+            f"╭ <b>Reason</b>  : ⚠️ <i>{escape(str(error))}</i>\n"
+            f"├ <b>Size</b>    : <code>{size_str}</code>\n"
+            f"├ <b>Elapsed</b> : <code>{elapsed_str}</code>\n"
+            f"╰ <b>User</b>    : {self.tag}"
         )
 
-        await send_message(self.message, msg, button, photo="IMAGES")
+        await send_message(self.message, msg, button)
         if count == 0:
             await self.clean()
         else:
@@ -1051,16 +1028,14 @@ class TaskListener(TaskConfig):
                 del task_dict[self.mid]
             count = len(task_dict)
         size_str = get_readable_file_size(self.size)
-        user_mention = _single_user_mention(self.user, self.tag)
         msg = (
-            f"<b>✦ STARFALLX • TASK ABORTED ✦</b>\n\n"
-            f"🎬 <code>{escape(str(self.name or 'Unnamed Task'))}</code>\n\n"
-            f"<blockquote expandable><b>⚠️ ERROR DIAGNOSTICS</b> · upload stopped\n"
-            f"╭ <b>Reason:</b> <i>{escape(str(error))}</i>\n"
-            f"├ <b>Size:</b> <code>{size_str}</code>\n"
-            f"╰ <b>User:</b> {user_mention}</blockquote>"
+            f"<b>✦ 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗔𝗕𝗢𝗥𝗧𝗘𝗗 ✦</b>\n\n"
+            f"🎬 <code>{escape(self.name)}</code>\n"
+            f"╭ <b>Reason</b>  : ⚠️ <i>{escape(str(error))}</i>\n"
+            f"├ <b>Size</b>    : <code>{size_str}</code>\n"
+            f"╰ <b>User</b>    : {self.tag}"
         )
-        await send_message(self.message, msg, photo="IMAGES")
+        await send_message(self.message, msg)
         if count == 0:
             await self.clean()
         else:

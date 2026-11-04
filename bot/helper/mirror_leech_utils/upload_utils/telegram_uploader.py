@@ -204,10 +204,9 @@ class TelegramUploader:
             msg_link = (
                 self._listener.message.link if self._listener.is_super_chat else ""
             )
-            msg_link_line = f"\n┠ <b>Message Link :</b> <a href='{msg_link}'>Click Here</a>" if msg_link else ""
             msg = f"""➲ <b><u>Leech Started :</u></b>
 ┃
-┠ <b>User :</b> {self._listener.user.mention} ( #ID{self._listener.user_id} ){msg_link_line}
+┠ <b>User :</b> {self._listener.user.mention} ( #ID{self._listener.user_id} ){f"\n┠ <b>Message Link :</b> <a href='{msg_link}'>Click Here</a>" if msg_link else ""}
 ┖ <b>Source :</b> <a href='{self._listener.source_url}'>Click Here</a>"""
             try:
                 await TgClient.bot.resolve_peer(self._listener.up_dest)
@@ -858,7 +857,6 @@ class TelegramUploader:
             return await route.client.send_document(
                 document=self._up_path,
                 thumb=thumb,
-                force_document=True,
                 **common,
             )
         if key == "videos":
@@ -1136,7 +1134,6 @@ class TelegramUploader:
                         quote=True,
                         thumb=send_thumb,
                         caption=cap_mono,
-                        force_document=True,
                         disable_notification=True,
                         progress=self._upload_progress,
                     )

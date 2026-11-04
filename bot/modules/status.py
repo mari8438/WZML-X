@@ -42,8 +42,7 @@ async def task_status(_, message):
     if count == 0:
         if is_starfall_theme():
             msg = (
-                "<b>✦ StarFallX — Live Task Monitor</b>\n"
-                "<i>Queue is idle · All workers ready.</i>\n\n"
+                "𝆺𝅥⃝🐦‍🔥❯ <b>No Active Bot Tasks!</b>\n\n"
                 f"{get_starfall_system_status()}"
             )
         else:
@@ -214,21 +213,23 @@ async def status_pages(_, query):
                     tasks["Download"] += 1
 
         if is_starfall_theme():
-            msg = (
-                f"<b>✦ StarFallX — Pipeline Overview</b>\n"
-                f"<i>Aggregate task & bandwidth telemetry.</i>\n\n"
-                f"<blockquote expandable><b>📊 TASK DISTRIBUTION</b> · active & queued stages\n"
-                f"╭ <b>Download:</b> <code>{tasks['Download']}</code> · <b>Upload:</b> <code>{tasks['Upload']}</code>\n"
-                f"├ <b>Seed:</b> <code>{tasks['Seed']}</code> · <b>Clone:</b> <code>{tasks['Clone']}</code>\n"
-                f"├ <b>Extract:</b> <code>{tasks['Extract']}</code> · <b>Archive:</b> <code>{tasks['Archive']}</code>\n"
-                f"├ <b>Split:</b> <code>{tasks['Split']}</code> · <b>FFmpeg:</b> <code>{tasks['FFmpeg']}</code>\n"
-                f"├ <b>Convert:</b> <code>{tasks['ConvertMedia']}</code> · <b>Sample:</b> <code>{tasks['SamVid']}</code>\n"
-                f"╰ <b>QueueDL:</b> <code>{tasks['QueueDl']}</code> · <b>QueueUP:</b> <code>{tasks['QueueUp']}</code></blockquote>\n\n"
-                f"<blockquote expandable><b>⚡ AGGREGATE THROUGHPUT</b> · ↓ {get_readable_file_size(dl_speed)}/s · ↑ {get_readable_file_size(up_speed)}/s\n"
-                f"╭ <b>Download Speed:</b> <code>{get_readable_file_size(dl_speed)}/s</code>\n"
-                f"├ <b>Upload Speed:</b> <code>{get_readable_file_size(up_speed)}/s</code>\n"
-                f"╰ <b>Seeding Speed:</b> <code>{get_readable_file_size(seed_speed)}/s</code></blockquote>"
-            )
+            msg = f"""◉⃝     <b>Tasks Overview</b>  ◉⃝
+╔══════════════════
+╠ Download ➥ {tasks["Download"]} | Upload ➥ {tasks["Upload"]}
+╠ Seed ➥ {tasks["Seed"]} | Archive ➥ {tasks["Archive"]}
+╠ Extract ➥ {tasks["Extract"]} | Split ➥ {tasks["Split"]}
+╠ QueueDL ➥ {tasks["QueueDl"]} | QueueUP ➥ {tasks["QueueUp"]}
+╠ Clone ➥ {tasks["Clone"]} | CheckUp ➥ {tasks["CheckUp"]}
+╠ Paused ➥ {tasks["Pause"]} | SamVideo ➥ {tasks["SamVid"]}
+╠ Convert ➥ {tasks["ConvertMedia"]} | FFmpeg ➥ {tasks["FFmpeg"]}
+╚══════════════════
+
+◉⃝     <b>Transfer Speeds</b>  ◉⃝
+╔══════════════════
+╠ Download ➥ {get_readable_file_size(dl_speed)}/s
+╠ Upload ➥ {get_readable_file_size(up_speed)}/s
+╠ Seeding ➥ {get_readable_file_size(seed_speed)}/s
+╚══════════════════"""
         else:
             msg = f"""㊂ <b>Tasks Overview</b> :
 

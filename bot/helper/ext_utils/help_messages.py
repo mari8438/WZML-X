@@ -520,42 +520,48 @@ BOT_COMMANDS = get_bot_commands()
 
 
 def get_help_string():
-    from ..telegram_helper.tg_ui_formatter import (
-        PREMIUM_BOLT,
-        PREMIUM_DOC,
-        PREMIUM_GEAR,
-        PREMIUM_MOVIE,
-        PREMIUM_PACKAGE,
-        safe_emoji,
-    )
-
-    star_icon = safe_emoji(PREMIUM_BOLT, "🌟")
-    leech_icon = safe_emoji(PREMIUM_PACKAGE, "📥")
-    mirror_icon = safe_emoji(PREMIUM_DOC, "☁️")
-    vt_icon = safe_emoji(PREMIUM_MOVIE, "🎬")
-    pref_icon = safe_emoji(PREMIUM_GEAR, "⚙️")
+    try:
+        from ..telegram_helper.tg_ui_formatter import (
+            safe_emoji,
+            PREMIUM_STAR,
+            PREMIUM_INBOX,
+            PREMIUM_CLOUD,
+            PREMIUM_MOVIE,
+            PREMIUM_GEAR,
+        )
+        star_icon = safe_emoji(PREMIUM_STAR, "🌟")
+        inbox_icon = safe_emoji(PREMIUM_INBOX, "📥")
+        cloud_icon = safe_emoji(PREMIUM_CLOUD, "☁️")
+        movie_icon = safe_emoji(PREMIUM_MOVIE, "🎬")
+        gear_icon = safe_emoji(PREMIUM_GEAR, "⚙️")
+    except Exception:
+        star_icon = "🌟"
+        inbox_icon = "📥"
+        cloud_icon = "☁️"
+        movie_icon = "🎬"
+        gear_icon = "⚙️"
 
     return (
         f"<b>{star_icon} StarFallX v1.2 — Commands Guide</b>\n"
         "<i>Tap a group to open it.</i>\n\n"
-        f"<blockquote expandable><b>{leech_icon} LEECH COMMANDS</b> · download to Telegram\n"
+        f"<blockquote expandable><b>{inbox_icon} LEECH COMMANDS</b> · download to Telegram\n"
         "• /leech or /l [link] : Leech direct link to Telegram\n"
         "• /bleech or /bl [links] : Batch leech multiple links\n"
         "• /qbleech or /ql [magnet/torrent] : Leech via qBittorrent\n"
         "• /ytdl or /y [link] : Leech YouTube/yt-dlp stream\n"
         "• /leech -vt : Open Video Tools after download\n"
         "• /leech -s : Generate video sample before upload</blockquote>\n\n"
-        f"<blockquote expandable><b>{mirror_icon} MIRROR COMMANDS</b> · cloud & rclone uploads\n"
+        f"<blockquote expandable><b>{cloud_icon} MIRROR COMMANDS</b> · cloud & rclone uploads\n"
         "• /mirror or /m [link] : Mirror to Google Drive / Cloud\n"
         "• /qbmirror or /qm [magnet] : Mirror torrent to Cloud\n"
         "• /jdmirror or /jm [link] : Mirror via JDownloader\n"
         "• /clone [drive_url] : Copy Google Drive files</blockquote>\n\n"
-        f"<blockquote expandable><b>{vt_icon} VIDEO TOOLS</b> · remuxing, streams & rename\n"
+        f"<blockquote expandable><b>{movie_icon} VIDEO TOOLS</b> · remuxing, streams & rename\n"
         "• Audio Merge : Mux external audio tracks without re-encode\n"
         "• Subtitle Merge : Add external subtitles to video\n"
         "• AutoRename : Template-based file renaming\n"
         "• Track Ordering : Reorder default audio and subtitle tracks</blockquote>\n\n"
-        f"<blockquote expandable><b>{pref_icon} USER PREFERENCES</b> · settings & custom thumb\n"
+        f"<blockquote expandable><b>{gear_icon} USER PREFERENCES</b> · settings & custom thumb\n"
         "• /usetting or /bsetting : Open User Settings menu\n"
         "• /setthumb : Set custom video thumbnail\n"
         "• /delthumb : Remove custom thumbnail\n"
@@ -565,64 +571,61 @@ def get_help_string():
 
 CATEGORY_HELP_DICT = {
     "leech": (
-        "<b>📥 StarFallX — Leech Engine Guide</b>\n"
-        "<i>Tap a drawer to inspect commands & flags.</i>\n\n"
-        "<blockquote expandable><b>📥 CORE LEECH COMMANDS</b> · direct, torrent & stream\n"
-        "╭ <code>/leech</code> or <code>/l</code> [link] : Direct link to Telegram\n"
-        "├ <code>/qbleech</code> or <code>/ql</code> [magnet] : High-speed qBittorrent leech\n"
-        "├ <code>/bleech</code> or <code>/bl</code> [links] : Batch leech with queue control\n"
-        "├ <code>/bql</code> [magnet] : Big-Queue torrent batching (30GB+ packs)\n"
-        "├ <code>/ytdl</code> or <code>/y</code> [url] : YouTube & 1000+ streaming sites\n"
-        "╰ <code>/jdl</code> · <code>/nzbl</code> : JDownloader & Usenet NZB leech</blockquote>\n\n"
-        "<blockquote expandable><b>⚡ POWER FLAGS</b> · per-task modifiers\n"
-        "╭ <code>-vt</code> : Launch Video Studio after download\n"
-        "├ <code>-s</code> : Generate a video sample before upload\n"
-        "├ <code>-ar &lt;template&gt;</code> : Custom one-task AutoRename template\n"
-        "├ <code>-m &lt;folder&gt;</code> : Merge & mux multi-part videos in order\n"
-        "├ <code>-sp 2gb</code> : Override Telegram split threshold\n"
-        "╰ <code>-t &lt;url/reply&gt;</code> : Attach custom task thumbnail</blockquote>"
+        "<b>📥 STARFALLX • LEECH COMMANDS</b>\n\n"
+        "<blockquote expandable>\n"
+        "<b>Direct & Torrent Leeching to Telegram:</b>\n\n"
+        "┌ <code>/leech [link/reply]</code> : Standard mirror-to-Telegram\n"
+        "├ <code>/qbleech [magnet/file]</code> : High-speed qBittorrent leech\n"
+        "├ <code>/bleech [link1 link2]</code> : Batch leech with download/upload queues\n"
+        "├ <code>/bql [magnet]</code> : Huge torrent batching (multi-GB releases)\n"
+        "├ <code>/ytdlleech [url]</code> : Download video/audio from 1000+ streaming sites\n"
+        "├ <code>/jdl or /nzbl</code> : JDownloader and Usenet NZB leeching\n"
+        "└ <b>Key Arguments</b>:\n"
+        "  • <code>-vt</code> : Open Video Tools Studio after download\n"
+        "  • <code>-ar &lt;template&gt;</code> : One-task custom auto-rename template\n"
+        "  • <code>-m [folder]</code> : Merge and mux multi-part videos in order\n"
+        "  • <code>-sp 2gb</code> : Custom split size for Telegram upload\n"
+        "  • <code>-t [url/reply]</code> : Attach custom thumbnail to this task\n"
+        "</blockquote>"
     ),
     "mirror": (
-        "<b>☁️ StarFallX — Cloud Mirror & Clone Guide</b>\n"
-        "<i>Tap a drawer to inspect cloud commands & routing.</i>\n\n"
-        "<blockquote expandable><b>☁️ MIRROR & CLONE</b> · Google Drive, Rclone & DDL\n"
-        "╭ <code>/mirror</code> or <code>/m</code> [link] : Mirror direct link to Cloud\n"
-        "├ <code>/qbmirror</code> or <code>/qm</code> [magnet] : Mirror torrent via qBittorrent\n"
-        "├ <code>/jdmirror</code> or <code>/jm</code> [link] : Mirror via JDownloader\n"
-        "├ <code>/clone</code> [drive_url] : High-speed server-side GDrive copy\n"
-        "╰ <code>/count</code> [drive_url] : Calculate total folder & file sizes</blockquote>\n\n"
-        "<blockquote expandable><b>🧭 DESTINATION ROUTING</b> · target overrides\n"
-        "╭ <code>-up rc</code> : Upload via configured Rclone remote\n"
-        "├ <code>-up gd</code> : Upload via Google Drive API\n"
-        "├ <code>-up remote:path</code> : Route to specific Rclone directory\n"
-        "╰ <code>-z [password]</code> : Archive output as encrypted ZIP</blockquote>"
+        "<b>☁️ STARFALLX • CLONE & MIRROR COMMANDS</b>\n\n"
+        "<blockquote expandable>\n"
+        "<b>Mirroring to Google Drive & Rclone:</b>\n\n"
+        "┌ <code>/mirror [link/reply]</code> : Mirror direct link to cloud storage\n"
+        "├ <code>/qbmirror [magnet]</code> : Mirror torrents via qBittorrent\n"
+        "├ <code>/ytdl [url]</code> : Mirror YouTube/streaming videos to cloud\n"
+        "├ <code>/clone [url]</code> : High-speed cloud-to-cloud copy\n"
+        "├ <code>/count [drive_url]</code> : Calculate total file & folder sizes\n"
+        "└ <b>Destination Routing</b>:\n"
+        "  • <code>-up rc</code> : Upload using Rclone config\n"
+        "  • <code>-up gd</code> : Upload using Google Drive API\n"
+        "  • <code>-up remote:folder</code> : Specify custom Rclone target folder\n"
+        "</blockquote>"
     ),
     "videotools": (
-        "<b>🎬 StarFallX — Video Studio & Remux Engine</b>\n"
-        "<i>Lossless MKV stream copy · Zero video re-encoding.</i>\n\n"
-        "<blockquote expandable><b>🎬 STUDIO CAPABILITIES</b> · interactive & web UI\n"
-        "╭ <b>Audio Merge:</b> Mux external audio tracks without re-encode\n"
-        "├ <b>Subtitle Merge:</b> Attach ASS/SRT + styled intro subtitles\n"
-        "├ <b>Delay Sync:</b> Millisecond audio/subtitle offset + 2m preview\n"
-        "├ <b>Track Ordering:</b> Reorder & set default audio/subtitle streams\n"
-        "╰ <b>VPS Audio Bank:</b> Save & auto-pair audio across episode packs</blockquote>\n\n"
-        "<blockquote expandable><b>🤖 AUTO-PROCESS PIPELINE</b> · single-pass automation\n"
-        "╭ <b>Stage 1:</b> Download → Auto-Unzip → Reorder Tracks\n"
-        "├ <b>Stage 2:</b> Strip Unwanted Streams → Smart Episode Merge\n"
-        "╰ <b>Stage 3:</b> Intro Subtitle → Stream Metadata → AutoRename → Upload</blockquote>"
+        "<b>🎬 STARFALLX • VIDEO TOOLS & WEB STUDIO</b>\n\n"
+        "<blockquote expandable>\n"
+        "<b>Lossless MKV Video Manipulation:</b>\n\n"
+        "┌ <b>Web Video Studio</b> : Live dual-player preview on port 8080\n"
+        "├ <b>Lossless Muxing</b> : Pure stream-copy mux without video re-encoding\n"
+        "├ <b>Delay Synchronization</b> : Custom ms audio/sub delay adjustments\n"
+        "├ <b>VPS Audio Bank</b> : Multi-episode automatic track matching\n"
+        "├ <b>Stream Trimming</b> : Zero-encoding stream copy for 2-min preview clips\n"
+        "└ <b>How to Launch</b> : Add <code>-vt</code> to any <code>/leech</code> or <code>/qbleech</code> command\n"
+        "</blockquote>"
     ),
     "settings": (
-        "<b>⚙️ StarFallX — User Preferences & Controls</b>\n"
-        "<i>Personalize captions, posters, thumbnails & helper bots.</i>\n\n"
-        "<blockquote expandable><b>⚙️ PREFERENCE COMMANDS</b> · user & admin menus\n"
-        "╭ <code>/usetting</code> or <code>/bsetting</code> : Open User / Bot Settings\n"
-        "├ <code>/setthumb</code> · <code>/delthumb</code> : Manage custom video thumbnail\n"
-        "├ <code>/poster</code> [query] : Search & save 1280×720 HD poster art\n"
-        "╰ <code>/userbot</code> : Configure PIN-protected helper bot tokens</blockquote>\n\n"
-        "<blockquote expandable><b>🏷️ TEMPLATE VARIABLES</b> · AutoRename & captions\n"
-        "╭ <b>Identity:</b> <code>{title}</code> · <code>{year}</code> · <code>{season}</code> · <code>{episode}</code>\n"
-        "├ <b>Streams:</b> <code>{resolution}</code> · <code>{codec}</code> · <code>{languages}</code> · <code>{shortsub}</code>\n"
-        "╰ <b>Metadata:</b> <code>{rating}</code> · <code>{genres}</code> · <code>{ott}</code> · <code>{quality}</code></blockquote>"
+        "<b>⚙️ STARFALLX • CONFIGURATION & CUSTOMIZATION</b>\n\n"
+        "<blockquote expandable>\n"
+        "<b>User & Bot Customization:</b>\n\n"
+        "┌ <code>/usetting</code> : Open interactive User Settings dashboard\n"
+        "├ <b>Prefix & Suffix</b> : Add custom release tags to all uploaded filenames\n"
+        "├ <b>Custom Caption</b> : Format captions using rich template variables\n"
+        "├ <b>Auto Poster</b> : Fetch official TMDb/AniList posters automatically\n"
+        "├ <b>Helper Tokens</b> : Add PIN-protected user bot tokens for max parallel speed\n"
+        "└ <code>/botsetting</code> : Admin system controls (Owner & Sudo only)\n"
+        "</blockquote>"
     ),
 }
 

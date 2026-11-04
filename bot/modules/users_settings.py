@@ -502,16 +502,18 @@ async def get_user_settings(from_user, stype="main"):
 
     if stype == "main":
         buttons.data_button(
-            "⚙️ General Settings", f"userset {user_id} general", position="header", style=ButtonStyle.PRIMARY
+            "General Settings", f"userset {user_id} general", position="header"
         )
-        buttons.data_button("📥 Leech Settings", f"userset {user_id} leech", style=ButtonStyle.PRIMARY)
-        buttons.data_button("☁️ Mirror Settings", f"userset {user_id} mirror", style=ButtonStyle.PRIMARY)
-        buttons.data_button("🎬 Auto Process", f"userset {user_id} autoprocess", style=ButtonStyle.PRIMARY)
-        buttons.data_button("🖼️ Poster Settings", f"userset {user_id} post", style=ButtonStyle.PRIMARY)
-        buttons.data_button("🏷️ Metadata", f"userset {user_id} ffset", style=ButtonStyle.PRIMARY)
-        buttons.data_button("🧰 Misc Settings", f"userset {user_id} advanced", style=ButtonStyle.PRIMARY)
-        buttons.data_button("📦 Export Zip", f"userset {user_id} zip", style=ButtonStyle.SUCCESS)
-        buttons.data_button("📂 Import Zip", f"userset {user_id} zipimport", style=ButtonStyle.SUCCESS)
+        buttons.data_button("Mirror Settings", f"userset {user_id} mirror")
+        buttons.data_button("Leech Settings", f"userset {user_id} leech")
+        buttons.data_button("Post Settings", f"userset {user_id} post")
+        buttons.data_button("Auto Process", f"userset {user_id} autoprocess")
+        buttons.data_button("Metadata", f"userset {user_id} ffset")
+        buttons.data_button("User Settings Zip", f"userset {user_id} zip")
+        buttons.data_button("Import Settings Zip", f"userset {user_id} zipimport")
+        buttons.data_button(
+            "Mics Settings", f"userset {user_id} advanced", position="l_body"
+        )
 
         if user_dict and any(
             key in user_dict
@@ -538,66 +540,25 @@ async def get_user_settings(from_user, stype="main"):
                 style=ButtonStyle.DANGER,
             )
         buttons.data_button(
-            "❌ Close",
+            f"{RED_DOT} Close",
             f"userset {user_id} close",
             position="footer",
             style=ButtonStyle.DANGER,
         )
 
-        def _u_bool(key, default=False):
-            val = user_dict.get(key) if key in user_dict else getattr(Config, key, default)
-            return config_bool(val, default)
+        text = f"""<b>{safe_emoji(PREMIUM_GEAR, '⚙️')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗨𝗦𝗘𝗥 𝗦𝗘𝗧𝗧𝗜𝗡𝗚𝗦</b>
 
-        ltype_summary = "Document" if _u_bool("AS_DOCUMENT") else "Media"
-        split_val = user_dict.get("LEECH_SPLIT_SIZE") or Config.LEECH_SPLIT_SIZE
-        split_summary = get_readable_file_size(split_val)
-        dump_summary = escape(str(user_dict.get("LEECH_DUMP_CHAT") or Config.LEECH_DUMP_CHAT or "PM / Current Chat"))
-        thumb_exists = "Saved" if await aiopath.exists(f"thumbnails/{user_id}.jpg") else "Auto"
-        thumb_mode_summary = str(user_dict.get("THUMBNAIL_MODE", Config.THUMBNAIL_MODE) or "automatic").title()
-        ar_summary = "On" if _u_bool("AUTORENAME", True) else "Off"
-        seq_summary = "On" if _u_bool("SEQUENTIAL_LEECH", True) else "Off"
-        ap_summary = "On" if _u_bool("AUTO_PROCESS") else "Off"
-        vt_summary = "On" if _u_bool("AUTO_VT") else "Off"
-        merge_summary = "On" if _u_bool("AUTO_MERGE") else "Off"
-        unzip_summary = "On" if _u_bool("AUTO_UNZIP") else "Off"
-        order_summary = "On" if _u_bool("AUTO_ORDER") else "Off"
-        intro_summary = "On" if _u_bool("AUTO_INTRO_SUBTITLE") else "Off"
-        poster_summary = "On" if _u_bool("AUTO_POSTER_ENABLED") else "Off"
-        tpl_id = escape(str(user_dict.get("POST_TEMPLATE_ID") or Config.POST_TEMPLATE_ID or 1))
-        du_val = user_dict.get("DEFAULT_UPLOAD") or Config.DEFAULT_UPLOAD
-        du_summary = "Google Drive" if du_val == "gd" else "Rclone"
-        rcc_summary = "Ready" if await aiopath.exists(rclone_conf) else "Not Set"
-        gd_summary = "Ready" if await aiopath.exists(token_pickle) else "Not Set"
-        token_scope = "User Config" if user_dict.get("USER_TOKENS", False) else "Owner Config"
-        user_up = bool(TgClient.IS_PREMIUM_USER and _u_bool("USER_TRANSMISSION", True))
-        hyb_up = bool(TgClient.IS_PREMIUM_USER and _u_bool("HYBRID_LEECH", True))
-        upload_mode_summary = "Hybrid" if hyb_up else ("User Session" if user_up else "Bot Session")
-        meta_summary = "Configured" if user_dict.get("METADATA") else "Default"
-        lang_name = Language.get(lc).display_name() if (lc := from_user.language_code) else "English"
+<blockquote expandable>
+<b>Account & Profile Overview:</b>
 
-        text = (
-            f"<b>{safe_emoji(PREMIUM_GEAR, '⚙️')} StarFallX — User Control Center</b>\n"
-            f"<i>Tap any section below to inspect your active profile.</i>\n\n"
-            f"<blockquote expandable><b>👤 PROFILE &amp; SESSION</b> · {upload_mode_summary}\n"
-            f"╭ <b>User:</b> {user_name} (<code>#ID{user_id}</code>)\n"
-            f"├ <b>Username:</b> <code>@{from_user.username or 'N/A'}</code> · <b>DC:</b> <code>DC-{from_user.dc_id or 'N/A'}</code>\n"
-            f"├ <b>Transmission:</b> <code>{upload_mode_summary}</code> · <b>Scope:</b> <code>{token_scope}</code>\n"
-            f"╰ <b>Language:</b> <code>{lang_name}</code></blockquote>\n\n"
-            f"<blockquote expandable><b>📥 LEECH &amp; NAMING</b> · {ltype_summary} ·AutoRename {ar_summary}\n"
-            f"╭ <b>Mode:</b> <code>{ltype_summary}</code> · <b>Split Cap:</b> <code>{split_summary}</code>\n"
-            f"├ <b>Destination:</b> <code>{dump_summary}</code>\n"
-            f"├ <b>Thumbnail:</b> <code>{thumb_exists}</code> (<code>{thumb_mode_summary}</code>)\n"
-            f"╰ <b>AutoRename:</b> <code>{ar_summary}</code> · <b>Sequential:</b> <code>{seq_summary}</code></blockquote>\n\n"
-            f"<blockquote expandable><b>🎬 STUDIO &amp; PIPELINE</b> · Auto-Process {ap_summary} · Poster {poster_summary}\n"
-            f"╭ <b>Auto-Process:</b> <code>{ap_summary}</code> · <b>Auto -vt:</b> <code>{vt_summary}</code>\n"
-            f"├ <b>Smart Merge:</b> <code>{merge_summary}</code> · <b>Auto Unzip:</b> <code>{unzip_summary}</code>\n"
-            f"├ <b>Track Order:</b> <code>{order_summary}</code> · <b>Intro Sub:</b> <code>{intro_summary}</code>\n"
-            f"╰ <b>Auto Poster:</b> <code>{poster_summary}</code> (Template <code>#{tpl_id}</code>)</blockquote>\n\n"
-            f"<blockquote expandable><b>☁️ CLOUD &amp; METADATA</b> · {du_summary} · Rclone {rcc_summary}\n"
-            f"╭ <b>Default Cloud:</b> <code>{du_summary}</code>\n"
-            f"├ <b>Rclone:</b> <code>{rcc_summary}</code> · <b>GDrive:</b> <code>{gd_summary}</code>\n"
-            f"╰ <b>Stream Metadata:</b> <code>{meta_summary}</code></blockquote>"
-        )
+┌ <b>Name</b> : {user_name}
+├ <b>UserID</b> : <code>#ID{user_id}</code>
+├ <b>Username</b> : @{from_user.username}
+├ <b>Telegram DC</b> : DC {from_user.dc_id}
+└ <b>Language</b> : {Language.get(lc).display_name() if (lc := from_user.language_code) else "N/A"}
+
+<i>Configure your personal mirror, leech, poster, and token preferences below.</i>
+</blockquote>"""
 
         btns = buttons.build_menu(2)
 
@@ -632,15 +593,16 @@ async def get_user_settings(from_user, stype="main"):
         )
         btns = buttons.build_menu(2)
 
-        text = (
-            f"<b>{safe_emoji(PREMIUM_GEAR, '⚙️')} StarFallX — General Preferences</b>\n"
-            f"<i>Default upload destination, token scope &amp; cookies.</i>\n\n"
-            f"<blockquote expandable><b>⚙️ STORAGE &amp; TOKEN ENGINE</b> · {du} · {tr} mode\n"
-            f"╭ <b>User:</b> {user_name}\n"
-            f"├ <b>Default Upload:</b> <code>{du}</code>\n"
-            f"├ <b>Token Scope:</b> <code>{tr}'s token/config</code>\n"
-            f"╰ <b>yt-dlp Cookies:</b> <code>{cookie_mode}</code></blockquote>"
-        )
+        text = f"""<b>{safe_emoji(PREMIUM_GEAR, '⚙️')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗚𝗘𝗡𝗘𝗥𝗔𝗟 𝗦𝗘𝗧𝗧𝗜𝗡𝗚𝗦</b>
+
+<blockquote expandable>
+<b>Default Storage & Token Engine:</b>
+
+┌ <b>User</b> : {user_name}
+├ <b>Default Upload</b> : <b>{du}</b>
+├ <b>Token Mode</b> : <b>{tr}'s</b> token/config
+└ <b>yt-dlp Cookies</b> : <b>{cookie_mode}</b>
+</blockquote>"""
 
     elif stype == "userbot":
         pin_required = config_bool(Config.HELPER_TOKEN_PIN_REQUIRED, True)
@@ -902,27 +864,34 @@ Unlock to view, add, test, remove, or export helper token data."""
         buttons.data_button(f"{RED_DOT} Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER)
         btns = buttons.build_menu(2)
 
-        text = (
-            f"<b>{safe_emoji(PREMIUM_PACKAGE, '📥')} StarFallX — Leech Preferences</b>\n"
-            f"<i>Tap a drawer to inspect upload, naming &amp; artwork settings.</i>\n\n"
-            f"<blockquote expandable><b>📤 UPLOAD &amp; ROUTING</b> · {ltype} · {upload_mode}\n"
-            f"╭ <b>User:</b> {user_name} (Premium: <code>{premium_status}</code>)\n"
-            f"├ <b>Leech Type:</b> <code>{ltype}</code> · <b>Engine:</b> <code>{upload_mode}</code>\n"
-            f"├ <b>Split Size:</b> <code>{get_readable_file_size(split_size)}</code> (Max <code>{get_readable_file_size(effective_split)}</code>)\n"
-            f"├ <b>Destination:</b> <code>{escape(str(leech_dest))}</code>\n"
-            f"╰ <b>Complete Msg:</b> <code>{complete_msg}</code> · <b>Sequential:</b> <code>{sequential_leech}</code></blockquote>\n\n"
-            f"<blockquote expandable><b>🖼️ THUMBNAIL &amp; SUBTITLES</b> · {thumbmsg} ({thumbnail_mode.title()})\n"
-            f"╭ <b>Custom Thumb:</b> <code>{thumbmsg}</code> · <b>Mode:</b> <code>{thumbnail_mode.title()}</code>\n"
-            f"├ <b>Auto Thumb:</b> <code>{auto_thumb}</code> · <b>Layout:</b> <code>{thumb_layout}</code>\n"
-            f"├ <b>Sub Target:</b> <code>{escape(subtitle_target)}</code>\n"
-            f"╰ <b>Intro Sub:</b> <code>{escape(intro_subtitle)}</code></blockquote>\n\n"
-            f"<blockquote expandable><b>🏷️ NAMING &amp; CAPTIONS</b> · AutoRename {autorename_status}\n"
-            f"╭ <b>AutoRename:</b> <code>{autorename_status}</code> · <b>Font:</b> <code>{font_label}</code>\n"
-            f"├ <b>Prefix:</b> <code>{escape(lprefix)}</code> · <b>Suffix:</b> <code>{escape(lsuffix)}</code>\n"
-            f"├ <b>Word Replace:</b> <code>{escape(str(caption_word_replace))}</code>\n"
-            f"├ <b>Template:</b> <code>{escape(lremname_auto)}</code>\n"
-            f"╰ <b>Caption:</b> <code>{escape(lcap)}</code></blockquote>"
-        )
+        text = f"""<b>{safe_emoji(PREMIUM_PACKAGE, '📥')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗟𝗘𝗘𝗖𝗛 𝗦𝗘𝗧𝗧𝗜𝗡𝗚𝗦</b>
+
+<blockquote expandable>
+<b>User Profile & Preferences:</b>
+┌ <b>Name</b> : {user_name}
+├ <b>Leech Type</b> : <b>{ltype}</b>
+├ <b>Premium User</b> : <b>{premium_status}</b>
+├ <b>Upload Mode</b> : <b>{upload_mode}</b>
+├ <b>Max Split Size</b> : <code>{get_readable_file_size(effective_split)}</code>
+├ <b>Thumbnail</b> : <b>{thumbmsg}</b> ({thumbnail_mode.title()})
+├ <b>Auto Thumbnail</b> : <b>{auto_thumb}</b>
+├ <b>Split Size</b> : <code>{get_readable_file_size(split_size)}</code>
+├ <b>Destination</b> : <code>{escape(str(leech_dest))}</code>
+├ <b>Prefix</b> : <code>{escape(lprefix)}</code>
+├ <b>Suffix</b> : <code>{escape(lsuffix)}</code>
+├ <b>Caption Replace</b> : <code>{escape(str(caption_word_replace))}</code>
+├ <b>Caption Font</b> : <b>{font_label}</b>
+├ <b>Complete Msg</b> : <b>{complete_msg}</b>
+├ <b>Sequential Leech</b> : <b>{sequential_leech}</b>
+├ <b>Thumbnail Layout</b> : <b>{thumb_layout}</b>
+├ <b>AutoRename</b> : <b>{autorename_status}</b>
+├ <b>AutoRename Template</b> : <code>{escape(lremname_auto)}</code>
+├ <b>Subtitle Target</b> : <code>{escape(subtitle_target)}</code>
+└ <b>Intro Subtitle</b> : <code>{escape(intro_subtitle)}</code>
+
+<b>Caption Template:</b>
+<code>{escape(lcap)}</code>
+</blockquote>"""
 
     elif stype == "leech_old":
         thumbpath = f"thumbnails/{user_id}.jpg"
@@ -1185,19 +1154,18 @@ Unlock to view, add, test, remove, or export helper token data."""
         buttons.data_button(f"{RED_DOT} Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER)
         btns = buttons.build_menu(2)
 
-        text = (
-            f"<b>🖼️ StarFallX — Poster Engine Settings</b>\n"
-            f"<i>Automated 1280×720 HD artwork &amp; release captions.</i>\n\n"
-            f"<blockquote expandable><b>🖼️ POSTER AUTOMATION</b> · Template #{template_id}/{POSTER_TEMPLATE_COUNT}\n"
-            f"╭ <b>User:</b> {user_name}\n"
-            f"├ <b>Auto Poster:</b> <code>{'Enabled' if enabled('AUTO_POSTER_ENABLED') else 'Disabled'}</code>\n"
-            f"├ <b>Use As Thumbnail:</b> <code>{'Enabled' if enabled('AUTO_POSTER_USE_AS_THUMBNAIL', True) else 'Disabled'}</code>\n"
-            f"├ <b>Send Poster Msg:</b> <code>{'Enabled' if enabled('AUTO_POSTER_SEND_MESSAGE', True) else 'Disabled'}</code>\n"
-            f"├ <b>Active Template:</b> <code>#{template_id} of {POSTER_TEMPLATE_COUNT}</code>\n"
-            f"├ <b>Brand Watermark:</b> <code>{escape(str(brand))}</code>\n"
-            f"╰ <b>Corner Logo:</b> <code>{logo_msg}</code></blockquote>\n\n"
-            f"<i>Tip: Use <code>/poster</code> or <code>/p</code> to manually search and preview artwork.</i>"
-        )
+        text = f"""<b>Post Settings</b>
+Name: {user_name}
+
+Auto Poster: <b>{'Enabled' if enabled('AUTO_POSTER_ENABLED') else 'Disabled'}</b>
+Use Poster As Thumbnail: <b>{'Enabled' if enabled('AUTO_POSTER_USE_AS_THUMBNAIL', True) else 'Disabled'}</b>
+Send Poster Message: <b>{'Enabled' if enabled('AUTO_POSTER_SEND_MESSAGE', True) else 'Disabled'}</b>
+Template: <b>{template_id}/{POSTER_TEMPLATE_COUNT}</b>
+Brand: <code>{escape(str(brand))}</code>
+Logo: <b>{logo_msg}</b>
+
+Use /poster or /p to manually search and save a thumbnail style.
+"""
 
     elif stype == "posttemplate":
         template_id = str(user_dict.get("POST_TEMPLATE_ID") or Config.POST_TEMPLATE_ID or 1)
@@ -1296,23 +1264,20 @@ Current: <b>{escape(template_id)}</b>"""
         buttons.data_button(f"{RED_DOT} Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER)
         btns = buttons.build_menu(2)
 
-        text = (
-            f"<b>🎬 StarFallX — Auto-Process Pipeline</b>\n"
-            f"<i>Single-pass lossless video automation · Tap a drawer to inspect.</i>\n\n"
-            f"<blockquote expandable><b>⚡ PIPELINE TOGGLES</b> · {'Active' if enabled('AUTO_PROCESS') else 'Standby'}\n"
-            f"╭ <b>Auto-Process:</b> <code>{'On' if enabled('AUTO_PROCESS') else 'Off'}</code> · <b>Auto Leech:</b> <code>{'On' if enabled('AUTO_LEECH') else 'Off'}</code>\n"
-            f"├ <b>Auto Unzip:</b> <code>{'On' if enabled('AUTO_UNZIP') else 'Off'}</code> · <b>Auto -vt:</b> <code>{'On' if enabled('AUTO_VT') else 'Off'}</code>\n"
-            f"├ <b>Auto Extract:</b> <code>{'On' if enabled('AUTO_EXTRACT_STREAMS') else 'Off'}</code> (VPS: <code>{'On' if enabled('AUTO_EXTRACT_SAVE_VPS') else 'Off'}</code> | TG: <code>{'On' if enabled('AUTO_EXTRACT_UPLOAD_TG') else 'Off'}</code>)\n"
-            f"├ <b>Track Order:</b> <code>{'On' if enabled('AUTO_ORDER') else 'Off'}</code> · <b>Strip Streams:</b> <code>{'On' if enabled('AUTO_REMOVE_STREAMS') else 'Off'}</code>\n"
-            f"╰ <b>Smart Merge:</b> <code>{'On' if enabled('AUTO_MERGE') else 'Off'}</code> · <b>Intro Sub:</b> <code>{'On' if enabled('AUTO_INTRO_SUBTITLE') else 'Off'}</code> · <b>Metadata:</b> <code>{'On' if enabled('AUTO_METADATA') else 'Off'}</code></blockquote>\n\n"
-            f"<blockquote expandable><b>🎚️ STREAM &amp; LANGUAGE RULES</b> · audio &amp; subtitle filters\n"
-            f"╭ <b>Extract Audios:</b> <code>{escape(str(extract_audio))}</code>\n"
-            f"├ <b>Keep Audios:</b> <code>{escape(str(keep_audio))}</code>\n"
-            f"├ <b>Keep Subtitles:</b> <code>{escape(str(keep_sub))}</code>\n"
-            f"├ <b>Audios Order:</b> <code>{escape(str(audio_order))}</code>\n"
-            f"├ <b>Subtitles Order:</b> <code>{escape(str(sub_order))}</code>\n"
-            f"╰ <b>Intro Ranges:</b> <code>{escape(str(intro_ranges)[:80])}</code></blockquote>"
-        )
+        text = f"""<b>Auto Process</b>
+<b>Name:</b> {user_name}
+
+{chr(10).join(status_lines)}
+
+Extract Audios -> <code>{escape(str(extract_audio))}</code>
+Keep Audios -> <code>{escape(str(keep_audio))}</code>
+Keep Subtitles -> <code>{escape(str(keep_sub))}</code>
+Audios Order -> <code>{escape(str(audio_order))}</code>
+Subtitles Order -> <code>{escape(str(sub_order))}</code>
+Intro Ranges -> <code>{escape(str(intro_ranges))}</code>
+
+<i>Order: download - unzip - order tracks - remove streams - smart merge - intro subtitle - metadata - auto rename - sequential upload.</i>
+"""
 
     elif stype == "uphoster":
         uphoster_service = user_dict.get("UPHOSTER_SERVICE", "gofile")
@@ -1545,18 +1510,16 @@ Current: <b>{escape(template_id)}</b>"""
         buttons.data_button("Close", f"userset {user_id} close", "footer")
         btns = buttons.build_menu(1)
 
-        text = (
-            f"<b>☁️ StarFallX — Cloud Mirror Settings</b>\n"
-            f"<i>Rclone, Google Drive, YouTube &amp; Uphoster routing.</i>\n\n"
-            f"<blockquote expandable><b>☁️ CLOUD DESTINATIONS</b> · Rclone {rccmsg} · GDrive {tokenmsg}\n"
-            f"╭ <b>User:</b> {user_name}\n"
-            f"├ <b>Rclone Config:</b> <code>{rccmsg}</code>\n"
-            f"├ <b>Rclone Path:</b> <code>{escape(str(rccpath))}</code>\n"
-            f"├ <b>GDrive Token:</b> <code>{tokenmsg}</code>\n"
-            f"├ <b>GDrive ID:</b> <code>{escape(str(gdrive_id))}</code>\n"
-            f"├ <b>Index URL:</b> <code>{escape(str(index))}</code>\n"
-            f"╰ <b>Stop Duplicate:</b> <code>{sd_msg}</code></blockquote>"
-        )
+        text = f"""⌬ <b>Mirror Settings :</b>
+┟ <b>Name</b> → {user_name}
+┃
+┠ <b>Rclone Config</b> → <b>{rccmsg}</b>
+┠ <b>Rclone Path</b> → <code>{rccpath}</code>
+┠ <b>Gdrive Token</b> → <b>{tokenmsg}</b>
+┠ <b>Gdrive ID</b> → <code>{gdrive_id}</code>
+┠ <b>Index Link</b> → <code>{index}</code>
+┖ <b>Stop Duplicate</b> → <b>{sd_msg}</b>
+"""
 
     elif stype == "ffset":
         if user_dict.get("FFMPEG_CMDS", False):
@@ -1633,17 +1596,15 @@ Current: <b>{escape(template_id)}</b>"""
 ┠ <b>Video Metadata</b> → {display_video_meta}
 ┖ <b>Subtitle Metadata</b> → {display_subtitle_meta}"""
 
-        text = (
-            f"<b>🏷️ StarFallX — Stream Metadata Settings</b>\n"
-            f"<i>Apply custom container, video, audio &amp; subtitle tags.</i>\n\n"
-            f"<blockquote expandable><b>🏷️ ACTIVE STREAM TAGS</b> · container &amp; tracks\n"
-            f"╭ <b>User:</b> {user_name}\n"
-            f"├ <b>Container Meta:</b> {display_meta_val}\n"
-            f"├ <b>Video Track:</b> {display_video_meta}\n"
-            f"├ <b>Audio Track:</b> {display_audio_meta}\n"
-            f"╰ <b>Subtitle Track:</b> {display_subtitle_meta}</blockquote>\n\n"
-            f"<i>Tip: Tap <b>Set Channel Metadata</b> to stamp your brand across all tracks at once.</i>"
-        )
+        text = f"""<b>Metadata Settings</b>
+<b>Name:</b> {user_name}
+
+Use <b>Set Channel Metadata</b> to clear old metadata and apply one channel name to global, video, audio, and subtitle metadata.
+
+Default Metadata: {display_meta_val}
+Audio Metadata: {display_audio_meta}
+Video Metadata: {display_video_meta}
+Subtitle Metadata: {display_subtitle_meta}"""
 
     elif stype == "advanced":
         buttons.data_button(
@@ -1693,17 +1654,14 @@ Current: <b>{escape(template_id)}</b>"""
         buttons.data_button("Close", f"userset {user_id} close", "footer")
         btns = buttons.build_menu(1)
 
-        text = (
-            f"<b>🧰 StarFallX — Advanced &amp; Misc Settings</b>\n"
-            f"<i>Name substitution, extension filters &amp; yt-dlp options.</i>\n\n"
-            f"<blockquote expandable><b>🧰 ADVANCED RULES</b> · filters &amp; overrides\n"
-            f"╭ <b>User:</b> {user_name}\n"
-            f"├ <b>Name Swaps:</b> {ns_msg}\n"
-            f"├ <b>Excluded Ext:</b> <code>{escape(str(ex_ex))}</code>\n"
-            f"├ <b>Upload Paths:</b> <code>{escape(str(upload_paths))}</code>\n"
-            f"├ <b>YT-DLP Options:</b> <code>{escape(str(ytopt))}</code>\n"
-            f"╰ <b>YT Cookie File:</b> <code>{user_cookie_msg}</code></blockquote>"
-        )
+        text = f"""⌬ <b>Advanced Settings :</b>
+┟ <b>Name</b> → {user_name}
+┃
+┠ <b>Name Swaps</b> → {ns_msg}
+┠ <b>Excluded Extensions</b> → <code>{ex_ex}</code>
+┠ <b>Upload Paths</b> → <b>{upload_paths}</b>
+┠ <b>YT-DLP Options</b> → <code>{ytopt}</code>
+┖ <b>YT User Cookie File</b> → <b>{user_cookie_msg}</b>"""
     elif stype == "yttools":
         buttons.data_button("YT Description", f"userset {user_id} menu YT_DESP")
         yt_desp_val = user_dict.get(
@@ -1767,7 +1725,7 @@ async def send_user_settings(_, message):
     from_user = message.from_user
     handler_dict[from_user.id] = False
     msg, button = await get_user_settings(from_user)
-    await send_message(message, msg, button, photo="IMAGES")
+    await send_message(message, msg, button)
 
 
 @new_task
