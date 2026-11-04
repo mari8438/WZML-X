@@ -102,6 +102,15 @@ MISSAV_DEFAULT_BACKUP_CHANNEL = -1003969712219
 MISSAV_DEFAULT_TAGS_GROUP = -1004486729792
 MISSAV_DEFAULT_ACTRESS_GROUP = -1003967556547
 MISSAV_DEFAULT_CODES_GROUP = -1004345896581
+def _get_download_proxy(item_index: int) -> str | None:
+    raw = getattr(Config, "MISSAV_DOWNLOAD_PROXY", "")
+    if not raw:
+        return None
+    proxies = [p.strip() for p in raw.split() if p.strip()]
+    if not proxies:
+        return None
+    pool = [None, *proxies]
+    return pool[item_index % len(pool)]
 
 IGNORED_TAGS = {
     "4k",
@@ -1165,7 +1174,7 @@ async def _prepare_single_title(
 
         source_path = ospath.join(title_dir, f"raw_{quality.label}.mkv")
         LOGGER.info(f"Downloading quality {quality.label} for {item.title} (idx: {item_index})...")
-        await helper.download_direct_hls(quality.url, source_path, headers)
+        await helper.download_direct_hls(quality.url, source_path, headers, proxy=_get_download_proxy(item_index))
 
         # Remux with subtitles (guarded by remux_sem to keep CPU cool)
         async with remux_sem:
@@ -1192,7 +1201,7 @@ async def _prepare_single_title(
             source_path = ospath.join(title_dir, f"raw_{quality.label}.mkv")
             try:
                 LOGGER.info(f"Fallback downloading quality {quality.label} for {item.title}...")
-                await helper.download_direct_hls(quality.url, source_path, headers)
+                await helper.download_direct_hls(quality.url, source_path, headers, proxy=_get_download_proxy(item_index))
                 async with remux_sem:
                     muxed = await _remux_with_subtitles(
                         source_path,

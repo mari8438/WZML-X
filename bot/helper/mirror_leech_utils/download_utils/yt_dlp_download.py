@@ -287,7 +287,7 @@ class YoutubeDLHelper:
         async_to_sync(self._listener.on_download_complete)
         return
 
-    def _download_direct_hls_sync(self, url, output_path, headers):
+    def _download_direct_hls_sync(self, url, output_path, headers, proxy=None):
         """Download one already-resolved public HLS variant without task callbacks."""
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -302,13 +302,24 @@ class YoutubeDLHelper:
                 "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mkv"}],
             }
         )
+        if proxy:
+            opts["proxy"] = proxy
         try:
             from yt_dlp.networking.impersonate import ImpersonateTarget
             opts["impersonate"] = ImpersonateTarget.from_str("chrome")
         except Exception:
             pass
-        with YoutubeDL(opts) as ydl:
-            ydl.download([url])
+        try:
+            with YoutubeDL(opts) as ydl:
+                ydl.download([url])
+        except Exception as err:
+            if proxy:
+                LOGGER.warning(f"Download via proxy {proxy} failed ({err}); falling back to direct download...")
+                opts.pop("proxy", None)
+                with YoutubeDL(opts) as ydl:
+                    ydl.download([url])
+            else:
+                raise err
         candidates = [output, *output.parent.glob(f"{output.stem}.*")]
         result = next((path for path in candidates if path.is_file() and path.suffix == ".mkv"), None)
         if result is None:
@@ -317,13 +328,14 @@ class YoutubeDLHelper:
             result.replace(output)
         return str(output)
 
-    async def download_direct_hls(self, url, output_path, headers=None):
+    async def download_direct_hls(self, url, output_path, headers=None, proxy=None):
         """Reuse yt-dlp options, retry policy, progress hook, and cancellation hook."""
         return await sync_to_async(
             self._download_direct_hls_sync,
             url,
             output_path,
             headers or {},
+            proxy,
         )
 
     async def add_download(self, path, qual, playlist, options):
