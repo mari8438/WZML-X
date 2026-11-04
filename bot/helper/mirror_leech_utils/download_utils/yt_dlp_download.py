@@ -299,6 +299,12 @@ class YoutubeDLHelper:
                 "outtmpl": str(output.with_suffix("")) + ".%(ext)s",
                 "writethumbnail": False,
                 "noplaylist": True,
+                "concurrent_fragment_downloads": 16,
+                "buffersize": 1048576,
+                "http_chunk_size": 10485760,
+                "hls_use_mpegts": True,
+                "fragment_retries": 15,
+                "retries": 15,
                 "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mkv"}],
             }
         )
