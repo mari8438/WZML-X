@@ -62,6 +62,7 @@ from .search import torrent_search, torrent_search_update, initiate_search_tools
 from .nzb_search import hydra_search
 from .services import start, start_cb, login, ping, log, log_cb, sudo_only
 from .shell import run_shell
+from .prompt import handle_agy_prompt
 from .stats import bot_stats, stats_pages, get_packages_version
 from .status import task_status, status_pages
 from .users_settings import (
@@ -158,6 +159,7 @@ __all__ = [
     "log_cb",
     "sudo_only",
     "run_shell",
+    "handle_agy_prompt",
     "bot_stats",
     "stats_pages",
     "get_packages_version",

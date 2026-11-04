@@ -59,6 +59,7 @@ class BotCommands:
         "Select": ["select", "sel"],
         "NzbSearch": ["nzbsearch", "ns"],
         "Plugins": "plugins",
+        "Prompt": ["prompt", "agy"],
     }
 
     @classmethod
