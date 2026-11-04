@@ -857,7 +857,6 @@ class TelegramUploader:
             return await route.client.send_document(
                 document=self._up_path,
                 thumb=thumb,
-                disable_content_type_detection=True,
                 **common,
             )
         if key == "videos":
@@ -1135,7 +1134,6 @@ class TelegramUploader:
                         quote=True,
                         thumb=send_thumb,
                         caption=cap_mono,
-                        disable_content_type_detection=True,
                         disable_notification=True,
                         progress=self._upload_progress,
                     )
