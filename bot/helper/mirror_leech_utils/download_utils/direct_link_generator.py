@@ -471,6 +471,33 @@ def _flaresolverr_get_html(url: str, timeout: int = 30) -> tuple[str, str]:
     return "", ""
 
 
+def _load_domain_cookies(domains: list[str]) -> dict:
+    cookies = {}
+    cookie_paths = [
+        "cookies.txt",
+        "/usr/src/app/cookies.txt",
+        ospath.join(ospath.dirname(__file__), "../../../../../cookies.txt"),
+    ]
+    for cpath in cookie_paths:
+        if ospath.isfile(cpath):
+            try:
+                with open(cpath, "r", encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.rstrip("\r\n")
+                        if line.startswith("#HttpOnly_"):
+                            line = line[len("#HttpOnly_") :]
+                        if not line or line.startswith("#"):
+                            continue
+                        parts = line.split("\t")
+                        if len(parts) < 7:
+                            continue
+                        if any(d.lower() in parts[0].lower() for d in domains):
+                            cookies[parts[5]] = parts[6]
+            except Exception:
+                pass
+    return cookies
+
+
 def _decode_greenmotors_payload(payload: str) -> str:
     if not payload:
         return ""
@@ -522,50 +549,69 @@ def bypass_hubhold_aggregators(url: str) -> str:
 
     session = Session()
     session.headers.update(headers)
+    cookies = _load_domain_cookies([domain, "toonworld4all", "toonworld"])
+    if cookies:
+        session.cookies.update(cookies)
     target_url = None
 
     # 1. ToonWorld4All (archive.toonworld4all.me / toonworld4all.me)
     if "toonworld" in domain_lower:
         try:
             resp = session.get(url, allow_redirects=False, timeout=15)
-            if resp.status_code in (301, 302, 303, 307, 308):
+            # Follow redirects (authenticated or pass-through)
+            while resp.status_code in (301, 302, 303, 307, 308):
                 loc = resp.headers.get("Location", "")
-                if any(h in loc for h in ["hubcloud", "hubhold"]):
+                if not loc:
+                    break
+                loc = urljoin(resp.url, loc)
+                if any(h in loc.lower() for h in ["hubcloud", "hubhold", "filepress", "gdflix"]):
                     target_url = loc
-                elif loc:
-                    resp = session.get(loc, allow_redirects=True, timeout=15)
+                    break
+                # If redirecting to another toonworld redirect/internal page, follow it
+                target_domain = (urlparse(loc).hostname or "").lower()
+                if "toonworld" in target_domain:
+                    resp = session.get(loc, allow_redirects=False, timeout=15)
+                else:
+                    target_url = loc
+                    break
 
             if not target_url and resp.status_code == 200:
                 html_text = resp.text
-                # Extract underlying target payload directly without binding to single-use cookie or cooldown
                 props_match = search(r"window\.__PROPS__\s*=\s*(\{.*?\});", html_text)
                 if props_match:
                     try:
                         props = loads(props_match.group(1))
-                        link_obj = props.get("link") or {}
-                        domain_part = link_obj.get("domain", "")
-                        hidden_part = link_obj.get("hidden", "")
-                        if domain_part and hidden_part:
-                            target_url = urljoin(domain_part, hidden_part)
-                        elif dest := props.get("destination", ""):
-                            if any(h in dest for h in ["hubcloud", "hubhold"]):
-                                target_url = dest
-                    except Exception:
-                        pass
+                        dest = props.get("destination", "")
+                        if dest and any(h in dest.lower() for h in ["hubcloud", "hubhold", "filepress", "gdflix"]):
+                            target_url = dest
+                        elif dest and any(s in dest.lower() for s in ["shrinkme", "exe.io", "gplinks", "cuty", "adrino"]):
+                            raise DirectDownloadLinkException(
+                                f"ERROR: Toonworld4all direct link is protected by shortener gate ({dest}). "
+                                "Please solve shortener in browser and place valid toonworld4all cookies in cookies.txt."
+                            )
+                        else:
+                            link_obj = props.get("link") or {}
+                            domain_part = link_obj.get("domain", "")
+                            hidden_part = link_obj.get("hidden", "")
+                            if domain_part and hidden_part and not dest:
+                                target_url = urljoin(domain_part, hidden_part)
+                    except Exception as pe:
+                        if isinstance(pe, DirectDownloadLinkException):
+                            raise
 
                 if not target_url:
                     refresh_match = search(
                         r'<meta[^>]*http-equiv=["\']refresh["\'][^>]*content=["\'][^"\']*url=([^"\']+)["\']',
                         html_text,
                     )
-                    if refresh_match and any(
-                        h in refresh_match.group(1) for h in ["hubcloud", "hubhold"]
-                    ):
-                        target_url = refresh_match.group(1)
+                    if refresh_match:
+                        ref_url = refresh_match.group(1).strip()
+                        if any(h in ref_url.lower() for h in ["hubcloud", "hubhold", "filepress", "gdflix"]):
+                            target_url = ref_url
 
                 if not target_url:
                     hub_matches = findall(
-                        r"https?://[^\s\"\'<>]*(?:hubcloud|hubhold)[^\s\"\'<>]*",
+                        r"https?://[^\s\"\'<>]*(?:hubcloud|hubhold|filepress|gdflix)[^\s\"\'<>]*",
                         html_text,
                     )
                     if hub_matches:
@@ -701,10 +747,18 @@ def bypass_hubhold_aggregators(url: str) -> str:
 
     if not target_url:
         raise DirectDownloadLinkException(
-            f"ERROR: No HubCloud/HubHold link found for {url}"
+            f"ERROR: No direct download link found for {url}"
         )
 
-    return hubcloud(target_url)
+    target_domain = (urlparse(target_url).hostname or "").lower()
+    if any(h in target_domain for h in ["hubcloud", "hubhold"]):
+        return hubcloud(target_url)
+    elif "filepress" in target_domain:
+        return filepress(target_url)
+    elif "gdflix" in target_domain:
+        return gdflix(target_url)
+    else:
+        return direct_link_generator(target_url)
 
 
 def gdflix(url):
