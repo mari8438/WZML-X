@@ -1421,11 +1421,11 @@ async def missav_leech(_, message):
                 last_break_time = time()
                 WORK_INTERVAL_SECONDS = 30 * 60
                 COOLING_BREAK_SECONDS = 5 * 60
-                MAX_DOWNLOAD_CONCURRENCY = 16
+                MAX_DOWNLOAD_CONCURRENCY = 25
                 MAX_UPLOAD_CONCURRENCY = 6
 
                 download_sem = Semaphore(MAX_DOWNLOAD_CONCURRENCY)
-                remux_sem = Semaphore(6)
+                remux_sem = Semaphore(8)
 
                 async for page_num, total_pages, page_items in resolver.discover_pages(target_query, max_pages=None):
                     if cancel_event.is_set():
