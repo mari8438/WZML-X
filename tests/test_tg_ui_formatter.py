@@ -13,19 +13,22 @@ _SPEC = importlib.util.spec_from_file_location("tg_ui_formatter", _MODULE_PATH)
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 
-format_accordion_block = _MODULE.format_accordion_block
 format_card = _MODULE.format_card
 is_premium_session = _MODULE.is_premium_session
 publish_telegraph_article = _MODULE.publish_telegraph_article
 safe_emoji = _MODULE.safe_emoji
 PREMIUM_MOVIE = _MODULE.PREMIUM_MOVIE
 PREMIUM_PACKAGE = _MODULE.PREMIUM_PACKAGE
-PREMIUM_STATS = _MODULE.PREMIUM_STATS
-PREMIUM_BOLT = _MODULE.PREMIUM_BOLT
 
 _HELP_PATH = _REPO_ROOT / "bot" / "helper" / "ext_utils" / "help_messages.py"
 _HELP_CONTENT = _HELP_PATH.read_text(encoding="utf-8")
 _HELP_TREE = ast.parse(_HELP_CONTENT)
+
+_STATS_CONTENT = (_REPO_ROOT / "bot" / "modules" / "stats.py").read_text(encoding="utf-8")
+_HELP_MOD_CONTENT = (_REPO_ROOT / "bot" / "modules" / "help.py").read_text(encoding="utf-8")
+_TASK_LISTENER_CONTENT = (
+    _REPO_ROOT / "bot" / "helper" / "listeners" / "task_listener.py"
+).read_text(encoding="utf-8")
 
 
 class TgUIFormatterTest(TestCase):
@@ -36,7 +39,6 @@ class TgUIFormatterTest(TestCase):
         self.assertFalse(is_premium_session(client))
 
     def test_is_premium_session_with_bot_account(self):
-        # Standard bot accounts cannot render custom tg-emoji without premium user session
         client = MagicMock()
         client.me.is_premium = True
         client.me.is_bot = True
@@ -64,36 +66,6 @@ class TgUIFormatterTest(TestCase):
         self.assertEqual(
             emoji, f'<tg-emoji id="{PREMIUM_PACKAGE}">📦</tg-emoji>'
         )
-
-    def test_format_accordion_block_drawer_title_first_line(self):
-        block = format_accordion_block(
-            "🤖 BOT STATS",
-            "uptime, RAM, disk",
-            [
-                ("Uptime", "2h 15m"),
-                ("CPU", "24.5%"),
-                ("Free Disk", "50 GB"),
-            ],
-            curved=True,
-        )
-        self.assertTrue(block.startswith("<blockquote expandable><b>🤖 BOT STATS</b> · uptime, RAM, disk\n"))
-        self.assertTrue(block.endswith("</blockquote>"))
-        self.assertIn("╭ <b>Uptime:</b> 2h 15m", block)
-        self.assertIn("├ <b>CPU:</b> 24.5%", block)
-        self.assertIn("╰ <b>Free Disk:</b> 50 GB", block)
-
-    def test_format_accordion_block_raw_bullets(self):
-        block = format_accordion_block(
-            "📥 LEECH COMMANDS",
-            "download to Telegram",
-            [
-                "• /leech or /l [link] : Leech direct link",
-                "• /bleech or /bl [links] : Batch leech",
-            ],
-        )
-        self.assertTrue(block.startswith("<blockquote expandable><b>📥 LEECH COMMANDS</b> · download to Telegram\n"))
-        self.assertIn("• /leech or /l [link] : Leech direct link", block)
-        self.assertIn("• /bleech or /bl [links] : Batch leech", block)
 
     def test_format_card_expandable(self):
         fields = {
@@ -172,11 +144,32 @@ class TgUIFormatterTest(TestCase):
     def test_help_messages_overview_is_expandable(self):
         self.assertIn("<blockquote expandable>", _HELP_CONTENT)
         self.assertIn("StarFallX v1.2 — Commands Guide", _HELP_CONTENT)
-        self.assertIn("Tap a group to open it.", _HELP_CONTENT)
-        self.assertIn("LEECH COMMANDS", _HELP_CONTENT)
-        self.assertIn("MIRROR COMMANDS", _HELP_CONTENT)
-        self.assertIn("VIDEO TOOLS", _HELP_CONTENT)
-        self.assertIn("USER PREFERENCES", _HELP_CONTENT)
+        self.assertIn("LEECH COMMANDS</b> · download to Telegram", _HELP_CONTENT)
+        self.assertIn("MIRROR COMMANDS</b> · cloud & rclone uploads", _HELP_CONTENT)
+        self.assertIn("VIDEO TOOLS</b> · remuxing, streams & rename", _HELP_CONTENT)
+        self.assertIn("USER PREFERENCES</b> · settings & custom thumb", _HELP_CONTENT)
+        self.assertIn('photo="IMAGES"', _HELP_MOD_CONTENT)
+        self.assertIn("👥 USE BOT IN GROUP", _HELP_MOD_CONTENT)
+        self.assertIn("📖 TELEGRAPH MANUAL ↗", _HELP_MOD_CONTENT)
+
+    def test_stats_multi_accordion_article_format(self):
+        self.assertIn("<b>StarFallX — Statistics</b>", _STATS_CONTENT)
+        self.assertIn("<i>Tap a group to open it.</i>", _STATS_CONTENT)
+        self.assertIn("BOT STATS</b> · uptime, RAM, disk", _STATS_CONTENT)
+        self.assertIn("OS STATS</b> · system and network", _STATS_CONTENT)
+        self.assertIn("REPO STATS</b> · commits and branch", _STATS_CONTENT)
+        self.assertIn("PKGS STATS</b> · engine versions", _STATS_CONTENT)
+        self.assertIn("TASK LIMITS</b> · per-task caps", _STATS_CONTENT)
+        self.assertIn("👥 USE BOT IN GROUP", _STATS_CONTENT)
+        self.assertIn("👤 DEVELOPER ↗", _STATS_CONTENT)
+        self.assertIn("📦 SOURCE ↗", _STATS_CONTENT)
+        self.assertIn('photo="IMAGES"', _STATS_CONTENT)
+
+    def test_task_listener_article_format(self):
+        self.assertIn("STARFALLX • TASK COMPLETED", _TASK_LISTENER_CONTENT)
+        self.assertIn("TASK METRICS</b> · transfer summary", _TASK_LISTENER_CONTENT)
+        self.assertIn("<b>Action:</b> <i>File(s) have been sent to User PM</i>", _TASK_LISTENER_CONTENT)
+        self.assertIn('photo="IMAGES"', _TASK_LISTENER_CONTENT)
 
     def test_category_help_messages(self):
         for cat in ("leech", "mirror", "videotools", "settings"):

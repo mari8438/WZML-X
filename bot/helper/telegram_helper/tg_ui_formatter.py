@@ -11,12 +11,6 @@ PREMIUM_GEAR = "5368324170671202291"
 PREMIUM_STATS = "5368324170671202292"
 PREMIUM_DOC = "5368324170671202293"
 PREMIUM_CHECK = "5368324170671202294"
-PREMIUM_SCREEN = "5368324170671202295"
-PREMIUM_PUZZLE = "5368324170671202296"
-PREMIUM_TRAFFIC = "5368324170671202297"
-PREMIUM_STAR = "5368324170671202298"
-PREMIUM_INBOX = "5368324170671202299"
-PREMIUM_CLOUD = "5368324170671202300"
 
 
 def is_premium_session(client=None) -> bool:
@@ -56,36 +50,50 @@ def safe_emoji(premium_emoji_id, fallback_unicode, client=None) -> str:
     return str(fallback_unicode)
 
 
-def format_accordion_block(title, subtitle=None, items=None, curved=True) -> str:
+def format_drawer(title: str, subtitle: str = "", rows=None, bullets=None) -> str:
     """
-    Format a Telegram Article expandable accordion block.
-    The first line MUST be the drawer title so the title remains visible
-    next to the dropdown arrow (⌄) when collapsed.
+    Render a native Telegram <blockquote expandable> accordion drawer.
+    The first line immediately inside <blockquote expandable> is the visible
+    collapsed header so Telegram displays the chevron (⌄) with the summary title.
     """
-    drawer = f"<b>{title}</b>"
-    if subtitle:
-        drawer += f" · {subtitle}"
+    header = f"<b>{title}</b>" + (f" · {subtitle}" if subtitle else "")
+    lines = [header]
 
-    lines = [drawer]
-    items_list = list(items.items()) if isinstance(items, dict) else list(items or [])
-    total = len(items_list)
-    for i, item in enumerate(items_list):
-        if isinstance(item, (list, tuple)) and len(item) == 2:
-            k, v = item
+    if rows:
+        items = list(rows.items()) if isinstance(rows, dict) else list(rows)
+        total = len(items)
+        for idx, (k, v) in enumerate(items):
             if total == 1:
-                prefix = "•"
-            elif i == 0:
-                prefix = "╭" if curved else "┌"
-            elif i == total - 1:
-                prefix = "╰" if curved else "└"
+                prefix = "╰"
+            elif idx == 0:
+                prefix = "╭"
+            elif idx == total - 1:
+                prefix = "╰"
             else:
                 prefix = "├"
             lines.append(f"{prefix} <b>{k}:</b> {v}")
-        else:
-            lines.append(str(item))
 
-    body = "\n".join(lines)
-    return f"<blockquote expandable>{body}</blockquote>"
+    if bullets:
+        for b in bullets:
+            lines.append(f"• {b}")
+
+    return f"<blockquote expandable>{chr(10).join(lines)}</blockquote>"
+
+
+def format_article(title: str, subtitle: str = "", drawers=None, footer: str = "") -> str:
+    """
+    Build a complete Telegram Article card with bold headline, italic subtitle,
+    and multiple independent <blockquote expandable> accordion drawers.
+    """
+    parts = [f"<b>{title}</b>"]
+    if subtitle:
+        parts[0] += f"\n<i>{subtitle}</i>"
+    for drawer in drawers or []:
+        if drawer:
+            parts.append(drawer)
+    if footer:
+        parts.append(footer)
+    return "\n\n".join(parts)
 
 
 def format_card(header=None, title=None, fields_dict=None, footer=None, expandable=True) -> str:
