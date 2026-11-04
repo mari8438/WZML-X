@@ -520,19 +520,52 @@ BOT_COMMANDS = get_bot_commands()
 
 
 def get_help_string():
+    try:
+        from ..telegram_helper.tg_ui_formatter import (
+            safe_emoji,
+            PREMIUM_STAR,
+            PREMIUM_INBOX,
+            PREMIUM_CLOUD,
+            PREMIUM_MOVIE,
+            PREMIUM_GEAR,
+        )
+        star_icon = safe_emoji(PREMIUM_STAR, "🌟")
+        inbox_icon = safe_emoji(PREMIUM_INBOX, "📥")
+        cloud_icon = safe_emoji(PREMIUM_CLOUD, "☁️")
+        movie_icon = safe_emoji(PREMIUM_MOVIE, "🎬")
+        gear_icon = safe_emoji(PREMIUM_GEAR, "⚙️")
+    except Exception:
+        star_icon = "🌟"
+        inbox_icon = "📥"
+        cloud_icon = "☁️"
+        movie_icon = "🎬"
+        gear_icon = "⚙️"
+
     return (
-        "<b>✦ STARFALLX • COMMANDS & USER MANUAL ✦</b>\n\n"
-        "<blockquote expandable>\n"
-        "<b>StarfallX v1.2 Hybrid Engine</b>\n"
-        "High-performance cloud mirror, leech, torrent, and video manipulation platform.\n\n"
-        "┌ <b>⚡ Quick Start</b>: Send any magnet or supported link to begin\n"
-        "├ <b>📥 Leech</b>: /leech, /qbleech, /bleech, /bql (huge torrents)\n"
-        "├ <b>☁️ Mirror</b>: /mirror, /qbmirror, /ytdl (cloud storage upload)\n"
-        "├ <b>🎬 Video Tools</b>: Add <code>-vt</code> to any leech task to mux/trim/sync\n"
-        "├ <b>⚙️ Settings</b>: Use /usetting to customize captions, prefix & tokens\n"
-        "└ <b>📖 Documentation</b>: Complete Instant View manual available via Telegraph\n\n"
-        "<i>Tap the interactive category buttons below or read the complete guide on Telegraph.</i>\n"
-        "</blockquote>"
+        f"<b>{star_icon} StarFallX v1.2 — Commands Guide</b>\n"
+        "<i>Tap a group to open it.</i>\n\n"
+        f"<blockquote expandable><b>{inbox_icon} LEECH COMMANDS</b> · download to Telegram\n"
+        "• /leech or /l [link] : Leech direct link to Telegram\n"
+        "• /bleech or /bl [links] : Batch leech multiple links\n"
+        "• /qbleech or /ql [magnet/torrent] : Leech via qBittorrent\n"
+        "• /ytdl or /y [link] : Leech YouTube/yt-dlp stream\n"
+        "• /leech -vt : Open Video Tools after download\n"
+        "• /leech -s : Generate video sample before upload</blockquote>\n\n"
+        f"<blockquote expandable><b>{cloud_icon} MIRROR COMMANDS</b> · cloud & rclone uploads\n"
+        "• /mirror or /m [link] : Mirror to Google Drive / Cloud\n"
+        "• /qbmirror or /qm [magnet] : Mirror torrent to Cloud\n"
+        "• /jdmirror or /jm [link] : Mirror via JDownloader\n"
+        "• /clone [drive_url] : Copy Google Drive files</blockquote>\n\n"
+        f"<blockquote expandable><b>{movie_icon} VIDEO TOOLS</b> · remuxing, streams & rename\n"
+        "• Audio Merge : Mux external audio tracks without re-encode\n"
+        "• Subtitle Merge : Add external subtitles to video\n"
+        "• AutoRename : Template-based file renaming\n"
+        "• Track Ordering : Reorder default audio and subtitle tracks</blockquote>\n\n"
+        f"<blockquote expandable><b>{gear_icon} USER PREFERENCES</b> · settings & custom thumb\n"
+        "• /usetting or /bsetting : Open User Settings menu\n"
+        "• /setthumb : Set custom video thumbnail\n"
+        "• /delthumb : Remove custom thumbnail\n"
+        "• /userbot : Configure Premium helper sessions</blockquote>"
     )
 
 

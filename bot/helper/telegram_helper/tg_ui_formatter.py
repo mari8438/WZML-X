@@ -11,6 +11,12 @@ PREMIUM_GEAR = "5368324170671202291"
 PREMIUM_STATS = "5368324170671202292"
 PREMIUM_DOC = "5368324170671202293"
 PREMIUM_CHECK = "5368324170671202294"
+PREMIUM_SCREEN = "5368324170671202295"
+PREMIUM_PUZZLE = "5368324170671202296"
+PREMIUM_TRAFFIC = "5368324170671202297"
+PREMIUM_STAR = "5368324170671202298"
+PREMIUM_INBOX = "5368324170671202299"
+PREMIUM_CLOUD = "5368324170671202300"
 
 
 def is_premium_session(client=None) -> bool:
@@ -48,6 +54,38 @@ def safe_emoji(premium_emoji_id, fallback_unicode, client=None) -> str:
     if premium_emoji_id and is_premium_session(client):
         return f'<tg-emoji id="{premium_emoji_id}">{fallback_unicode}</tg-emoji>'
     return str(fallback_unicode)
+
+
+def format_accordion_block(title, subtitle=None, items=None, curved=True) -> str:
+    """
+    Format a Telegram Article expandable accordion block.
+    The first line MUST be the drawer title so the title remains visible
+    next to the dropdown arrow (⌄) when collapsed.
+    """
+    drawer = f"<b>{title}</b>"
+    if subtitle:
+        drawer += f" · {subtitle}"
+
+    lines = [drawer]
+    items_list = list(items.items()) if isinstance(items, dict) else list(items or [])
+    total = len(items_list)
+    for i, item in enumerate(items_list):
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            k, v = item
+            if total == 1:
+                prefix = "•"
+            elif i == 0:
+                prefix = "╭" if curved else "┌"
+            elif i == total - 1:
+                prefix = "╰" if curved else "└"
+            else:
+                prefix = "├"
+            lines.append(f"{prefix} <b>{k}:</b> {v}")
+        else:
+            lines.append(str(item))
+
+    body = "\n".join(lines)
+    return f"<blockquote expandable>{body}</blockquote>"
 
 
 def format_card(header=None, title=None, fields_dict=None, footer=None, expandable=True) -> str:

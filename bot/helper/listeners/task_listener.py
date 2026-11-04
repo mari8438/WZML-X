@@ -76,10 +76,13 @@ from ..telegram_helper.message_utils import (
 )
 from ..telegram_helper.tg_ui_formatter import (
     PREMIUM_BOLT,
+    PREMIUM_GEAR,
     PREMIUM_MOVIE,
     PREMIUM_PACKAGE,
+    PREMIUM_STATS,
     PREMIUM_TIMER,
     PREMIUM_USER,
+    format_accordion_block,
     format_card,
     publish_telegraph_article,
     safe_emoji,
@@ -719,43 +722,57 @@ class TaskListener(TaskConfig):
         upload_mode = self.mode[1] if len(self.mode) > 1 else "Upload"
         user_str = self.tag
 
-        card_fields = {
-            f"{safe_emoji(PREMIUM_PACKAGE, '📦')} Size": f"<code>{size_str}</code>",
-            f"{safe_emoji(PREMIUM_TIMER, '⏱️')} Elapsed": f"<code>{elapsed_str}</code>",
-            f"{safe_emoji(PREMIUM_BOLT, '⚡')} Upload": f"<code>{upload_mode}</code>",
-            f"{safe_emoji(PREMIUM_USER, '👤')} User": user_str,
-        }
+        bolt_icon = safe_emoji(PREMIUM_BOLT, "✦")
+        movie_icon = safe_emoji(PREMIUM_MOVIE, "🎬")
+        stats_icon = safe_emoji(PREMIUM_STATS, "📊")
+        gear_icon = safe_emoji(PREMIUM_GEAR, "⚙️")
+
+        clean_filename = escape(self.name)
+        total_files = str(
+            folders
+            if self.is_leech
+            else (
+                files
+                if isinstance(files, int)
+                else (len(files) if isinstance(files, dict) else 1)
+            )
+        )
+
+        metrics_block = (
+            f"<blockquote expandable><b>{stats_icon} TASK METRICS</b> · transfer summary\n"
+            f"╭ <b>Size:</b> <code>{size_str}</code>\n"
+            f"├ <b>Elapsed:</b> <code>{elapsed_str}</code>\n"
+            f"├ <b>Mode:</b> <code>{upload_mode}</code>\n"
+            f"├ <b>Files:</b> <code>{total_files}</code>\n"
+            f"╰ <b>User:</b> {user_str}</blockquote>"
+        )
+
+        msg = (
+            f"<b>{bolt_icon} STARFALLX • TASK COMPLETED {bolt_icon}</b>\n\n"
+            f"{movie_icon} <code>{clean_filename}</code>\n\n"
+            f"{metrics_block}"
+        )
 
         LOGGER.info(f"Task Done: {self.name}")
         if self.is_yt:
             buttons = ButtonMaker()
             if mime_type == "Folder/Playlist":
-                card_fields["Type"] = "Playlist"
-                card_fields["Total Videos"] = str(files)
                 if link:
                     buttons.url_button("🔗 View Playlist", link)
                 user_message = f"{self.tag}\nYour playlist ({files} videos) has been uploaded to YouTube successfully!"
             else:
-                card_fields["Type"] = "Video"
                 if link:
                     buttons.url_button("🔗 View Video", link)
                 user_message = (
                     f"{self.tag}\nYour video has been uploaded to YouTube successfully!"
                 )
 
-            msg = format_card(
-                header=f"{safe_emoji(PREMIUM_BOLT, '✦')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗 {safe_emoji(PREMIUM_BOLT, '✦')}",
-                title=f"{safe_emoji(PREMIUM_MOVIE, '🎬')} <code>{escape(self.name)}</code>",
-                fields_dict=card_fields,
-                expandable=True,
-            )
-
             button = buttons.build_menu(1) if link else None
 
-            await send_message(self.user_id, msg, button)
+            await send_message(self.user_id, msg, button, photo="IMAGES")
             if Config.LEECH_DUMP_CHAT:
-                await send_message(int(Config.LEECH_DUMP_CHAT), msg, button)
-            await send_message(self.message, user_message, button)
+                await send_message(int(Config.LEECH_DUMP_CHAT), msg, button, photo="IMAGES")
+            await send_message(self.message, user_message, button, photo="IMAGES")
 
         elif self.is_leech:
             complete_msg = (
@@ -763,24 +780,15 @@ class TaskListener(TaskConfig):
                 if "LEECH_COMPLETE_MSG" in self.user_dict
                 else Config.LEECH_COMPLETE_MSG
             )
-            card_fields["Total Files"] = str(folders)
-            if mime_type != 0:
-                card_fields["Corrupted Files"] = str(mime_type)
 
-            msg = format_card(
-                header=f"{safe_emoji(PREMIUM_BOLT, '✦')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗 {safe_emoji(PREMIUM_BOLT, '✦')}",
-                title=f"{safe_emoji(PREMIUM_MOVIE, '🎬')} <code>{escape(self.name)}</code>",
-                fields_dict=card_fields,
-                expandable=True,
-            )
+            pmsg = msg + f"\n\n{gear_icon} <b>Action:</b> <i>File(s) have been sent to User PM</i>"
 
             if complete_msg and self.bot_pm:
-                pmsg = msg + "\n\n<b>〶 Action Performed :</b>\n⋗ <i>File(s) have been sent to User PM</i>\n"
                 if self.is_super_chat:
-                    await send_message(self.message, pmsg)
+                    await send_message(self.message, pmsg, photo="IMAGES")
 
             if complete_msg and not files and not self.is_super_chat:
-                await send_message(self.message, msg)
+                await send_message(self.message, msg, photo="IMAGES")
             elif complete_msg:
                 log_chat = self.user_id if self.bot_pm else self.message
                 if isinstance(files, dict) and len(files) > 1:
@@ -803,7 +811,7 @@ class TaskListener(TaskConfig):
                     if telegraph_url:
                         buttons.url_button("📄 View All Files (Telegraph)", telegraph_url)
                     button = buttons.build_menu(1) if telegraph_url else None
-                    await send_message(log_chat, msg, button)
+                    await send_message(log_chat, msg, button, photo="IMAGES")
                 else:
                     fmsg = ""
                     for index, (link, name) in enumerate(files.items(), start=1):
@@ -816,20 +824,8 @@ class TaskListener(TaskConfig):
                                 chat_id = f"-100{chat_id}"
                             flink = f"https://t.me/{TgClient.BNAME}?start={encode_slink('file' + chat_id + '&&' + msg_id)}"
                             fmsg += f"\n  └ <b>Media Store</b> → <a href='{flink}'>Store Link</a> | <a href='https://t.me/share/url?url={flink}'>Share Link</a>"
-                    await send_message(log_chat, msg + fmsg)
+                    await send_message(log_chat, msg + fmsg, photo="IMAGES")
         else:
-            card_fields["Type"] = str(mime_type)
-            if mime_type == "Folder":
-                card_fields["SubFolders"] = str(folders)
-                card_fields["Files"] = str(files)
-
-            msg = format_card(
-                header=f"{safe_emoji(PREMIUM_BOLT, '✦')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗 {safe_emoji(PREMIUM_BOLT, '✦')}",
-                title=f"{safe_emoji(PREMIUM_MOVIE, '🎬')} <code>{escape(self.name)}</code>",
-                fields_dict=card_fields,
-                expandable=True,
-            )
-
             multi_link_msg = ""
             multi_links = []
             if isinstance(link, dict) and not self.is_yt:
@@ -878,7 +874,7 @@ class TaskListener(TaskConfig):
                         safe_name = rutils.quote(self.name.strip("/"))
                         share_url = f"{INDEX_URL}/{safe_name}"
                         if mime_type == "Folder":
-                            share_url += "/"    
+                            share_url += "/"
                         buttons.url_button("⚡ Index Link", share_url)
                         if mime_type.startswith(("image", "video", "audio")):
                             share_urls = f"{share_url}?a=view"
@@ -888,9 +884,9 @@ class TaskListener(TaskConfig):
                 if not multi_link_msg and rclone_path:
                     msg += f"\n\nPath: <code>{rclone_path}</code>"
                 button = None
+
             group_msg = (
-                msg + "\n\n<b>〶 Action Performed :</b>\n"
-                "⋗ <i>Cloud link(s) have been sent to User PM</i>\n\n"
+                msg + f"\n\n{gear_icon} <b>Action:</b> <i>Cloud link(s) have been sent to User PM</i>\n\n"
             )
 
             if multi_link_msg:
@@ -901,12 +897,12 @@ class TaskListener(TaskConfig):
                 group_msg += f"Attach: <code>{escape(str(attach_link))}</code>\n"
 
             if self.bot_pm and self.is_super_chat:
-                await send_message(self.user_id, msg, button)
+                await send_message(self.user_id, msg, button, photo="IMAGES")
 
             if hasattr(Config, "MIRROR_LOG_ID") and Config.MIRROR_LOG_ID:
-                await send_message(Config.MIRROR_LOG_ID, msg, button)
+                await send_message(Config.MIRROR_LOG_ID, msg, button, photo="IMAGES")
 
-            await send_message(self.message, group_msg, button)
+            await send_message(self.message, group_msg, button, photo="IMAGES")
         if self.seed:
             await clean_target(self.up_dir)
             async with queue_dict_lock:

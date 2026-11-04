@@ -13,12 +13,15 @@ _SPEC = importlib.util.spec_from_file_location("tg_ui_formatter", _MODULE_PATH)
 _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 
+format_accordion_block = _MODULE.format_accordion_block
 format_card = _MODULE.format_card
 is_premium_session = _MODULE.is_premium_session
 publish_telegraph_article = _MODULE.publish_telegraph_article
 safe_emoji = _MODULE.safe_emoji
 PREMIUM_MOVIE = _MODULE.PREMIUM_MOVIE
 PREMIUM_PACKAGE = _MODULE.PREMIUM_PACKAGE
+PREMIUM_STATS = _MODULE.PREMIUM_STATS
+PREMIUM_BOLT = _MODULE.PREMIUM_BOLT
 
 _HELP_PATH = _REPO_ROOT / "bot" / "helper" / "ext_utils" / "help_messages.py"
 _HELP_CONTENT = _HELP_PATH.read_text(encoding="utf-8")
@@ -61,6 +64,36 @@ class TgUIFormatterTest(TestCase):
         self.assertEqual(
             emoji, f'<tg-emoji id="{PREMIUM_PACKAGE}">📦</tg-emoji>'
         )
+
+    def test_format_accordion_block_drawer_title_first_line(self):
+        block = format_accordion_block(
+            "🤖 BOT STATS",
+            "uptime, RAM, disk",
+            [
+                ("Uptime", "2h 15m"),
+                ("CPU", "24.5%"),
+                ("Free Disk", "50 GB"),
+            ],
+            curved=True,
+        )
+        self.assertTrue(block.startswith("<blockquote expandable><b>🤖 BOT STATS</b> · uptime, RAM, disk\n"))
+        self.assertTrue(block.endswith("</blockquote>"))
+        self.assertIn("╭ <b>Uptime:</b> 2h 15m", block)
+        self.assertIn("├ <b>CPU:</b> 24.5%", block)
+        self.assertIn("╰ <b>Free Disk:</b> 50 GB", block)
+
+    def test_format_accordion_block_raw_bullets(self):
+        block = format_accordion_block(
+            "📥 LEECH COMMANDS",
+            "download to Telegram",
+            [
+                "• /leech or /l [link] : Leech direct link",
+                "• /bleech or /bl [links] : Batch leech",
+            ],
+        )
+        self.assertTrue(block.startswith("<blockquote expandable><b>📥 LEECH COMMANDS</b> · download to Telegram\n"))
+        self.assertIn("• /leech or /l [link] : Leech direct link", block)
+        self.assertIn("• /bleech or /bl [links] : Batch leech", block)
 
     def test_format_card_expandable(self):
         fields = {
@@ -138,7 +171,12 @@ class TgUIFormatterTest(TestCase):
 
     def test_help_messages_overview_is_expandable(self):
         self.assertIn("<blockquote expandable>", _HELP_CONTENT)
-        self.assertIn("✦ STARFALLX • COMMANDS & USER MANUAL ✦", _HELP_CONTENT)
+        self.assertIn("StarFallX v1.2 — Commands Guide", _HELP_CONTENT)
+        self.assertIn("Tap a group to open it.", _HELP_CONTENT)
+        self.assertIn("LEECH COMMANDS", _HELP_CONTENT)
+        self.assertIn("MIRROR COMMANDS", _HELP_CONTENT)
+        self.assertIn("VIDEO TOOLS", _HELP_CONTENT)
+        self.assertIn("USER PREFERENCES", _HELP_CONTENT)
 
     def test_category_help_messages(self):
         for cat in ("leech", "mirror", "videotools", "settings"):
