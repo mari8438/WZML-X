@@ -241,6 +241,7 @@ class Config:
     MISSAV_SUBTITLE_GENERATION = False
     MISSAV_TRANSLATION = False
     MISSAV_DOWNLOAD_PROXY = ""
+    WHISPER_MODEL = "medium"
     LINKS_LOG_ID = ""
     MIRROR_LOG_ID = ""
     CLEAN_LOG_MSG = False

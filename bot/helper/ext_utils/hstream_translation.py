@@ -33,11 +33,12 @@ class _NllbEngine:
         from os import cpu_count
         intra = max(1, (cpu_count() or 2) // 2)
 
+        intra = min(8, max(2, (cpu_count() or 4) // 2))
         self.translator = ctranslate2.Translator(
             model_dir,
             device="cpu",
             compute_type="int8",
-            inter_threads=1,
+            inter_threads=2,
             intra_threads=intra,
         )
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -55,7 +56,7 @@ class _NllbEngine:
             sources,
             target_prefix=[["tam_Taml"] for _ in sources],
             beam_size=4,
-            max_batch_size=8,
+            max_batch_size=64,
         )
         translated = []
         for result in results:

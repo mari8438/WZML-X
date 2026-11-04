@@ -1,3 +1,4 @@
+_WHISPER_MODELS = {}
 import asyncio
 from contextlib import suppress
 from os import path as ospath
@@ -97,17 +98,20 @@ def _transcribe_offline_sync(audio_path: str, srt_path: str, model_name: str = "
         LOGGER.warning(f"Could not load audio via wave ({e}), falling back to filepath")
         audio_input = audio_path
 
+    global _WHISPER_MODELS
     from os import cpu_count
-    threads = max(1, (cpu_count() or 2) // 2)
+    threads = min(8, max(2, (cpu_count() or 4) // 2))
 
-    LOGGER.info(f"Loading faster-whisper model '{model_name}' on CPU (int8, safety_threads={threads}, nice=10)...")
-    model = WhisperModel(
-        model_name,
-        device="cpu",
-        compute_type="int8",
-        cpu_threads=threads,
-        num_workers=1,
-    )
+    if model_name not in _WHISPER_MODELS:
+        LOGGER.info(f"Loading faster-whisper model '{model_name}' on CPU (int8, threads={threads}, num_workers=2)...")
+        _WHISPER_MODELS[model_name] = WhisperModel(
+            model_name,
+            device="cpu",
+            compute_type="int8",
+            cpu_threads=threads,
+            num_workers=2,
+        )
+    model = _WHISPER_MODELS[model_name]
 
     LOGGER.info(f"Transcribing & translating Japanese audio from {audio_path}...")
     segments, _ = model.transcribe(
@@ -115,7 +119,7 @@ def _transcribe_offline_sync(audio_path: str, srt_path: str, model_name: str = "
         language="ja",
         task="translate",
         vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=600),
+        vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=400),
         beam_size=4,
     )
 
@@ -147,7 +151,7 @@ def _transcribe_offline_sync(audio_path: str, srt_path: str, model_name: str = "
 
 async def generate_english_subtitles(audio_path: str, target_ass: str) -> str:
     """Run speech-to-text to produce English subtitle file."""
-    model_name = getattr(Config, "WHISPER_MODEL", "small") or "small"
+    model_name = getattr(Config, "WHISPER_MODEL", "medium") or "medium"
     return await sync_to_async(_transcribe_offline_sync, audio_path, target_ass, model_name)
 
 

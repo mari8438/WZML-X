@@ -1176,6 +1176,28 @@ async def _prepare_single_title(
         LOGGER.info(f"Downloading quality {quality.label} for {item.title} (idx: {item_index})...")
         await helper.download_direct_hls(quality.url, source_path, headers, proxy=_get_download_proxy(item_index))
 
+        # Generate subtitles if uncensored / not pre-subtitled and enabled
+        if not subtitle_tracks and (not has_eng_sub) and sub_gen_enabled and ospath.isfile(source_path):
+            try:
+                info = await _video_info(source_path)
+                vid_dur = info.get("duration", 0) or item.duration or 3600.0
+                LOGGER.info(f"Generating Whisper English & Tamil subtitles for {item.title} ({vid_dur}s)...")
+                sub_tracks, tam_ok = await generate_all_subtitles_for_video(
+                    source_path,
+                    title_dir,
+                    vid_dur,
+                    translator,
+                )
+                if sub_tracks:
+                    subtitle_tracks = sub_tracks
+                    if any(lang == "eng" for lang, _ in sub_tracks):
+                        has_eng_sub = True
+                    if tam_ok:
+                        tamil_available = True
+                    LOGGER.info(f"Subtitles ready for {item.title}: eng={has_eng_sub}, tam={tamil_available}")
+            except Exception as sub_err:
+                LOGGER.warning(f"Subtitle generation failed for {item.title}: {sub_err}")
+
         # Remux with subtitles (guarded by remux_sem to keep CPU cool)
         async with remux_sem:
             muxed = await _remux_with_subtitles(
@@ -1310,10 +1332,19 @@ async def missav_leech(_, message):
         )
 
         uploaded = failed = 0
-        sub_gen_enabled = False
-        translation_enabled = False
+        is_uncensored_target = any(k in target_query.lower() for k in ["uncensor", "leak", "carib", "1pondo", "pacopacomama"])
+        sub_gen_enabled = is_uncensored_target or getattr(Config, "MISSAV_SUBTITLE_GENERATION", False)
+        translation_enabled = sub_gen_enabled and getattr(Config, "MISSAV_TRANSLATION", False)
         translator = None
-        LOGGER.info("MissAV: subtitle generation and translation are permanently disabled.")
+        if translation_enabled:
+            try:
+                translator = HstreamTranslator()
+                await translator.start(cancel_event)
+                LOGGER.info("MissAV: Tamil translation engine started.")
+            except Exception as t_err:
+                LOGGER.warning(f"Failed starting Tamil translation engine: {t_err}")
+                translator = None
+        LOGGER.info(f"MissAV: subtitle generation={sub_gen_enabled}, translation={translation_enabled}")
 
         try:
 
@@ -1442,6 +1473,8 @@ async def missav_leech(_, message):
                                     remux_sem,
                                     controller,
                                     processes,
+                                    sub_gen_enabled=sub_gen_enabled,
+                                    translator=translator,
                                 )
                                 if prepared_data and not cancel_event.is_set():
                                     await upload_queue.put((p_item, p_idx, prepared_data, title_dir))
@@ -1457,6 +1490,8 @@ async def missav_leech(_, message):
                     await gather(*upload_workers, return_exceptions=True)
 
                     gc.collect()
+
+
 
                 if item_index == 0:
                     raise RuntimeError("No eligible MissAV videos found.")
