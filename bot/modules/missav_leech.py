@@ -1421,11 +1421,11 @@ async def missav_leech(_, message):
                 last_break_time = time()
                 WORK_INTERVAL_SECONDS = 30 * 60
                 COOLING_BREAK_SECONDS = 5 * 60
-                MAX_DOWNLOAD_CONCURRENCY = 12
-                MAX_UPLOAD_CONCURRENCY = 5
+                MAX_DOWNLOAD_CONCURRENCY = 16
+                MAX_UPLOAD_CONCURRENCY = 6
 
                 download_sem = Semaphore(MAX_DOWNLOAD_CONCURRENCY)
-                remux_sem = Semaphore(2)
+                remux_sem = Semaphore(6)
 
                 async for page_num, total_pages, page_items in resolver.discover_pages(target_query, max_pages=None):
                     if cancel_event.is_set():
@@ -1481,7 +1481,7 @@ async def missav_leech(_, message):
                     # 2. Concurrently download & prepare items, upload via 5 helper bots
                     upload_queue = Queue()
                     helper_list = list(TgClient.helper_bots.values()) if getattr(TgClient, "helper_bots", None) else []
-                    upload_clients = helper_list if helper_list else [TgClient.bot]
+                    upload_clients = [TgClient.bot, *helper_list] if (TgClient.bot and helper_list) else (helper_list or [TgClient.bot])
                     num_workers = min(MAX_UPLOAD_CONCURRENCY, max(1, len(upload_clients)), len(to_process))
 
                     async def _upload_worker_task(worker_idx, client):
