@@ -1,5 +1,5 @@
 .venv/*
-config.py
+/config.py
 secrets/*
 token.pickle
 credentials.json
@@ -55,3 +55,8 @@ configs/qbittorrent/qBittorrent/config/watched_folders.json
 configs/qbittorrent/qBittorrent/config/qBittorrent-data.conf
 configs/qbittorrent/qBittorrent/config/rss/
 configs/qbittorrent/qBittorrent/data/
+
+# Starfall audio vault and WAL temp files (vault targets ~65 GB)
+data/tam_audios/*.m4a
+data/*.db-wal
+data/*.db-shm

@@ -117,12 +117,21 @@ cpu_eater_lock = Lock()
 
 
 def _sabnzbd_key():
-    from bot.helper.ext_utils.bot_utils import derive_service_password
+    from hashlib import sha256
+    from hmac import new as hmac_new
 
-    return derive_service_password(
-        (Config.BOT_TOKEN or "").split(":", 1)[0] or "0",
-        "sabnzbd",
+    bot_id = (Config.BOT_TOKEN or "").split(":", 1)[0] or "0"
+    secret = Config.WEB_ACCESS_PASSWORD or b""
+    if isinstance(secret, str):
+        secret = secret.encode("utf-8")
+    digest = hmac_new(
+        b"wzmlx_v3_service_pwd_salt",
+        f"{bot_id}:sabnzbd".encode("utf-8"),
+        sha256,
     )
+    digest.update(secret)
+    raw = digest.hexdigest()
+    return raw[:20] + raw[-4:]
 
 
 def _update_sabnzbd_ini(api_key):
