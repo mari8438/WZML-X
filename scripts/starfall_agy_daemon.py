@@ -27,8 +27,8 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger("StarFallX-AGY-Daemon")
 
-REPO_DIR = "/root/starfall"
-BRANCH = "starfallx-v1.2-vps-2core-4gb"
+REPO_DIR = os.environ.get("STARFALL_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+BRANCH = os.environ.get("STARFALL_BRANCH", "starfallx-v1.2-max-speed")
 CONTAINER_NAME = "starfall-app-1"
 HOST = "0.0.0.0"
 PORT = 18888

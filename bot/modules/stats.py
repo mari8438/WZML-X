@@ -196,7 +196,7 @@ async def get_stats(event, key="home"):
         f"{repo_icon} FIRMWARE BUILD",
         "git revision & channel",
         [
-            ("Active Branch", "starfallx-v1.2-vps-2core-4gb"),
+            ("Active Branch", Config.UPSTREAM_BRANCH),
             ("Commit Hash", last_commit_hash),
             ("Engine Version", bot_ver),
             ("Revision Info", last_commit_msg),
