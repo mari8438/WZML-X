@@ -17,33 +17,40 @@ if "psutil" not in sys.modules:
     mock_psutil.cpu_percent.return_value = 25.0
     sys.modules["psutil"] = mock_psutil
 
-if "bot" not in sys.modules:
-    sys.modules["bot"] = types.ModuleType("bot")
-if "bot.core" not in sys.modules:
-    sys.modules["bot.core"] = types.ModuleType("bot.core")
-cfg_mod = types.ModuleType("bot.core.config_manager")
-class DummyConfig:
-    PERFORMANCE_PROFILE = "auto"
-    SAFE_FREE_RAM_MB = 600
-    FFMPEG_THREADS = 0
-    FFMPEG_CPU_CORES = ""
-    SAFE_CPU_PERCENT = 88
-    MAX_PARALLEL_TASKS = 2
-cfg_mod.Config = DummyConfig
-sys.modules["bot.core.config_manager"] = cfg_mod
-
 _REPO_ROOT = Path(__file__).parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-# Load performance module directly
-_PERF_PATH = _REPO_ROOT / "bot" / "helper" / "ext_utils" / "performance.py"
-_PERF_SPEC = importlib.util.spec_from_file_location("bot.helper.ext_utils.performance", _PERF_PATH)
-_PERF_MODULE = importlib.util.module_from_spec(_PERF_SPEC)
-_PERF_SPEC.loader.exec_module(_PERF_MODULE)
+_CFG_SPEC = importlib.util.spec_from_file_location(
+    "bot.core.config_manager",
+    _REPO_ROOT / "bot" / "core" / "config_manager.py",
+)
+_CFG_MOD = importlib.util.module_from_spec(_CFG_SPEC)
+_CFG_MOD.__package__ = "bot.core"
+sys.modules["bot.core.config_manager"] = _CFG_MOD
+_CFG_SPEC.loader.exec_module(_CFG_MOD)
+Config = _CFG_MOD.Config
 
-get_performance_profile = _PERF_MODULE.get_performance_profile
-get_ffmpeg_threads = _PERF_MODULE.get_ffmpeg_threads
-get_safe_free_ram_mb = _PERF_MODULE.get_safe_free_ram_mb
-get_max_parallel_tasks = _PERF_MODULE.get_max_parallel_tasks
+Config.PERFORMANCE_PROFILE = "auto"
+Config.SAFE_FREE_RAM_MB = 600
+Config.FFMPEG_THREADS = 0
+Config.FFMPEG_CPU_CORES = ""
+Config.SAFE_CPU_PERCENT = 88
+Config.MAX_PARALLEL_TASKS = 2
+
+_PERF_SPEC = importlib.util.spec_from_file_location(
+    "bot.helper.ext_utils.performance",
+    _REPO_ROOT / "bot" / "helper" / "ext_utils" / "performance.py",
+)
+_PERF_MOD = importlib.util.module_from_spec(_PERF_SPEC)
+_PERF_MOD.__package__ = "bot.helper.ext_utils"
+sys.modules["bot.helper.ext_utils.performance"] = _PERF_MOD
+_PERF_SPEC.loader.exec_module(_PERF_MOD)
+
+get_performance_profile = _PERF_MOD.get_performance_profile
+get_ffmpeg_threads = _PERF_MOD.get_ffmpeg_threads
+get_safe_free_ram_mb = _PERF_MOD.get_safe_free_ram_mb
+get_max_parallel_tasks = _PERF_MOD.get_max_parallel_tasks
 
 
 def test_performance_defaults():

@@ -32,3 +32,26 @@ graphify-out/*
 __pycache__/
 tests/temp_downloads/
 missav_archive.json
+
+# Local scripts with credentials & backups
+*.save
+setup_config.py
+safe_deploy.py
+update_base_url.py
+verify_vps_web.py
+
+# Logs and runtime session state
+configs/*_topics.json
+logs/*
+*.log
+*.session
+configs/ac/*.session
+.pytest_cache/
+
+# qBittorrent runtime state & cache
+configs/qbittorrent/qBittorrent/config/lockfile
+configs/qbittorrent/qBittorrent/config/categories.json
+configs/qbittorrent/qBittorrent/config/watched_folders.json
+configs/qbittorrent/qBittorrent/config/qBittorrent-data.conf
+configs/qbittorrent/qBittorrent/config/rss/
+configs/qbittorrent/qBittorrent/data/

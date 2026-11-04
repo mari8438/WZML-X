@@ -74,6 +74,16 @@ from ..telegram_helper.message_utils import (
     send_message,
     update_status_message,
 )
+from ..telegram_helper.tg_ui_formatter import (
+    PREMIUM_BOLT,
+    PREMIUM_MOVIE,
+    PREMIUM_PACKAGE,
+    PREMIUM_TIMER,
+    PREMIUM_USER,
+    format_card,
+    publish_telegraph_article,
+    safe_emoji,
+)
 
 _VIDEO_EXTENSIONS = {
     ".mkv",
@@ -709,32 +719,36 @@ class TaskListener(TaskConfig):
         upload_mode = self.mode[1] if len(self.mode) > 1 else "Upload"
         user_str = self.tag
 
-        msg = (
-            "<b>✦ 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗 ✦</b>\n\n"
-            f"🎬 <code>{escape(self.name)}</code>\n"
-            f"╭ <b>Size</b>    : <code>{size_str}</code>\n"
-            f"├ <b>Elapsed</b> : <code>{elapsed_str}</code>\n"
-            f"├ <b>Upload</b>  : <code>{upload_mode}</code>\n"
-            f"╰ <b>User</b>    : {user_str}"
-        )
+        card_fields = {
+            f"{safe_emoji(PREMIUM_PACKAGE, '📦')} Size": f"<code>{size_str}</code>",
+            f"{safe_emoji(PREMIUM_TIMER, '⏱️')} Elapsed": f"<code>{elapsed_str}</code>",
+            f"{safe_emoji(PREMIUM_BOLT, '⚡')} Upload": f"<code>{upload_mode}</code>",
+            f"{safe_emoji(PREMIUM_USER, '👤')} User": user_str,
+        }
+
         LOGGER.info(f"Task Done: {self.name}")
         if self.is_yt:
             buttons = ButtonMaker()
             if mime_type == "Folder/Playlist":
-                msg += "\n┠ <b>Type</b> → Playlist"
-                msg += f"\n┖ <b>Total Videos</b> → {files}"
+                card_fields["Type"] = "Playlist"
+                card_fields["Total Videos"] = str(files)
                 if link:
                     buttons.url_button("🔗 View Playlist", link)
                 user_message = f"{self.tag}\nYour playlist ({files} videos) has been uploaded to YouTube successfully!"
             else:
-                msg += "\n┖ <b>Type</b> → Video"
+                card_fields["Type"] = "Video"
                 if link:
                     buttons.url_button("🔗 View Video", link)
                 user_message = (
                     f"{self.tag}\nYour video has been uploaded to YouTube successfully!"
                 )
 
-            msg += f"\n\n<b>Task By: </b>{self.tag}"
+            msg = format_card(
+                header=f"{safe_emoji(PREMIUM_BOLT, '✦')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗 {safe_emoji(PREMIUM_BOLT, '✦')}",
+                title=f"{safe_emoji(PREMIUM_MOVIE, '🎬')} <code>{escape(self.name)}</code>",
+                fields_dict=card_fields,
+                expandable=True,
+            )
 
             button = buttons.build_menu(1) if link else None
 
@@ -749,15 +763,19 @@ class TaskListener(TaskConfig):
                 if "LEECH_COMPLETE_MSG" in self.user_dict
                 else Config.LEECH_COMPLETE_MSG
             )
-            msg += f"\n<b>Total Files: </b>{folders}"
+            card_fields["Total Files"] = str(folders)
             if mime_type != 0:
-                msg += f"\n┠ <b>Corrupted Files</b> → {mime_type}"
-            msg += f"\n┖ <b>Task By</b> → {self.tag}\n\n"
+                card_fields["Corrupted Files"] = str(mime_type)
+
+            msg = format_card(
+                header=f"{safe_emoji(PREMIUM_BOLT, '✦')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗 {safe_emoji(PREMIUM_BOLT, '✦')}",
+                title=f"{safe_emoji(PREMIUM_MOVIE, '🎬')} <code>{escape(self.name)}</code>",
+                fields_dict=card_fields,
+                expandable=True,
+            )
 
             if complete_msg and self.bot_pm:
-                pmsg = msg
-                pmsg += "〶 <b><u>Action Performed :</u></b>\n"
-                pmsg += "⋗ <i>File(s) have been sent to User PM</i>\n\n"
+                pmsg = msg + "\n\n<b>〶 Action Performed :</b>\n⋗ <i>File(s) have been sent to User PM</i>\n"
                 if self.is_super_chat:
                     await send_message(self.message, pmsg)
 
@@ -765,30 +783,52 @@ class TaskListener(TaskConfig):
                 await send_message(self.message, msg)
             elif complete_msg:
                 log_chat = self.user_id if self.bot_pm else self.message
-                msg += "〶 <b><u>Files List :</u></b>\n"
-                fmsg = ""
-                for index, (link, name) in enumerate(files.items(), start=1):
-                    chat_id, msg_id = link.split("/")[-2:]
-                    fmsg += f"{index}. <a href='{link}'>{name}</a>"
-                    if Config.MEDIA_STORE and (
-                        self.is_super_chat or Config.LEECH_DUMP_CHAT
-                    ):
-                        if chat_id.isdigit():
-                            chat_id = f"-100{chat_id}"
-                        flink = f"https://t.me/{TgClient.BNAME}?start={encode_slink('file' + chat_id + '&&' + msg_id)}"
-                        fmsg += f"\n┖ <b>Get Media</b> → <a href='{flink}'>Store Link</a> | <a href='https://t.me/share/url?url={flink}'>Share Link</a>"
-                    fmsg += "\n"
-                    if len(fmsg.encode() + msg.encode()) > 4000:
-                        await send_message(log_chat, msg + fmsg)
-                        await sleep(1)
-                        fmsg = ""
-                if fmsg != "":
+                if isinstance(files, dict) and len(files) > 1:
+                    telegraph_html = (
+                        f"<h3>Task: {escape(self.name)}</h3>"
+                        f"<p><b>Total Files:</b> {len(files)} | <b>Size:</b> {size_str} | <b>User:</b> {user_str}</p>"
+                        "<hr/>"
+                        "<ol>"
+                    )
+                    for lk, fn in files.items():
+                        telegraph_html += f"<li><a href='{lk}'>{escape(fn)}</a></li>"
+                    telegraph_html += "</ol>"
+
+                    telegraph_url = await publish_telegraph_article(
+                        title=f"StarfallX - {self.name[:50]}",
+                        html_content=telegraph_html,
+                    )
+
+                    buttons = ButtonMaker()
+                    if telegraph_url:
+                        buttons.url_button("📄 View All Files (Telegraph)", telegraph_url)
+                    button = buttons.build_menu(1) if telegraph_url else None
+                    await send_message(log_chat, msg, button)
+                else:
+                    fmsg = ""
+                    for index, (link, name) in enumerate(files.items(), start=1):
+                        chat_id, msg_id = link.split("/")[-2:]
+                        fmsg += f"\n• <a href='{link}'>{name}</a>"
+                        if Config.MEDIA_STORE and (
+                            self.is_super_chat or Config.LEECH_DUMP_CHAT
+                        ):
+                            if chat_id.isdigit():
+                                chat_id = f"-100{chat_id}"
+                            flink = f"https://t.me/{TgClient.BNAME}?start={encode_slink('file' + chat_id + '&&' + msg_id)}"
+                            fmsg += f"\n  └ <b>Media Store</b> → <a href='{flink}'>Store Link</a> | <a href='https://t.me/share/url?url={flink}'>Share Link</a>"
                     await send_message(log_chat, msg + fmsg)
         else:
-            msg += f"\n│\n┟ <b>Type</b> → {mime_type}"
+            card_fields["Type"] = str(mime_type)
             if mime_type == "Folder":
-                msg += f"\n┠ <b>SubFolders</b> → {folders}"
-                msg += f"\n┠ <b>Files</b> → {files}"
+                card_fields["SubFolders"] = str(folders)
+                card_fields["Files"] = str(files)
+
+            msg = format_card(
+                header=f"{safe_emoji(PREMIUM_BOLT, '✦')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗖𝗢𝗠𝗣𝗟𝗘𝗧𝗘𝗗 {safe_emoji(PREMIUM_BOLT, '✦')}",
+                title=f"{safe_emoji(PREMIUM_MOVIE, '🎬')} <code>{escape(self.name)}</code>",
+                fields_dict=card_fields,
+                expandable=True,
+            )
 
             multi_link_msg = ""
             multi_links = []
@@ -845,12 +885,11 @@ class TaskListener(TaskConfig):
                             buttons.url_button("🌐 View Link", share_urls)
                 button = buttons.build_menu(2)
             else:
-                if not multi_link_msg:
-                    msg += f"\n┃\n┠ Path: <code>{rclone_path}</code>"
+                if not multi_link_msg and rclone_path:
+                    msg += f"\n\nPath: <code>{rclone_path}</code>"
                 button = None
-            msg += f"\n┃\n┖ <b>Task By</b> → {self.tag}\n\n"
             group_msg = (
-                msg + "〶 <b><u>Action Performed :</u></b>\n"
+                msg + "\n\n<b>〶 Action Performed :</b>\n"
                 "⋗ <i>Cloud link(s) have been sent to User PM</i>\n\n"
             )
 

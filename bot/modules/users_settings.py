@@ -48,6 +48,15 @@ from ..helper.ext_utils.bot_utils import (
 from ..helper.ext_utils.db_handler import database
 from ..helper.ext_utils.media_utils import create_thumb
 from ..helper.poster_engine import POSTER_TEMPLATE_COUNT
+from ..helper.telegram_helper.tg_ui_formatter import (
+    PREMIUM_BOLT,
+    PREMIUM_GEAR,
+    PREMIUM_PACKAGE,
+    PREMIUM_STATS,
+    PREMIUM_TIMER,
+    PREMIUM_USER,
+    safe_emoji,
+)
 from ..helper.ext_utils.starfallx_upload import (
     HELPER_PIN_HASH_KEY,
     HELPER_TOKENS_KEY,
@@ -537,13 +546,19 @@ async def get_user_settings(from_user, stype="main"):
             style=ButtonStyle.DANGER,
         )
 
-        text = f"""⌬ <b>User Settings :</b>
-│
-┟ <b>Name</b> → {user_name}
-┠ <b>UserID</b> → #ID{user_id}
-┠ <b>Username</b> → @{from_user.username}
-┠ <b>Telegram DC</b> → {from_user.dc_id}
-┖ <b>Telegram Lang</b> → {Language.get(lc).display_name() if (lc := from_user.language_code) else "N/A"}"""
+        text = f"""<b>{safe_emoji(PREMIUM_GEAR, '⚙️')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗨𝗦𝗘𝗥 𝗦𝗘𝗧𝗧𝗜𝗡𝗚𝗦</b>
+
+<blockquote expandable>
+<b>Account & Profile Overview:</b>
+
+┌ <b>Name</b> : {user_name}
+├ <b>UserID</b> : <code>#ID{user_id}</code>
+├ <b>Username</b> : @{from_user.username}
+├ <b>Telegram DC</b> : DC {from_user.dc_id}
+└ <b>Language</b> : {Language.get(lc).display_name() if (lc := from_user.language_code) else "N/A"}
+
+<i>Configure your personal mirror, leech, poster, and token preferences below.</i>
+</blockquote>"""
 
         btns = buttons.build_menu(2)
 
@@ -576,15 +591,18 @@ async def get_user_settings(from_user, stype="main"):
             f"Swap to {'OWNER' if not def_cookies else 'USER'}'s Cookie File",
             f"userset {user_id} tog USE_DEFAULT_COOKIE {'f' if def_cookies else 't'}",
         )
-        btns = buttons.build_menu(1)
+        btns = buttons.build_menu(2)
 
-        text = f"""⌬ <b>General Settings :</b>
-┟ <b>Name</b> → {user_name}
-┃
-┠ <b>Default Upload Package</b> → <b>{du}</b>
-┠ <b>Default Usage Mode</b> → <b>{tr}'s</b> token/config
-┖ <b>yt Cookies Mode</b> → <b>{cookie_mode}</b>
-"""
+        text = f"""<b>{safe_emoji(PREMIUM_GEAR, '⚙️')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗚𝗘𝗡𝗘𝗥𝗔𝗟 𝗦𝗘𝗧𝗧𝗜𝗡𝗚𝗦</b>
+
+<blockquote expandable>
+<b>Default Storage & Token Engine:</b>
+
+┌ <b>User</b> : {user_name}
+├ <b>Default Upload</b> : <b>{du}</b>
+├ <b>Token Mode</b> : <b>{tr}'s</b> token/config
+└ <b>yt-dlp Cookies</b> : <b>{cookie_mode}</b>
+</blockquote>"""
 
     elif stype == "userbot":
         pin_required = config_bool(Config.HELPER_TOKEN_PIN_REQUIRED, True)
@@ -615,7 +633,12 @@ Unlock to view, add, test, remove, or export helper token data."""
             text = starfallx_upload.format_user_status(user_id)
         buttons.data_button("Back", f"userset {user_id} general", "footer")
         buttons.data_button("Close", f"userset {user_id} close", "footer")
-        btns = buttons.build_menu(1)
+        btns = buttons.build_menu(2)
+        text = f"""<b>{safe_emoji(PREMIUM_USER, '🤖')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗛𝗘𝗟𝗣𝗘𝗥 𝗧𝗢𝗞𝗘𝗡𝗦</b>
+
+<blockquote expandable>
+{text}
+</blockquote>"""
 
     elif stype in {"userbot_tokens", "userbot_backups", "userbot_status"}:
         records = starfallx_upload.get_user_token_records(user_id)
@@ -629,7 +652,7 @@ Unlock to view, add, test, remove, or export helper token data."""
             selected = records
             title = "Helper Token Status"
 
-        lines = [f"<b>{title}</b>", ""]
+        lines = []
         if not selected:
             lines.append("No helper tokens saved in this list.")
         else:
@@ -644,10 +667,15 @@ Unlock to view, add, test, remove, or export helper token data."""
                 lines.append(f"   {primary} | {escape(str(status))}")
                 if record.get("last_error") and status not in {"Ready", "Direct Only"}:
                     lines.append(f"   Error: <code>{escape(str(record.get('last_error'))[:140])}</code>")
-        text = "\n".join(lines)
+        body = "\n".join(lines)
+        text = f"""<b>{safe_emoji(PREMIUM_USER, '🤖')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • {title.upper()}</b>
+
+<blockquote expandable>
+{body}
+</blockquote>"""
         buttons.data_button("Back", f"userset {user_id} userbot", "footer")
         buttons.data_button("Close", f"userset {user_id} close", "footer")
-        btns = buttons.build_menu(1)
+        btns = buttons.build_menu(2)
 
     elif stype == "thumbmanual":
         mode = str(user_dict.get("THUMBNAIL_MODE", Config.THUMBNAIL_MODE) or "automatic").lower()
@@ -836,31 +864,34 @@ Unlock to view, add, test, remove, or export helper token data."""
         buttons.data_button(f"{RED_DOT} Close", f"userset {user_id} close", "footer", style=ButtonStyle.DANGER)
         btns = buttons.build_menu(2)
 
-        text = f"""<b>Leech Settings</b>
-Name: {user_name}
+        text = f"""<b>{safe_emoji(PREMIUM_PACKAGE, '📥')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗟𝗘𝗘𝗖𝗛 𝗦𝗘𝗧𝗧𝗜𝗡𝗚𝗦</b>
 
-Leech Type: <b>{ltype}</b>
-Premium User: <b>{premium_status}</b>
-Upload Mode: <b>{upload_mode}</b>
-Max Split Size: <b>{get_readable_file_size(effective_split)}</b>
-Custom Thumbnail: <b>{thumbmsg}</b>
-Leech Split Size: <b>{get_readable_file_size(split_size)}</b>
-Leech Destination: <code>{escape(str(leech_dest))}</code>
-Leech Prefix: <code>{escape(lprefix)}</code>
-Leech Suffix: <code>{escape(lsuffix)}</code>
-Leech Caption: <code>{escape(lcap)}</code>
-Caption Replace: <code>{escape(str(caption_word_replace))}</code>
-Caption Font: <b>{font_label}</b>
-Complete Msg: <b>{complete_msg}</b>
-Sequential Leech: <b>{sequential_leech}</b>
-Thumbnail Layout: <b>{thumb_layout}</b>
-Auto Thumbnail: <b>{auto_thumb}</b>
-Thumbnail Mode: <b>{thumbnail_mode.title()}</b>
-AutoRename: <b>{autorename_status}</b>
-AutoRename Template: <code>{escape(lremname_auto)}</code>
-Subtitle Target: <code>{escape(subtitle_target)}</code>
-Intro Subtitle: <code>{escape(intro_subtitle)}</code>
-"""
+<blockquote expandable>
+<b>User Profile & Preferences:</b>
+┌ <b>Name</b> : {user_name}
+├ <b>Leech Type</b> : <b>{ltype}</b>
+├ <b>Premium User</b> : <b>{premium_status}</b>
+├ <b>Upload Mode</b> : <b>{upload_mode}</b>
+├ <b>Max Split Size</b> : <code>{get_readable_file_size(effective_split)}</code>
+├ <b>Thumbnail</b> : <b>{thumbmsg}</b> ({thumbnail_mode.title()})
+├ <b>Auto Thumbnail</b> : <b>{auto_thumb}</b>
+├ <b>Split Size</b> : <code>{get_readable_file_size(split_size)}</code>
+├ <b>Destination</b> : <code>{escape(str(leech_dest))}</code>
+├ <b>Prefix</b> : <code>{escape(lprefix)}</code>
+├ <b>Suffix</b> : <code>{escape(lsuffix)}</code>
+├ <b>Caption Replace</b> : <code>{escape(str(caption_word_replace))}</code>
+├ <b>Caption Font</b> : <b>{font_label}</b>
+├ <b>Complete Msg</b> : <b>{complete_msg}</b>
+├ <b>Sequential Leech</b> : <b>{sequential_leech}</b>
+├ <b>Thumbnail Layout</b> : <b>{thumb_layout}</b>
+├ <b>AutoRename</b> : <b>{autorename_status}</b>
+├ <b>AutoRename Template</b> : <code>{escape(lremname_auto)}</code>
+├ <b>Subtitle Target</b> : <code>{escape(subtitle_target)}</code>
+└ <b>Intro Subtitle</b> : <code>{escape(intro_subtitle)}</code>
+
+<b>Caption Template:</b>
+<code>{escape(lcap)}</code>
+</blockquote>"""
 
     elif stype == "leech_old":
         thumbpath = f"thumbnails/{user_id}.jpg"

@@ -47,8 +47,8 @@ def content_disposition(filename, disposition="attachment"):
     fallback = " ".join(fallback.replace('"', "'").replace("\\", "_").split())
     if not fallback:
         fallback = "telegram-file"
-    encoded = quote(filename, safe="")
-    return f"{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}\""
+    encoded = quote(filename, safe="!#$&+-.^_`|~")
+    return f"{disposition}; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
 
 
 def _secret(bot_token, access_password):

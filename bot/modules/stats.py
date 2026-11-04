@@ -40,6 +40,15 @@ from ..helper.telegram_helper.message_utils import (
     edit_message,
     send_message,
 )
+from ..helper.telegram_helper.tg_ui_formatter import (
+    PREMIUM_BOLT,
+    PREMIUM_GEAR,
+    PREMIUM_PACKAGE,
+    PREMIUM_STATS,
+    PREMIUM_TIMER,
+    PREMIUM_USER,
+    safe_emoji,
+)
 from ..version import get_version
 
 commands = {
@@ -103,13 +112,36 @@ async def get_stats(event, key="home"):
     btns = ButtonMaker()
     if key == "home":
         btns = ButtonMaker()
-        btns.data_button("Bot Stats", f"stats {user_id} stbot")
-        btns.data_button("OS Stats", f"stats {user_id} stsys")
-        btns.data_button("Repo Stats", f"stats {user_id} strepo")
-        btns.data_button("Pkgs Stats", f"stats {user_id} stpkgs")
-        btns.data_button("Task Limits", f"stats {user_id} tlimits")
-        btns.data_button("Sys Tasks", f"stats {user_id} systasks")
-        msg = "⌬ <b><i>Bot & OS Statistics!</i></b>"
+        b_icon = safe_emoji(PREMIUM_STATS, "🤖")
+        s_icon = safe_emoji(PREMIUM_BOLT, "💻")
+        r_icon = safe_emoji(PREMIUM_PACKAGE, "📦")
+        p_icon = safe_emoji(PREMIUM_GEAR, "⚙️")
+        l_icon = safe_emoji(PREMIUM_TIMER, "⚡")
+        t_icon = safe_emoji(PREMIUM_USER, "📊")
+
+        btns.data_button(f"{b_icon} Bot Stats", f"stats {user_id} stbot")
+        btns.data_button(f"{s_icon} OS Stats", f"stats {user_id} stsys")
+        btns.data_button(f"{r_icon} Repo Stats", f"stats {user_id} strepo")
+        btns.data_button(f"{p_icon} Pkgs Stats", f"stats {user_id} stpkgs")
+        btns.data_button(f"{l_icon} Task Limits", f"stats {user_id} tlimits")
+        btns.data_button(f"{t_icon} Sys Tasks", f"stats {user_id} systasks")
+
+        total, used, free, disk = disk_usage("/")
+        memory = virtual_memory()
+        uptime_str = get_readable_time(time() - bot_start_time)
+
+        msg = f"""<b>{safe_emoji(PREMIUM_BOLT, '✦')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗦𝗬𝗦𝗧𝗘𝗠 𝗠𝗢𝗡𝗜𝗧𝗢𝗥 {safe_emoji(PREMIUM_BOLT, '✦')}</b>
+
+<blockquote expandable>
+<b>System & Host Health Overview:</b>
+
+┌ <b>Bot Uptime</b> : {uptime_str}
+├ <b>RAM Usage</b> : {get_progress_bar_string(memory.percent)} {memory.percent}%
+├ <b>Disk Space</b> : {get_readable_file_size(free)} free of {get_readable_file_size(total)}
+└ <b>OS Info</b> : {platform()}
+
+<i>Select a section below for detailed performance metrics.</i>
+</blockquote>"""
     elif key == "stbot":
         total, used, free, disk = disk_usage("/")
         swap = swap_memory()
@@ -130,57 +162,58 @@ async def get_stats(event, key="home"):
         sys_cpu = cpu_count(logical=True)
         p_cores = cpu_count(logical=False)
         v_cores = (sys_cpu or 0) - (p_cores or 0)
-        msg = f"""⌬ <b><i>BOT STATISTICS :</i></b>
-┖ <b>Bot Uptime :</b> {get_readable_time(time() - bot_start_time)}
+        msg = f"""<b>{safe_emoji(PREMIUM_STATS, '🤖')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗕𝗢𝗧 𝗦𝗧𝗔𝗧𝗜𝗦𝗧𝗜𝗖𝗦</b>
 
-┎ <b><i>INSTANCE RAM ( BOT ) :</i></b>
-┃ {get_progress_bar_string(bot_ram_pct)} {bot_ram_pct}%
-┖ <b>U :</b> {get_readable_file_size(bot_ram_used)} | <b>F :</b> {get_readable_file_size(bot_ram_free)} | <b>T :</b> {get_readable_file_size(bot_ram_total)}
+<blockquote expandable>
+<b>Bot Instance & Runtime:</b>
+┌ <b>Bot Uptime</b> : {get_readable_time(time() - bot_start_time)}
+├ <b>Instance Cores</b> : {instance_cpu} | <b>Usable</b> : {len(Process().cpu_affinity())}
+└ <b>Total Cores</b> : {sys_cpu} (P: {p_cores} | V: {v_cores})
 
-┎ <b><i>SYSTEM RAM :</i></b>
-┃ {get_progress_bar_string(memory.percent)} {memory.percent}%
-┖ <b>U :</b> {get_readable_file_size(memory.used)} | <b>F :</b> {get_readable_file_size(memory.available)} | <b>T :</b> {get_readable_file_size(memory.total)}
+<b>Instance Memory (Bot):</b>
+┌ <b>Usage</b> : {get_progress_bar_string(bot_ram_pct)} {bot_ram_pct}%
+└ <b>U</b>: {get_readable_file_size(bot_ram_used)} | <b>F</b>: {get_readable_file_size(bot_ram_free)} | <b>T</b>: {get_readable_file_size(bot_ram_total)}
 
-┎ <b><i>SWAP MEMORY :</i></b>
-┃ {get_progress_bar_string(swap.percent)} {swap.percent}%
-┖ <b>U :</b> {get_readable_file_size(swap.used)} | <b>F :</b> {get_readable_file_size(swap.free)} | <b>T :</b> {get_readable_file_size(swap.total)}
+<b>Host RAM:</b>
+┌ <b>Usage</b> : {get_progress_bar_string(memory.percent)} {memory.percent}%
+└ <b>U</b>: {get_readable_file_size(memory.used)} | <b>F</b>: {get_readable_file_size(memory.available)} | <b>T</b>: {get_readable_file_size(memory.total)}
 
-┎ <b><i>INSTANCE CPU ( BOT ) :</i></b>
-┃ <b>Instance Core(s) :</b> {instance_cpu}
-┠ <b>Total Core(s) :</b> {sys_cpu} | <b>P-Core(s) :</b> {p_cores} | <b>V-Core(s) :</b> {v_cores}
-┖ <b>Usable CPU(s) :</b> {len(Process().cpu_affinity())}
+<b>Swap Memory:</b>
+┌ <b>Usage</b> : {get_progress_bar_string(swap.percent)} {swap.percent}%
+└ <b>U</b>: {get_readable_file_size(swap.used)} | <b>F</b>: {get_readable_file_size(swap.free)} | <b>T</b>: {get_readable_file_size(swap.total)}
 
-┎ <b><i>SYSTEM DISK :</i></b>
-┃ {get_progress_bar_string(disk)} {disk}%
-┃ <b>Total Disk Read :</b> {f"{get_readable_file_size(disk_io.read_bytes)} ({get_readable_time(disk_io.read_time / 1000)})" if disk_io else "Access Denied"}
-┃ <b>Total Disk Write :</b> {f"{get_readable_file_size(disk_io.write_bytes)} ({get_readable_time(disk_io.write_time / 1000)})" if disk_io else "Access Denied"}
-┖ <b>U :</b> {get_readable_file_size(used)} | <b>F :</b> {get_readable_file_size(free)} | <b>T :</b> {get_readable_file_size(total)}
-"""
+<b>Disk Storage (/):</b>
+┌ <b>Usage</b> : {get_progress_bar_string(disk)} {disk}%
+├ <b>Disk Read</b> : {f"{get_readable_file_size(disk_io.read_bytes)} ({get_readable_time(disk_io.read_time / 1000)})" if disk_io else "Access Denied"}
+├ <b>Disk Write</b> : {f"{get_readable_file_size(disk_io.write_bytes)} ({get_readable_time(disk_io.write_time / 1000)})" if disk_io else "Access Denied"}
+└ <b>U</b>: {get_readable_file_size(used)} | <b>F</b>: {get_readable_file_size(free)} | <b>T</b>: {get_readable_file_size(total)}
+</blockquote>"""
     elif key == "stsys":
         cpu_usage = cpu_percent(interval=0.5)
         sys_cpu = cpu_count(logical=True)
         p_cores = cpu_count(logical=False)
         v_cores = (sys_cpu or 0) - (p_cores or 0)
-        msg = f"""⌬ <b><i>SYSTEM OS :</i></b>
-╟ <b>OS Uptime :</b> {get_readable_time(time() - boot_time())}
-┠ <b>OS Version :</b> {version()}
-┖ <b>OS Arch :</b> {platform()}
+        msg = f"""<b>{safe_emoji(PREMIUM_BOLT, '💻')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗢𝗦 & 𝗡𝗘𝗧𝗪𝗢𝗥𝗞</b>
 
-⌬ <b><i>SYSTEM NETWORK :</i></b>
-╟ <b>Upload Data:</b> {get_readable_file_size(net_io_counters().bytes_sent)}
-┠ <b>Download Data:</b> {get_readable_file_size(net_io_counters().bytes_recv)}
-┠ <b>Pkts Sent:</b> {str(net_io_counters().packets_sent)[:-3]}k
-┠ <b>Pkts Received:</b> {str(net_io_counters().packets_recv)[:-3]}k
-┖ <b>Total I/O Data:</b> {get_readable_file_size(net_io_counters().bytes_recv + net_io_counters().bytes_sent)}
+<blockquote expandable>
+<b>Host Operating System:</b>
+┌ <b>OS Uptime</b> : {get_readable_time(time() - boot_time())}
+├ <b>OS Version</b> : {version()}
+└ <b>OS Arch</b> : {platform()}
 
-┎ <b><i>SYSTEM CPU :</i></b>
-┃ {get_progress_bar_string(cpu_usage)} {cpu_usage}%
-┠ <b>CPU Frequency :</b> {f"{cpu_freq().current / 1000:.2f} GHz" if cpu_freq() else "Access Denied"}
-┠ <b>System Avg Load :</b> {"%, ".join(str(round((x / (cpu_count() or 1) * 100), 2)) for x in getloadavg())}%, (1m, 5m, 15m)
-┠ <b>P-Core(s) :</b> {p_cores} | <b>V-Core(s) :</b> {v_cores}
-┠ <b>Total Core(s) :</b> {sys_cpu}
-┖ <b>Usable CPU(s) :</b> {len(Process().cpu_affinity())}
-"""
+<b>Network Traffic:</b>
+┌ <b>Upload Data</b> : {get_readable_file_size(net_io_counters().bytes_sent)}
+├ <b>Download Data</b> : {get_readable_file_size(net_io_counters().bytes_recv)}
+├ <b>Packets Sent</b> : {str(net_io_counters().packets_sent)[:-3]}k
+├ <b>Packets Recv</b> : {str(net_io_counters().packets_recv)[:-3]}k
+└ <b>Total I/O</b> : {get_readable_file_size(net_io_counters().bytes_recv + net_io_counters().bytes_sent)}
+
+<b>Processor Performance:</b>
+┌ <b>CPU Load</b> : {get_progress_bar_string(cpu_usage)} {cpu_usage}%
+├ <b>Frequency</b> : {f"{cpu_freq().current / 1000:.2f} GHz" if cpu_freq() else "Access Denied"}
+├ <b>Avg Load (1m, 5m, 15m)</b> : {"%, ".join(str(round((x / (cpu_count() or 1) * 100), 2)) for x in getloadavg())}%
+└ <b>Cores</b> : {sys_cpu} Total ({p_cores} Physical, {v_cores} Virtual)
+</blockquote>"""
     elif key == "strepo":
         last_commit, changelog = "No Data", "N/A"
         if await aiopath.exists(f"{REPO_ROOT}/.git"):
@@ -207,54 +240,61 @@ async def get_stats(event, key="home"):
             if official_v
             else "Remote version is unavailable; try again later."
         )
-        msg = f"""⌬ <b><i>Repo Statistics :</i></b>
-│
-┟ <b>Bot Updated :</b> {last_commit}
-┠ <b>Current Version :</b> {get_version()}
-┠ <b>Latest Version :</b> {latest_label}
-┖ <b>Last ChangeLog :</b> {changelog}
+        msg = f"""<b>{safe_emoji(PREMIUM_PACKAGE, '📦')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗥𝗘𝗣𝗢 𝗦𝗧𝗔𝗧𝗨𝗦</b>
 
-⌬ <b>REMARKS :</b> <code>{remarks}</code>
-    """
+<blockquote expandable>
+<b>Repository & Versioning:</b>
+┌ <b>Bot Updated</b> : {last_commit}
+├ <b>Installed Version</b> : <code>{get_version()}</code>
+├ <b>Latest Version</b> : <code>{latest_label}</code>
+└ <b>Last ChangeLog</b> : {changelog}
+
+<b>Status Remarks</b> : <code>{remarks}</code>
+</blockquote>"""
     elif key == "stpkgs":
         ver = bot_cache.get("eng_versions", {})
-        msg = f"""⌬ <b><i>Packages Statistics :</i></b>
-│
-┟ <b>python:</b> v{ver.get("python", "N/A")}
-┠ <b>aria2:</b> v{ver.get("aria2", "N/A")}
-┠ <b>qBittorrent:</b> v{ver.get("qBittorrent", "N/A")}
-┠ <b>SABnzbd+:</b> v{ver.get("SABnzbd+", "N/A")}
-┠ <b>rclone:</b> v{ver.get("rclone", "N/A")}
-┠ <b>yt-dlp:</b> v{ver.get("yt-dlp", "N/A")}
-┠ <b>ffmpeg:</b> v{ver.get("ffmpeg", "N/A")}
-┠ <b>7z:</b> v{ver.get("7z", "N/A")}
-┠ <b>Aiohttp:</b> v{ver.get("aiohttp", "N/A")}
-┠ <b>WZGram:</b> v{ver.get("wzgram", ver.get("pyrotgfork", "N/A"))}
-┠ <b>Google API:</b> v{ver.get("gapi", "N/A")}
-┖ <b>MKVToolNix:</b> v{ver.get("mkvmerge", "N/A")}
-"""
+        msg = f"""<b>{safe_emoji(PREMIUM_GEAR, '⚙️')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗣𝗔𝗖𝗞𝗔𝗚𝗘 𝗩𝗘𝗥𝗦𝗜𝗢𝗡𝗦</b>
+
+<blockquote expandable>
+<b>Core Engines & Binaries:</b>
+┌ <b>Python</b> : v{ver.get("python", "N/A")}
+├ <b>qBittorrent</b> : v{ver.get("qBittorrent", "N/A")}
+├ <b>aria2</b> : v{ver.get("aria2", "N/A")}
+├ <b>FFmpeg</b> : v{ver.get("ffmpeg", "N/A")}
+├ <b>MKVToolNix</b> : v{ver.get("mkvmerge", "N/A")}
+├ <b>SABnzbd+</b> : v{ver.get("SABnzbd+", "N/A")}
+├ <b>rclone</b> : v{ver.get("rclone", "N/A")}
+├ <b>yt-dlp</b> : v{ver.get("yt-dlp", "N/A")}
+├ <b>7-Zip</b> : v{ver.get("7z", "N/A")}
+├ <b>WZGram</b> : v{ver.get("wzgram", ver.get("pyrotgfork", "N/A"))}
+├ <b>Aiohttp</b> : v{ver.get("aiohttp", "N/A")}
+└ <b>Google API</b> : v{ver.get("gapi", "N/A")}
+</blockquote>"""
     elif key == "tlimits":
-        msg = f"""⌬ <b><i>Bot Task Limits :</i></b>
-│
-┟ <b>Direct Limit :</b> {Config.DIRECT_LIMIT or "∞"} GB
-┠ <b>Torrent Limit :</b> {Config.TORRENT_LIMIT or "∞"} GB
-┠ <b>GDriveDL Limit :</b> {Config.GD_DL_LIMIT or "∞"} GB
-┠ <b>RCloneDL Limit :</b> {Config.RC_DL_LIMIT or "∞"} GB
-┠ <b>Clone Limit :</b> {Config.CLONE_LIMIT or "∞"} GB
-┠ <b>JDown Limit :</b> {Config.JD_LIMIT or "∞"} GB
-┠ <b>NZB Limit :</b> {Config.NZB_LIMIT or "∞"} GB
-┠ <b>YT-DLP Limit :</b> {Config.YTDLP_LIMIT or "∞"} GB
-┠ <b>Playlist Limit :</b> {Config.PLAYLIST_LIMIT or "∞"}
-┠ <b>Leech Limit :</b> {"∞" if Config.ALLOW_LARGE_LEECH else (Config.LEECH_LIMIT or "∞")} GB
-┠ <b>Archive Limit :</b> {Config.ARCHIVE_LIMIT or "∞"} GB
-┠ <b>Extract Limit :</b> {Config.EXTRACT_LIMIT or "∞"} GB
-┞ <b>Threshold Storage :</b> {Config.STORAGE_LIMIT or "∞"} GB
-│
-┟ <b>Token Validity :</b> {get_readable_time(Config.VERIFY_TIMEOUT) if Config.VERIFY_TIMEOUT else "Disabled"}
-┠ <b>User Time Limit :</b> {Config.USER_TIME_INTERVAL or "0"}s / task
-┠ <b>User Max Tasks :</b> {Config.USER_MAX_TASKS or "∞"}
-┖ <b>Bot Max Tasks :</b> {Config.BOT_MAX_TASKS or "∞"}
-    """
+        msg = f"""<b>{safe_emoji(PREMIUM_TIMER, '⚡')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗧𝗔𝗦𝗞 𝗟𝗜𝗠𝗜𝗧𝗦</b>
+
+<blockquote expandable>
+<b>Traffic & Download Ceilings:</b>
+┌ <b>Direct Limit</b> : {Config.DIRECT_LIMIT or "∞"} GB
+├ <b>Torrent Limit</b> : {Config.TORRENT_LIMIT or "∞"} GB
+├ <b>Leech Limit</b> : {"∞" if Config.ALLOW_LARGE_LEECH else (Config.LEECH_LIMIT or "∞")} GB
+├ <b>GDrive DL</b> : {Config.GD_DL_LIMIT or "∞"} GB
+├ <b>RClone DL</b> : {Config.RC_DL_LIMIT or "∞"} GB
+├ <b>Clone Limit</b> : {Config.CLONE_LIMIT or "∞"} GB
+├ <b>JDown Limit</b> : {Config.JD_LIMIT or "∞"} GB
+├ <b>NZB Limit</b> : {Config.NZB_LIMIT or "∞"} GB
+├ <b>YT-DLP Limit</b> : {Config.YTDLP_LIMIT or "∞"} GB
+├ <b>Playlist Limit</b> : {Config.PLAYLIST_LIMIT or "∞"}
+├ <b>Archive Limit</b> : {Config.ARCHIVE_LIMIT or "∞"} GB
+├ <b>Extract Limit</b> : {Config.EXTRACT_LIMIT or "∞"} GB
+└ <b>Threshold Storage</b> : {Config.STORAGE_LIMIT or "∞"} GB
+
+<b>Concurrency & Intervals:</b>
+┌ <b>Token Validity</b> : {get_readable_time(Config.VERIFY_TIMEOUT) if Config.VERIFY_TIMEOUT else "Disabled"}
+├ <b>User Time Limit</b> : {Config.USER_TIME_INTERVAL or "0"}s / task
+├ <b>User Max Tasks</b> : {Config.USER_MAX_TASKS or "∞"}
+└ <b>Bot Max Tasks</b> : {Config.BOT_MAX_TASKS or "∞"}
+</blockquote>"""
 
     elif key == "systasks":
         try:
@@ -279,7 +319,10 @@ async def get_stats(event, key="home"):
         except Exception:
             processes = []
 
-        msg = "⌬ <b><i>System Tasks (High Usage)</i></b>\n│\n"
+        msg = f"""<b>{safe_emoji(PREMIUM_USER, '📊')} 𝗦𝗧𝗔𝗥𝗙𝗔𝗟𝗟𝗫 • 𝗦𝗬𝗦𝗧𝗘𝗠 𝗧𝗔𝗦𝗞𝗦</b>
+
+<blockquote expandable>
+<b>Top Resource Consuming Processes:</b>\n\n"""
 
         if processes:
             for i, proc in enumerate(processes, 1):
@@ -287,17 +330,18 @@ async def get_stats(event, key="home"):
                 cpu = proc.get("cpu_percent", 0)
                 mem = proc.get("memory_percent", 0)
                 user = proc.get("username", "Unknown")[:10]
-                msg += f"┠ <b>{i:2d}.</b> <code>{name}</code>\n┃    🔹 <b>CPU:</b> {cpu:.1f}% | <b>MEM:</b> {mem:.1f}%\n┃    👤 <b>User:</b> {user} | <b>PID:</b> {proc['pid']}\n"
+                msg += f"┌ <b>{i:2d}.</b> <code>{name}</code>\n├ 🔹 <b>CPU:</b> {cpu:.1f}% | <b>MEM:</b> {mem:.1f}%\n└ 👤 <b>User:</b> {user} | <b>PID:</b> {proc['pid']}\n\n"
                 btns.data_button(f"{i}", f"stats {user_id} killproc {proc['pid']}")
-            msg += "┃\n┖ <i>Click serial number to terminate process</i>"
+            msg += "<i>Click serial number to terminate process.</i>\n</blockquote>"
         else:
-            msg += "┃\n┖ <i>No high usage processes found</i>"
+            msg += "<i>No high usage processes found.</i>\n</blockquote>"
 
         btns.data_button("🔄 Refresh", f"stats {user_id} systasks", "header")
 
-    btns.data_button("Back", f"stats {user_id} home", "footer")
+    if key != "home":
+        btns.data_button("🔙 Back", f"stats {user_id} home", "footer")
     btns.data_button(
-        "Close", f"stats {user_id} close", "footer", style=ButtonStyle.DANGER
+        "❌ Close", f"stats {user_id} close", "footer", style=ButtonStyle.DANGER
     )
     return msg, btns.build_menu(8 if key == "systasks" else 2)
 

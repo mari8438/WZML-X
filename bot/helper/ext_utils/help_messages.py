@@ -520,170 +520,142 @@ BOT_COMMANDS = get_bot_commands()
 
 
 def get_help_string():
-    from ..telegram_helper.bot_commands import BotCommands
-
-    help_lines = ["NOTE: Try each command without any argument to see more details."]
-
-    commands = BotCommands.get_commands()
-
-    for key, cmds in commands.items():
-        cmd_attr = getattr(BotCommands, f"{key}Command", None)
-        if not cmd_attr:
-            continue
-
-        if isinstance(cmd_attr, list):
-            cmd_str = f"/{' or /'.join(cmd_attr)}"
-        else:
-            cmd_str = f"/{cmd_attr}"
-
-        if key == "Mirror":
-            help_lines.append(f"{cmd_str}: Start mirroring to cloud.")
-        elif key == "QbMirror":
-            help_lines.append(f"{cmd_str}: Start Mirroring to cloud using qBittorrent.")
-        elif key == "JdMirror":
-            help_lines.append(f"{cmd_str}: Start Mirroring to cloud using JDownloader.")
-        elif key == "NzbMirror":
-            help_lines.append(f"{cmd_str}: Start Mirroring to cloud using Sabnzbd.")
-        elif key == "Ytdl":
-            help_lines.append(f"{cmd_str}: Mirror yt-dlp supported link.")
-        elif key == "UpHoster":
-            help_lines.append(f"{cmd_str}: Upload to DDL Servers.")
-        elif key == "Leech":
-            help_lines.append(f"{cmd_str}: Start leeching to Telegram.")
-        elif key == "QbLeech":
-            help_lines.append(f"{cmd_str}: Start leeching using qBittorrent.")
-        elif key == "BigQLeech":
-            help_lines.append(
-                f"{cmd_str}: qB-only huge torrent leech. Downloads/uploads natural-order batches up to BQLEECH_BATCH_SIZE_GB."
-            )
-        elif key == "BatchLeech":
-            help_lines.append(
-                f"{cmd_str} link1 link2 link3: Batch leech links with BLEECH download/upload limits."
-            )
-        elif key == "JdLeech":
-            help_lines.append(f"{cmd_str}: Start leeching using JDownloader.")
-        elif key == "NzbLeech":
-            help_lines.append(f"{cmd_str}: Start leeching using Sabnzbd.")
-        elif key == "YtdlLeech":
-            help_lines.append(f"{cmd_str}: Leech yt-dlp supported link.")
-        elif key == "Clone":
-            help_lines.append(
-                f"{cmd_str} [drive_url]: Copy file/folder to Google Drive."
-            )
-        elif key == "Count":
-            help_lines.append(
-                f"{cmd_str} [drive_url]: Count file/folder of Google Drive."
-            )
-        elif key == "Delete":
-            help_lines.append(
-                f"{cmd_str} [drive_url]: Delete file/folder from Google Drive (Only Owner & Sudo)."
-            )
-        elif key == "UserSet":
-            help_lines.append(f"{cmd_str} [query]: Users settings.")
-        elif key == "BotSet":
-            help_lines.append(f"{cmd_str} [query]: Bot settings.")
-        elif key == "Select":
-            help_lines.append(
-                f"{cmd_str}: Select files from torrents or nzb by gid or reply."
-            )
-        elif key == "CancelTask":
-            help_lines.append(f"{cmd_str} [gid]: Cancel task by gid or reply.")
-        elif key == "ForceStart":
-            help_lines.append(f"{cmd_str} [gid]: Force start task by gid or reply.")
-        elif key == "CancelAll":
-            help_lines.append(f"{cmd_str} [query]: Cancel all [status] tasks.")
-        elif key == "List":
-            help_lines.append(f"{cmd_str} [query]: Search in Google Drive(s).")
-        elif key == "Search":
-            help_lines.append(f"{cmd_str} [query]: Search for torrents with API.")
-        elif key == "CreateTorrent":
-            help_lines.append(
-                f"{cmd_str} [link/reply]: Save video for seeding, send HD thumbnail, header contact sheet, BBCode description, and .torrent file."
-            )
-        elif key == "MediaInfo":
-            help_lines.append(f"{cmd_str} [query]: Get media info.")
-        elif key == "Status":
-            help_lines.append(f"{cmd_str}: Shows a status of all the downloads.")
-        elif key == "Stats":
-            help_lines.append(
-                f"{cmd_str}: Show stats of the machine where the bot is hosted in."
-            )
-        elif key == "Ping":
-            help_lines.append(
-                f"{cmd_str}: Check how long it takes to Ping the Bot (Only Owner & Sudo)."
-            )
-        elif key == "Authorize":
-            help_lines.append(
-                f"{cmd_str}: Authorize a chat or a user to use the bot (Only Owner & Sudo)."
-            )
-        elif key == "UnAuthorize":
-            help_lines.append(
-                f"{cmd_str}: Unauthorize a chat or a user to use the bot (Only Owner & Sudo)."
-            )
-        elif key == "Users":
-            help_lines.append(f"{cmd_str}: show users settings (Only Owner & Sudo).")
-        elif key == "AddSudo":
-            help_lines.append(f"{cmd_str}: Add sudo user (Only Owner).")
-        elif key == "RmSudo":
-            help_lines.append(f"{cmd_str}: Remove sudo users (Only Owner).")
-        elif key == "BlackList":
-            help_lines.append(
-                f"{cmd_str}: Blacklist a user from using the bot (Only Owner & Sudo)."
-            )
-        elif key == "RmBlackList":
-            help_lines.append(
-                f"{cmd_str}: Remove a user from blacklist (Only Owner & Sudo)."
-            )
-        elif key == "AddImage":
-            help_lines.append(
-                f"{cmd_str}: Add an image to the gallery by reply to photo or link."
-            )
-        elif key == "Images":
-            help_lines.append(f"{cmd_str}: View and manage the image gallery.")
-        elif key == "Restart":
-            help_lines.append(
-                f"{cmd_str}: Restart and update the bot (Only Owner & Sudo)."
-            )
-        elif key == "Log":
-            help_lines.append(
-                f"{cmd_str}: Get a log file of the bot. Handy for getting crash reports (Only Owner & Sudo)."
-            )
-        elif key == "Shell":
-            help_lines.append(f"{cmd_str}: Run shell commands (Only Owner).")
-        elif key == "AExec":
-            help_lines.append(f"{cmd_str}: Exec async functions (Only Owner).")
-        elif key == "Exec":
-            help_lines.append(f"{cmd_str}: Exec sync functions (Only Owner).")
-        elif key == "ClearLocals":
-            help_lines.append(
-                f"/{BotCommands.ClearLocalsCommand}: Clear {BotCommands.AExecCommand} or {BotCommands.ExecCommand} locals (Only Owner)."
-            )
-        elif key == "Rss":
-            help_lines.append(f"/{BotCommands.RssCommand}: RSS Menu.")
-        elif key == "GenPyroSess":
-            help_lines.append(
-                f"/{BotCommands.GenPyroSessCommand}: Generate Pyrogram String Session (Only Owner & Sudo)."
-            )
-        elif key in BOT_COMMANDS:
-            help_lines.append(f"{cmd_str}: {BOT_COMMANDS[key]}")
-
-    help_lines.extend(
-        [
-            "",
-            "<b>StarFallX v1.2 quick guide</b>",
-            f"/{BotCommands.LeechCommand[0]} link -vt: open Video Tools after download. Extract Stream is exclusive.",
-            f"/{BotCommands.LeechCommand[0]} link -ar custom TEMPLATE: one-task AutoRename template.",
-            f"/{BotCommands.BatchLeechCommand[0]} link1 link2 link3: batch leech with download/upload limits; add -m to merge all links after download.",
-            f"/{BotCommands.BigQLeechCommand[0]} magnet: qB huge torrent batching; /bql and /bqbleech also work.",
-            f"/{BotCommands.CreateTorrentCommand[0]} link: create thumbnail, contact sheet, BBCode description, and torrent.",
-            "Auto Process flow: download -> unzip -> order -> remove streams -> merge -> intro -> metadata -> rename -> sequential upload.",
-            "Auto Thumbnail flow: custom thumb -> TMDb -> AniList -> MyAnimeList -> FFmpeg frame.",
-            "Upload engine: StarFallX helper tokens improve parallel multi-file uploads; one token handles one active upload.",
-            "Restart recovery: /bleech and /bqleech plans can resume. Normal single /leech replay is notifier-only to avoid duplicate uploads.",
-            "Use /usetting for Leech, Auto Process, Helper Token, caption, thumbnail, zip export/import, and user upload options.",
-        ]
+    return (
+        "<b>✦ STARFALLX • COMMANDS & USER MANUAL ✦</b>\n\n"
+        "<blockquote expandable>\n"
+        "<b>StarfallX v1.2 Hybrid Engine</b>\n"
+        "High-performance cloud mirror, leech, torrent, and video manipulation platform.\n\n"
+        "┌ <b>⚡ Quick Start</b>: Send any magnet or supported link to begin\n"
+        "├ <b>📥 Leech</b>: /leech, /qbleech, /bleech, /bql (huge torrents)\n"
+        "├ <b>☁️ Mirror</b>: /mirror, /qbmirror, /ytdl (cloud storage upload)\n"
+        "├ <b>🎬 Video Tools</b>: Add <code>-vt</code> to any leech task to mux/trim/sync\n"
+        "├ <b>⚙️ Settings</b>: Use /usetting to customize captions, prefix & tokens\n"
+        "└ <b>📖 Documentation</b>: Complete Instant View manual available via Telegraph\n\n"
+        "<i>Tap the interactive category buttons below or read the complete guide on Telegraph.</i>\n"
+        "</blockquote>"
     )
-    return "\n".join(help_lines)
+
+
+CATEGORY_HELP_DICT = {
+    "leech": (
+        "<b>📥 STARFALLX • LEECH COMMANDS</b>\n\n"
+        "<blockquote expandable>\n"
+        "<b>Direct & Torrent Leeching to Telegram:</b>\n\n"
+        "┌ <code>/leech [link/reply]</code> : Standard mirror-to-Telegram\n"
+        "├ <code>/qbleech [magnet/file]</code> : High-speed qBittorrent leech\n"
+        "├ <code>/bleech [link1 link2]</code> : Batch leech with download/upload queues\n"
+        "├ <code>/bql [magnet]</code> : Huge torrent batching (multi-GB releases)\n"
+        "├ <code>/ytdlleech [url]</code> : Download video/audio from 1000+ streaming sites\n"
+        "├ <code>/jdl or /nzbl</code> : JDownloader and Usenet NZB leeching\n"
+        "└ <b>Key Arguments</b>:\n"
+        "  • <code>-vt</code> : Open Video Tools Studio after download\n"
+        "  • <code>-ar &lt;template&gt;</code> : One-task custom auto-rename template\n"
+        "  • <code>-m [folder]</code> : Merge and mux multi-part videos in order\n"
+        "  • <code>-sp 2gb</code> : Custom split size for Telegram upload\n"
+        "  • <code>-t [url/reply]</code> : Attach custom thumbnail to this task\n"
+        "</blockquote>"
+    ),
+    "mirror": (
+        "<b>☁️ STARFALLX • CLONE & MIRROR COMMANDS</b>\n\n"
+        "<blockquote expandable>\n"
+        "<b>Mirroring to Google Drive & Rclone:</b>\n\n"
+        "┌ <code>/mirror [link/reply]</code> : Mirror direct link to cloud storage\n"
+        "├ <code>/qbmirror [magnet]</code> : Mirror torrents via qBittorrent\n"
+        "├ <code>/ytdl [url]</code> : Mirror YouTube/streaming videos to cloud\n"
+        "├ <code>/clone [url]</code> : High-speed cloud-to-cloud copy\n"
+        "├ <code>/count [drive_url]</code> : Calculate total file & folder sizes\n"
+        "└ <b>Destination Routing</b>:\n"
+        "  • <code>-up rc</code> : Upload using Rclone config\n"
+        "  • <code>-up gd</code> : Upload using Google Drive API\n"
+        "  • <code>-up remote:folder</code> : Specify custom Rclone target folder\n"
+        "</blockquote>"
+    ),
+    "videotools": (
+        "<b>🎬 STARFALLX • VIDEO TOOLS & WEB STUDIO</b>\n\n"
+        "<blockquote expandable>\n"
+        "<b>Lossless MKV Video Manipulation:</b>\n\n"
+        "┌ <b>Web Video Studio</b> : Live dual-player preview on port 8080\n"
+        "├ <b>Lossless Muxing</b> : Pure stream-copy mux without video re-encoding\n"
+        "├ <b>Delay Synchronization</b> : Custom ms audio/sub delay adjustments\n"
+        "├ <b>VPS Audio Bank</b> : Multi-episode automatic track matching\n"
+        "├ <b>Stream Trimming</b> : Zero-encoding stream copy for 2-min preview clips\n"
+        "└ <b>How to Launch</b> : Add <code>-vt</code> to any <code>/leech</code> or <code>/qbleech</code> command\n"
+        "</blockquote>"
+    ),
+    "settings": (
+        "<b>⚙️ STARFALLX • CONFIGURATION & CUSTOMIZATION</b>\n\n"
+        "<blockquote expandable>\n"
+        "<b>User & Bot Customization:</b>\n\n"
+        "┌ <code>/usetting</code> : Open interactive User Settings dashboard\n"
+        "├ <b>Prefix & Suffix</b> : Add custom release tags to all uploaded filenames\n"
+        "├ <b>Custom Caption</b> : Format captions using rich template variables\n"
+        "├ <b>Auto Poster</b> : Fetch official TMDb/AniList posters automatically\n"
+        "├ <b>Helper Tokens</b> : Add PIN-protected user bot tokens for max parallel speed\n"
+        "└ <code>/botsetting</code> : Admin system controls (Owner & Sudo only)\n"
+        "</blockquote>"
+    ),
+}
+
+
+def get_full_telegraph_help_html():
+    return (
+        "<h2>✦ StarfallX v1.2 — Complete User Manual &amp; Commands Guide ✦</h2>"
+        "<p>StarfallX is a high-performance Telegram &amp; Web automation platform featuring multi-threaded mirror/leech engines, lossless video tools, and smart queue management.</p>"
+        "<hr/>"
+        "<h3>1. 📥 Leech Commands (Telegram Upload)</h3>"
+        "<ul>"
+        "<li><b>/leech &lt;link/reply&gt;</b>: Download direct links and upload to Telegram.</li>"
+        "<li><b>/qbleech &lt;magnet/torrent&gt;</b>: Download torrents using libtorrent v2.0 and upload to Telegram.</li>"
+        "<li><b>/bleech &lt;link1 link2 ...&gt;</b>: Batch leech multiple links with BLEECH download/upload queue policies.</li>"
+        "<li><b>/bql &lt;magnet&gt;</b>: Big queue torrent leeching for massive releases.</li>"
+        "<li><b>/ytdlleech &lt;url&gt;</b>: Extract and leech video or audio from YouTube and 1000+ supported sites.</li>"
+        "<li><b>/jdleech &lt;link&gt;</b>: Leech via JDownloader engine.</li>"
+        "<li><b>/nzbleech &lt;nzb_link&gt;</b>: Leech Usenet releases via SABnzbd+.</li>"
+        "</ul>"
+        "<h3>2. ☁️ Mirror &amp; Clone Commands (Cloud Upload)</h3>"
+        "<ul>"
+        "<li><b>/mirror &lt;link/reply&gt;</b>: Mirror direct links to configured Google Drive or Rclone storage.</li>"
+        "<li><b>/qbmirror &lt;magnet&gt;</b>: Mirror torrents to cloud storage.</li>"
+        "<li><b>/ytdl &lt;url&gt;</b>: Mirror YouTube videos/playlists directly to cloud.</li>"
+        "<li><b>/clone &lt;drive_url&gt;</b>: Copy files or entire folders across Google Drives or Rclone remotes.</li>"
+        "<li><b>/count &lt;drive_url&gt;</b>: Count and calculate total file and folder sizes.</li>"
+        "<li><b>/delete &lt;drive_url&gt;</b>: Remove files/folders from Google Drive (Owner &amp; Sudo).</li>"
+        "</ul>"
+        "<h3>3. 🎬 Video Tools &amp; Web Studio Engine</h3>"
+        "<ul>"
+        "<li><b>-vt Flag</b>: Add <code>-vt</code> to any leech command to launch Video Tools after download.</li>"
+        "<li><b>Web Video Studio</b>: Real-time dual player preview running on port 8080.</li>"
+        "<li><b>Pure Lossless Mux</b>: Add/remove audio and subtitle tracks using stream copy with zero video re-encoding.</li>"
+        "<li><b>Audio Delay Alignment</b>: Apply millisecond-level delay corrections with instant 2-minute preview clips.</li>"
+        "<li><b>VPS Audio Bank</b>: Save extracted audio tracks into the VPS bank and batch pair them across entire seasons.</li>"
+        "<li><b>Auto Process</b>: Single-pass pipeline: Download &rarr; Unzip &rarr; Order &rarr; Strip Streams &rarr; Mux &rarr; Intro &rarr; Metadata &rarr; Autorename &rarr; Sequential Upload.</li>"
+        "</ul>"
+        "<h3>4. ⚙️ Command-Line Arguments Reference</h3>"
+        "<ul>"
+        "<li><b>-n &lt;new_name&gt;</b>: Rename the downloaded file before upload.</li>"
+        "<li><b>-m &lt;folder_name&gt;</b>: Place multiple links into one folder or merge video parts in natural order.</li>"
+        "<li><b>-sp &lt;split_size&gt;</b>: Set custom split size (e.g. <code>-sp 2gb</code> or <code>-sp 4gb</code>).</li>"
+        "<li><b>-t &lt;url/reply&gt;</b>: Attach a custom thumbnail for this task.</li>"
+        "<li><b>-up &lt;dest&gt;</b>: Route upload to <code>rc</code> (Rclone), <code>gd</code> (GDrive), or Telegram chat ID.</li>"
+        "<li><b>-ar &lt;template&gt;</b>: Apply a one-task custom auto-rename template.</li>"
+        "<li><b>-z [password]</b>: Compress output into a password-protected zip archive.</li>"
+        "</ul>"
+        "<h3>5. 📊 Status &amp; Queue Management</h3>"
+        "<ul>"
+        "<li><b>/status</b>: Display live active tasks, speeds, progress bars, and ETA.</li>"
+        "<li><b>/stats</b>: View VPS RAM, CPU load, network I/O, package versions, and task limits.</li>"
+        "<li><b>/cancel &lt;gid&gt;</b>: Cancel an active or queued task.</li>"
+        "<li><b>/forcestart &lt;gid&gt;</b>: Force an item from the queue to start immediately.</li>"
+        "<li><b>/select</b>: Interactively pick specific files to download from torrents or NZB archives.</li>"
+        "</ul>"
+        "<h3>6. 🎨 Customization &amp; Templates</h3>"
+        "<ul>"
+        "<li><b>/usetting</b>: Configure custom prefix, suffix, poster engine, caption templates, and user tokens.</li>"
+        "<li><b>Caption Variables</b>: <code>{filename}</code>, <code>{size}</code>, <code>{duration}</code>, <code>{resolution}</code>, <code>{languages}</code>, <code>{year}</code>, <code>{genres}</code>, <code>{rating}</code>, <code>{ott}</code>.</li>"
+        "</ul>"
+        "<hr/>"
+        "<p><i>StarfallX v1.2 — Built for 2-core 4GB RAM VPS environments with memory trimming and adaptive queue management.</i></p>"
+    )
 
 
 help_string = get_help_string()

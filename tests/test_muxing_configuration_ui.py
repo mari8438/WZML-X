@@ -173,8 +173,8 @@ def test_video_tools_ui_source_code_integrity():
     assert "vt_mux_removeaudio_" in code
     assert "vt_mux_rename_" in code
     assert "vt_mux_toggle_auto_sync_" in code
-    assert "vt_mux_toggle_preview_sync_" in code
-    assert "vt_mux_toggle_save_settings_" in code
+    assert "vt_mux_toggle_final_sample_" in code
+    assert "vt_mux_preview_" in code
     assert "vt_mux_cancel_" in code
     assert "vt_mux_start_" in code
 
