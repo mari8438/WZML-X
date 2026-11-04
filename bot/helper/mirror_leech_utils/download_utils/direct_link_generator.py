@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urljoin, urlparse
 from urllib3.util.retry import Retry
 from uuid import uuid4
 from base64 import b64decode, b64encode
+import codecs
 from curl_cffi import Session as CurlSession
 
 from ....core.config_manager import Config
@@ -169,6 +170,8 @@ def direct_link_generator(link):
         return filepress(link)
     elif any(x in domain for x in ["hubcloud", "hubhold"]):
         return hubcloud(link)
+    elif any(x in domain for x in ["xdmovies", "greenmotors", "toonworld"]):
+        return bypass_hubhold_aggregators(link)
     elif "buzzheavier.com" in domain:
         return buzzheavier(link)
     elif "devuploads" in domain:
@@ -446,6 +449,262 @@ def hubcloud(url):
         if link := _first_alive_download(session, _hubcloud_links(session, url)):
             return link
     raise DirectDownloadLinkException("ERROR: File Not Found or Expired")
+
+
+def _flaresolverr_get_html(url: str, timeout: int = 30) -> tuple[str, str]:
+    candidates = [
+        getattr(Config, "FLARESOLVERR_URL", "http://flaresolverr:8191/v1"),
+        "http://flaresolverr:8191/v1",
+        "http://127.0.0.1:8191/v1",
+    ]
+    for s_url in candidates:
+        if not s_url:
+            continue
+        try:
+            r = post(s_url, json={"cmd": "request.get", "url": url}, timeout=timeout)
+            res = r.json()
+            if res.get("status") == "ok":
+                sol = res.get("solution", {})
+                return sol.get("response", ""), sol.get("url", "")
+        except Exception:
+            continue
+    return "", ""
+
+
+def _decode_greenmotors_payload(payload: str) -> str:
+    if not payload:
+        return ""
+    raw = payload.strip()
+    try:
+        s1 = b64decode(raw).decode("utf-8", errors="ignore")
+        s2 = b64decode(s1).decode("utf-8", errors="ignore")
+        s3 = codecs.decode(s2, "rot_13")
+        s4 = b64decode(s3).decode("utf-8", errors="ignore")
+        data = loads(s4)
+        o = data.get("o", "")
+        if o:
+            target = b64decode(o).decode("utf-8", errors="ignore")
+            if target.startswith("http"):
+                return target
+    except Exception:
+        pass
+    cur = raw
+    for _ in range(3):
+        try:
+            padded = cur + "=" * (-len(cur) % 4)
+            dec = b64decode(padded).decode("utf-8", errors="ignore")
+            if dec.startswith("http://") or dec.startswith("https://"):
+                return dec
+            cur = dec
+        except Exception:
+            break
+    return ""
+
+
+def bypass_hubhold_aggregators(url: str) -> str:
+    """Resolve aggregator and wrapper links (XDmovies, GreenMotors, Toonworld4all)
+    to the underlying HubCloud / HubHold destination URL, and return the direct
+    download link.
+    """
+    domain = urlparse(url).hostname or ""
+    domain_lower = domain.lower()
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": f"https://{domain}/",
+    }
+
+    session = Session()
+    session.headers.update(headers)
+    target_url = None
+
+    # 1. ToonWorld4All (archive.toonworld4all.me / toonworld4all.me)
+    if "toonworld" in domain_lower:
+        try:
+            resp = session.get(url, allow_redirects=False, timeout=15)
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("Location", "")
+                if any(h in loc for h in ["hubcloud", "hubhold"]):
+                    target_url = loc
+                elif loc:
+                    resp = session.get(loc, allow_redirects=True, timeout=15)
+
+            if not target_url and resp.status_code == 200:
+                html_text = resp.text
+                # Extract underlying target payload directly without binding to single-use cookie or cooldown
+                props_match = search(r"window\.__PROPS__\s*=\s*(\{.*?\});", html_text)
+                if props_match:
+                    try:
+                        props = loads(props_match.group(1))
+                        link_obj = props.get("link") or {}
+                        domain_part = link_obj.get("domain", "")
+                        hidden_part = link_obj.get("hidden", "")
+                        if domain_part and hidden_part:
+                            target_url = urljoin(domain_part, hidden_part)
+                        elif dest := props.get("destination", ""):
+                            if any(h in dest for h in ["hubcloud", "hubhold"]):
+                                target_url = dest
+                    except Exception:
+                        pass
+
+                if not target_url:
+                    refresh_match = search(
+                        r'<meta[^>]*http-equiv=["\']refresh["\'][^>]*content=["\'][^"\']*url=([^"\']+)["\']',
+                        html_text,
+                    )
+                    if refresh_match and any(
+                        h in refresh_match.group(1) for h in ["hubcloud", "hubhold"]
+                    ):
+                        target_url = refresh_match.group(1)
+
+                if not target_url:
+                    hub_matches = findall(
+                        r"https?://[^\s\"\'<>]*(?:hubcloud|hubhold)[^\s\"\'<>]*",
+                        html_text,
+                    )
+                    if hub_matches:
+                        target_url = hub_matches[0]
+        except Exception as e:
+            if isinstance(e, DirectDownloadLinkException):
+                raise
+            raise DirectDownloadLinkException(
+                f"ERROR: Toonworld bypass failed: {e}"
+            ) from e
+
+    # 2. GreenMotors (greenmotors.club / greenmotors.cc)
+    elif "greenmotors" in domain_lower:
+        try:
+            parsed = urlparse(url)
+            query_id = parse_qs(parsed.query).get("id", [""])[0]
+            if query_id:
+                target_url = _decode_greenmotors_payload(query_id)
+
+            if not target_url:
+                urls_to_try = [url]
+                if "greenmotors.club" in url:
+                    urls_to_try.append(url.replace("greenmotors.club", "greenmotors.cc"))
+
+                for req_url in urls_to_try:
+                    html_text = ""
+                    try:
+                        resp = session.get(req_url, allow_redirects=True, timeout=15)
+                        if resp.status_code == 200 and "Just a moment..." not in resp.text:
+                            html_text = resp.text
+                    except Exception:
+                        pass
+
+                    if (
+                        not html_text
+                        or "Just a moment..." in html_text
+                        or "cf-mitigated" in html_text
+                    ):
+                        html_text, _ = _flaresolverr_get_html(req_url)
+
+                    if html_text:
+                        m = search(r"""s\(['"]o['"],\s*['"]([A-Za-z0-9+/=]+)['"]""", html_text)
+                        if m:
+                            target_url = _decode_greenmotors_payload(m.group(1))
+                            if target_url:
+                                break
+
+                        hub_matches = findall(
+                            r"https?://[^\s\"\'<>]*(?:hubcloud|hubhold)[^\s\"\'<>]*",
+                            html_text,
+                        )
+                        if hub_matches:
+                            target_url = hub_matches[0]
+                            break
+
+                        tree = HTML(html_text)
+                        for a_href in tree.xpath(
+                            "//a[contains(@href, 'hubcloud') or contains(@href, 'hubhold')]/@href"
+                        ):
+                            target_url = a_href
+                            break
+                        if target_url:
+                            break
+        except Exception as e:
+            if isinstance(e, DirectDownloadLinkException):
+                raise
+            raise DirectDownloadLinkException(
+                f"ERROR: GreenMotors bypass failed: {e}"
+            ) from e
+
+    # 3. XDmovies (link.xdmovies.wtf / xdmovies.*)
+    elif "xdmovies" in domain_lower:
+        try:
+            if "/download/" not in url:
+                html_text = ""
+                try:
+                    resp = session.get(url, allow_redirects=True, timeout=15)
+                    if resp.status_code == 200 and "Just a moment..." not in resp.text:
+                        html_text = resp.text
+                except Exception:
+                    pass
+                if not html_text or "Just a moment..." in html_text:
+                    html_text, _ = _flaresolverr_get_html(url)
+                if html_text:
+                    tree = HTML(html_text)
+                    dl_buttons = tree.xpath(
+                        "//a[contains(@class, 'movie-download-btn') or contains(@class, 'btn-warning') or contains(@href, '/download/')]/@href"
+                    )
+                    if dl_buttons:
+                        url = urljoin(url, dl_buttons[0])
+
+            resp = session.get(url, allow_redirects=False, timeout=15)
+            if resp.status_code in (301, 302, 303, 307, 308):
+                loc = resp.headers.get("Location", "")
+                if any(h in loc for h in ["hubcloud", "hubhold"]):
+                    target_url = loc
+                elif loc:
+                    landing_resp = session.get(loc, allow_redirects=True, timeout=15)
+                    html_text = landing_resp.text
+                    if "Just a moment..." in html_text or landing_resp.status_code == 403:
+                        html_text, _ = _flaresolverr_get_html(loc)
+                    hub_matches = findall(
+                        r"https?://[^\s\"\'<>]*(?:hubcloud|hubhold)[^\s\"\'<>]*",
+                        html_text,
+                    )
+                    if hub_matches:
+                        target_url = hub_matches[0]
+                    else:
+                        tree = HTML(html_text)
+                        for a_el in tree.xpath(
+                            "//a[contains(@href, 'hubcloud') or contains(@href, 'hubhold')]"
+                            " | //a[@id='download']"
+                            " | //a[contains(@class, 'btn') and (contains(., 'Download') or contains(., 'HubCloud') or contains(., 'HubHold'))]"
+                        ):
+                            href = a_el.get("href", "")
+                            if href and href != "javascript:void(0)":
+                                target_url = urljoin(landing_resp.url, href)
+                                break
+            elif resp.status_code == 200:
+                html_text = resp.text
+                hub_matches = findall(
+                    r"https?://[^\s\"\'<>]*(?:hubcloud|hubhold)[^\s\"\'<>]*",
+                    html_text,
+                )
+                if hub_matches:
+                    target_url = hub_matches[0]
+        except Exception as e:
+            if isinstance(e, DirectDownloadLinkException):
+                raise
+            raise DirectDownloadLinkException(
+                f"ERROR: XDmovies bypass failed: {e}"
+            ) from e
+
+    if not target_url:
+        raise DirectDownloadLinkException(
+            f"ERROR: No HubCloud/HubHold link found for {url}"
+        )
+
+    return hubcloud(target_url)
 
 
 def gdflix(url):
