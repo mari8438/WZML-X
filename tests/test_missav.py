@@ -119,6 +119,47 @@ class TestMissAV(unittest.TestCase):
             if tmp_brand.exists():
                 tmp_brand.unlink()
 
+    def test_forward_all_to_supergroups(self):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+
+        item = resolver_mod.MissAVTitle(url="https://missav.live/en/test-fwd-1", title="TEST-FWD-1")
+        item.genres = ["Big Breasts"]
+        item.actors = ["Test Actress"]
+
+        async def run_test():
+            # Save uncopied title
+            await archive_mod.MissAVArchive.save(
+                item=item,
+                chat_id=-1003969712219,
+                message_ids=[101, 102],
+                quality="720p",
+                backup_copied=True,
+                supergroups_copied=False,
+            )
+
+            # Check that it appears in pending
+            pending = await archive_mod.MissAVArchive.get_pending_supergroup_titles()
+            self.assertTrue(any(p.get("code") == "test-fwd-1" for p in pending))
+
+            cancel_event = asyncio.Event()
+            mock_copied = MagicMock(id=555)
+            leech_mod.TgClient.bot.copy_message = AsyncMock(return_value=mock_copied)
+            leech_mod.Config.MISSAV_TAGS_GROUP = "-1004486729792"
+            leech_mod.Config.MISSAV_ACTRESS_GROUP = "-1003967556547"
+
+            # Run forwarder
+            count = await leech_mod._forward_all_to_supergroups(cancel_event)
+            self.assertGreaterEqual(count, 1)
+
+            # Check that it is now marked supergroups_copied=True
+            rec = await archive_mod.MissAVArchive.get(item)
+            self.assertTrue(rec.get("supergroups_copied", False))
+
+            await archive_mod.MissAVArchive.remove(item)
+
+        asyncio.run(run_test())
+
     def test_video_filename_format(self):
         item = resolver_mod.MissAVTitle(
             url="https://missav.live/en/ebwh-373",
@@ -361,29 +402,25 @@ class TestMissAV(unittest.TestCase):
 
         async def run_test():
             cancel_event = asyncio.Event()
-            stage_msg = MagicMock(id=999, chat=MagicMock(id=-1003887117402))
-            backup_msg = MagicMock(id=888)
-            dest_msg = MagicMock(id=777)
+            stage_msg = MagicMock(id=999, chat=MagicMock(id=-1003969712219))
 
             leech_mod.TgClient.bot.send_message = AsyncMock(return_value=stage_msg)
-            leech_mod.TgClient.bot.copy_message = AsyncMock(side_effect=[backup_msg, dest_msg])
-            leech_mod.TgClient.bot.delete_messages = AsyncMock(return_value=True)
-            leech_mod.Config.LEECH_DUMP_CHAT = "-1003887117402"
             leech_mod.Config.MISSAV_BACKUP_CHANNEL = "-1003969712219"
 
             await leech_mod._upload_title(prepared, destination=-1004326682090, thread_id=12, cancel_event=cancel_event)
 
-            # Check that delete_messages was called for stage_chat (-1003887117402) with [999]
-            leech_mod.TgClient.bot.delete_messages.assert_called_with(
-                chat_id=-1003887117402,
-                message_ids=[999],
+            # Check that send_message was called for backup channel directly (-1003969712219)
+            leech_mod.TgClient.bot.send_message.assert_called_with(
+                text="test caption",
+                chat_id=-1003969712219,
             )
 
-            # Check that archive was saved with backup_channel (-1003969712219) and [888]
+            # Check that archive was saved with backup_channel (-1003969712219) and [999]
             rec = await archive_mod.MissAVArchive.get(item)
             self.assertIsNotNone(rec)
             self.assertEqual(rec["chat_id"], -1003969712219)
-            self.assertEqual(rec["message_ids"], [888])
+            self.assertEqual(rec["message_ids"], [999])
+            self.assertFalse(rec["supergroups_copied"])
 
             await archive_mod.MissAVArchive.remove(item)
 

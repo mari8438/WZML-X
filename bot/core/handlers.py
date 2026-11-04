@@ -409,6 +409,13 @@ def add_handlers():
     )
     TgClient.bot.add_handler(
         MessageHandler(
+            missav_forward,
+            filters=command(f"mlforward{Config.CMD_SUFFIX}", case_sensitive=True)
+            & (CustomFilters.owner | CustomFilters.authorized),
+        )
+    )
+    TgClient.bot.add_handler(
+        MessageHandler(
             hstream_pause,
             filters=command(f"hspause{Config.CMD_SUFFIX}", case_sensitive=True)
             & CustomFilters.owner,

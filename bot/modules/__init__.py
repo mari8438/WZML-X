@@ -13,6 +13,7 @@ from .missav_leech import (
     missav_leech,
     missav_pause,
     missav_resume,
+    missav_forward,
 )
 from .create_torrent import create_torrent
 from .exec import aioexecute, execute, clear
@@ -99,6 +100,7 @@ __all__ = [
     "missav_leech",
     "missav_pause",
     "missav_resume",
+    "missav_forward",
     "create_torrent",
     "aioexecute",
     "execute",
