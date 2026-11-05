@@ -42,7 +42,31 @@ TRACKERS = [
     "udp://exodus.desync.com:6969/announce",
 ]
 
-def extract_group(title: str) -> str:
+def parse_size_bytes(size_str: str) -> int:
+    m = re.match(r"^\s*([\d.]+)\s*([KMGT]i?B)\s*$", size_str.strip(), re.I)
+    if not m:
+        return 0
+    val = float(m.group(1))
+    unit = m.group(2).upper()
+    mult = {
+        "KIB": 1024, "KB": 1000,
+        "MIB": 1024 ** 2, "MB": 1000 ** 2,
+        "GIB": 1024 ** 3, "GB": 1000 ** 3,
+        "TIB": 1024 ** 4, "TB": 1000 ** 4,
+    }.get(unit, 1024 ** 3)
+    return int(val * mult)
+
+def is_episode_size_safe(size_str: str, ep_count: int = 12) -> bool:
+    """
+    Strict Telegram rule: Single episode must NEVER exceed 2.0 GB (2,048 MB).
+    Average per-episode size must be <= 2,000 MB.
+    """
+    total_bytes = parse_size_bytes(size_str)
+    if total_bytes == 0:
+        return True
+    ep_count = max(1, ep_count)
+    per_ep_gb = (total_bytes / (1024 ** 3)) / ep_count
+    return per_ep_gb <= 2.0
     known = list(HEVC_PRIORITY.keys()) + list(AV1_PRIORITY.keys())
     for grp in known:
         if re.search(r"[\W_]" + re.escape(grp) + r"([\W_]|$)", title, re.IGNORECASE) or title.startswith(f"[{grp}]"):
@@ -92,6 +116,8 @@ def search_nyaa(query: str) -> List[Dict[str, Any]]:
                     size = child.text or ""
 
             if not is_bluray(title):
+                continue
+            if not is_episode_size_safe(size, 12):
                 continue
             codec = detect_codec(title)
             if codec not in ("HEVC", "AV1"):
