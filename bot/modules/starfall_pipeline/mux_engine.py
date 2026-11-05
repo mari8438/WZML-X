@@ -460,12 +460,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         self,
         episode_paths: List[str],
         output_season_path: str,
-        split_size_mb: int = TG_MAX_USER_LIMIT_MIB,
+        split_size_mb: Optional[int] = None,
         poster_path: Optional[str] = None,
     ) -> List[str]:
         """
-        Merge all muxed episodes of a season into a Full-Season Merged Video using:
-          `mkvmerge --append-mode file --generate-chapters when-appending --split size:3950M`
+        Merge discrete muxed episodes into a single Merged Video chunk using:
+          `mkvmerge --append-mode file --generate-chapters when-appending`
+        Never splits across mid-episode bytes unless split_size_mb is explicitly set.
         Automatically enforces the `BluRay` filename rule and attaches `cover.jpg`.
         """
         valid_eps = [p for p in sorted(episode_paths) if os.path.exists(p)]
@@ -488,8 +489,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "--title", container_title,
             "--append-mode", "file",
             "--generate-chapters", "when-appending",
-            "--split", f"size:{int(split_size_mb)}M",
         ]
+        if split_size_mb and split_size_mb > 0:
+            cmd.extend(["--split", f"size:{int(split_size_mb)}M"])
 
         if poster_path and os.path.exists(poster_path):
             cmd.extend([

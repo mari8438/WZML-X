@@ -46,6 +46,12 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import aiosqlite
+from PIL import Image
+
+try:
+    from bot.helper.poster_engine.template_eleven import _template_eleven
+except ImportError:
+    _template_eleven = None
 
 if __package__ is None or __package__ == "":
     import pathlib
@@ -323,7 +329,7 @@ class AutoRenameResolver:
     ) -> str:
         """
         Produce canonical Starfall Full-Season Merge filename:
-        `🄰🅂- [S01E01-02] A Couple of Cuckoos (2022) 1080p 10bit BluRay HEVC [Tamil-AAC 2.0] ESub ~ neoHEVC ~ [@Anime_Starfall🥰].mkv`
+        `📦 🄰🅂- [S1E01-02] A Couple of Cuckoos (2022) 1080p 10bit BluRay HEVC [Tamil-AAC 2.0] ESub ~ neoHEVC ~ [@Anime_Starfall🥰].mkv`
         """
         clean_name = re.sub(r"[^\w\s-]", "", anime_name).strip()
         quality = cls.sanitize_bluray_keyword(resolved_meta.get("quality", "BluRay"))
@@ -335,13 +341,58 @@ class AutoRenameResolver:
         resolution = resolved_meta.get("resolution", "1080p")
         group = resolved_meta.get("release_group", "Starfall")
         year_str = f"({year})" if year else ""
+        s_tag = f"S{season_num}" if season_num < 10 else f"S{season_num:02d}"
 
         raw_fn = (
-            f"🄰🅂- [S{season_num:02d}E{ep_start:02d}-{ep_end:02d}] {clean_name} {year_str} "
+            f"📦 🄰🅂- [{s_tag}E{ep_start:02d}-{ep_end:02d}] {clean_name} {year_str} "
             f"{resolution} {bit} {quality} {codec} [Tamil-AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
         )
         raw_fn = re.sub(r"\s+", " ", raw_fn).strip()
         return cls.sanitize_bluray_keyword(raw_fn)
+
+    @classmethod
+    def plan_merge_chunks(
+        cls,
+        episodes: List[Tuple[int, str]],
+        max_chunk_bytes: int = 3900 * 1024 * 1024,
+    ) -> List[Dict[str, Any]]:
+        """
+        4GB Below Merge Planner:
+        Greedily groups discrete, complete episodes into chunks <= max_chunk_bytes (default 3900 MB).
+        Never splits across mid-episode bytes!
+        """
+        valid_episodes = [(ep_n, p) for ep_n, p in episodes if os.path.exists(p)]
+        if not valid_episodes:
+            return []
+
+        chunks: List[Dict[str, Any]] = []
+        cur_eps: List[Tuple[int, str]] = []
+        cur_bytes = 0
+
+        for ep_n, ep_p in valid_episodes:
+            sz = os.path.getsize(ep_p)
+            if cur_eps and (cur_bytes + sz > max_chunk_bytes):
+                chunks.append({
+                    "ep_start": cur_eps[0][0],
+                    "ep_end": cur_eps[-1][0],
+                    "episode_paths": [p for _, p in cur_eps],
+                    "total_bytes": cur_bytes,
+                })
+                cur_eps = [(ep_n, ep_p)]
+                cur_bytes = sz
+            else:
+                cur_eps.append((ep_n, ep_p))
+                cur_bytes += sz
+
+        if cur_eps:
+            chunks.append({
+                "ep_start": cur_eps[0][0],
+                "ep_end": cur_eps[-1][0],
+                "episode_paths": [p for _, p in cur_eps],
+                "total_bytes": cur_bytes,
+            })
+
+        return chunks
 
 
 # ============================================================================
@@ -611,6 +662,30 @@ class StarfallPipelineManager:
                 self.thumbnails_dir,
             )
 
+            # Generate Template 11 Hero Card (1280x720 Widescreen) for Post #1
+            if item.poster_path and os.path.exists(item.poster_path) and _template_eleven is not None:
+                try:
+                    clean_slug = re.sub(r"[^\w\s-]", "", item.anime_title).strip().replace(" ", "_")
+                    t11_target = os.path.join(self.thumbnails_dir, f"hero_card_{clean_slug}_S{item.season_number:02d}.jpg")
+                    card_data = {
+                        "title": item.english_title or item.anime_title,
+                        "season": item.season_number,
+                        "year": item.year,
+                        "rating": item.rating_str,
+                        "genres": item.genres_str,
+                        "plot": item.clean_synopsis,
+                        "quality": "1080p BluRay",
+                        "audio": "Tamil AAC 2.0",
+                        "episodes": (meta.get("episodes") or 12) if meta else 12,
+                    }
+                    card_img = await asyncio.to_thread(_template_eleven, item.poster_path, item.poster_path, card_data)
+                    card_img.convert("RGB").save(t11_target, "JPEG", quality=95)
+                    if os.path.exists(t11_target) and os.path.getsize(t11_target) > 5000:
+                        item.poster_card_path = t11_target
+                        LOGGER.info(f"🎨 Generated Template 11 Hero Card for Post #1: {item.poster_card_path}")
+                except Exception as e:
+                    LOGGER.warning(f"Could not render Template 11 hero card: {e}")
+
             item.season_id = await get_or_create_season(
                 title_romaji=item.romaji_title,
                 season_number=item.season_number,
@@ -859,61 +934,68 @@ class StarfallPipelineManager:
         codec_str = first_meta["codec"]
         group_str = first_meta["release_group"]
 
-        # Full-Season Merged Video Generation (Step 2 artifact)
+        # Full-Season Merged Video Generation (Step 2 artifact) - 4GB Below Merge Planner
         await update_season_state(item.season_id, "MERGING")
         if len(muxed_paths) >= 2:
-            ep_min = min(item.muxed_episodes.keys())
-            ep_max = max(item.muxed_episodes.keys())
-            merge_fn = AutoRenameResolver.format_season_merge_filename(
-                anime_name=item.english_title,
-                season_num=item.season_number,
-                ep_start=ep_min,
-                ep_end=ep_max,
-                resolved_meta=first_meta,
-                year=item.year,
+            ep_tuples = [(k, item.muxed_episodes[k]["path"]) for k in sorted(item.muxed_episodes.keys())]
+            merge_chunks = AutoRenameResolver.plan_merge_chunks(
+                ep_tuples, max_chunk_bytes=TG_MAX_USER_LIMIT_MIB * 1024 * 1024
             )
-            merge_dir = RAM_MUX_DIR
-            try:
-                st = os.statvfs(RAM_MUX_DIR)
-                shm_free = st.f_bavail * st.f_frsize
-                needed_merge = sum(os.path.getsize(p) for p in muxed_paths if os.path.exists(p)) * 1.15
-                if shm_free < needed_merge:
+            LOGGER.info(
+                f"📋 4GB Below Merge Planner created {len(merge_chunks)} chunk(s) for "
+                f"{item.english_title} S{item.season_number:02d}: "
+                f"{[(c['ep_start'], c['ep_end'], f'{c[\"total_bytes\"]/(1024*1024):.1f} MB') for c in merge_chunks]}"
+            )
+
+            clean_slug = re.sub(r"[^\w\s-]", "", item.english_title).strip().replace(" ", "_")
+
+            for chunk in merge_chunks:
+                chunk_paths = chunk["episode_paths"]
+                if len(chunk_paths) < 2:
+                    continue
+
+                chunk_fn = AutoRenameResolver.format_season_merge_filename(
+                    anime_name=item.english_title,
+                    season_num=item.season_number,
+                    ep_start=chunk["ep_start"],
+                    ep_end=chunk["ep_end"],
+                    resolved_meta=first_meta,
+                    year=item.year,
+                )
+
+                merge_dir = RAM_MUX_DIR
+                try:
+                    st = os.statvfs(RAM_MUX_DIR)
+                    shm_free = st.f_bavail * st.f_frsize
+                    needed_merge = sum(os.path.getsize(p) for p in chunk_paths if os.path.exists(p)) * 1.15
+                    if shm_free < needed_merge:
+                        merge_dir = os.path.join(DATA_DIR, "tmp_mux")
+                        os.makedirs(merge_dir, exist_ok=True)
+                except Exception as se:
                     merge_dir = os.path.join(DATA_DIR, "tmp_mux")
                     os.makedirs(merge_dir, exist_ok=True)
-                    LOGGER.info(
-                        f"💾 Low RAM disk ({shm_free/(1024**3):.1f} GB free < {needed_merge/(1024**3):.1f} GB needed). "
-                        f"Redirecting season merge to NVMe: {merge_dir}"
-                    )
-            except Exception as se:
-                LOGGER.warning(f"Error checking RAM space: {se}")
 
-            merge_out_path = os.path.join(merge_dir, merge_fn)
-            async with self.mux_sem:
-                created_parts = await self.muxer.merge_season(
-                    muxed_paths,
-                    merge_out_path,
-                    split_size_mb=TG_MAX_USER_LIMIT_MIB,
-                    poster_path=item.poster_path,
-                )
-            clean_slug = re.sub(r"[^\w\s-]", "", item.english_title).strip().replace(" ", "_")
-            for m_path in created_parts:
-                m_prop = await asyncio.to_thread(self.muxer.probe_video_properties, m_path)
-                if item.harvested_thumb_path and os.path.exists(item.harvested_thumb_path):
-                    m_thumb = item.harvested_thumb_path
-                else:
-                    m_thumb = os.path.join(
-                        self.thumbnails_dir, f"thumb_{clean_slug}_S{item.season_number:02d}_Merge.jpg"
+                chunk_out_path = os.path.join(merge_dir, chunk_fn)
+                async with self.mux_sem:
+                    created_parts = await self.muxer.merge_season(
+                        chunk_paths,
+                        chunk_out_path,
+                        split_size_mb=None,  # NEVER SPLIT! Discrete chunk <= 3900 MB
+                        poster_path=item.poster_path,
                     )
-                    await asyncio.to_thread(
-                        self.muxer.generate_16_9_thumbnail, m_path, m_thumb, m_prop["duration"]
-                    )
-                item.merged_season_parts.append({
-                    "path": m_path,
-                    "thumb_path": m_thumb,
-                    "duration_sec": m_prop["duration_sec"],
-                    "width": m_prop["width"],
-                    "height": m_prop["height"],
-                })
+
+                for m_path in created_parts:
+                    m_prop = await asyncio.to_thread(self.muxer.probe_video_properties, m_path)
+                    item.merged_season_parts.append({
+                        "path": m_path,
+                        "filename": chunk_fn,
+                        "ep_start": chunk["ep_start"],
+                        "ep_end": chunk["ep_end"],
+                        "thumb_path": None,
+                        "duration_sec": m_prop["duration_sec"],
+                        "width": m_prop["width"],
+                        "height": m_prop["height"],
+                    })
 
         if skip_upload:
             for _ in muxed_paths:
@@ -927,33 +1009,35 @@ class StarfallPipelineManager:
         async with self.upload_season_sem:
             await self.router.start()
 
-            # SINGLE AUTHORITATIVE 16:9 THUMBNAIL FOR ENTIRE SEASON (Merge + All Episodes)
+            # SINGLE AUTHORITATIVE 16:9 HD (1280x720) THUMBNAIL FOR ENTIRE SEASON (Merge + All Episodes)
             clean_slug = re.sub(r"[^\w-]", "_", item.english_title)
             season_thumb: Optional[str] = None
-            if item.harvested_thumb_path and os.path.exists(item.harvested_thumb_path):
-                season_thumb = item.harvested_thumb_path
             
-            if not season_thumb:
-                cand1 = os.path.join(self.thumbnails_dir, f"{clean_slug}_S{item.season_number:02d}_thumb.jpg")
-                cand2 = os.path.join(self.thumbnails_dir, f"thumb_{clean_slug}_S{item.season_number:02d}E01.jpg")
-                if os.path.exists(cand1) and os.path.getsize(cand1) > 1000:
-                    season_thumb = cand1
-                elif os.path.exists(cand2) and os.path.getsize(cand2) > 1000:
-                    season_thumb = cand2
-
-            if not season_thumb and item.poster_card_path and os.path.exists(item.poster_card_path):
-                season_thumb = item.poster_card_path
-
-            if not season_thumb and item.muxed_episodes:
+            # 1. Prefer true HD 1280x720 extracted directly from 1080p source video
+            if item.muxed_episodes:
                 first_ep_num = min(item.muxed_episodes.keys())
                 first_ep_path = item.muxed_episodes[first_ep_num]["path"]
                 if first_ep_path and os.path.exists(first_ep_path):
-                    gen_target = os.path.join(self.thumbnails_dir, f"thumb_{clean_slug}_S{item.season_number:02d}_Season.jpg")
-                    self.muxer.generate_16_9_thumbnail(first_ep_path, gen_target, 1440.0)
-                    if os.path.exists(gen_target):
-                        season_thumb = gen_target
+                    hd_thumb_target = os.path.join(self.thumbnails_dir, f"thumb_{clean_slug}_S{item.season_number:02d}_1280x720.jpg")
+                    self.muxer.generate_16_9_thumbnail(first_ep_path, hd_thumb_target, 1440.0)
+                    if os.path.exists(hd_thumb_target) and os.path.getsize(hd_thumb_target) > 5000:
+                        season_thumb = hd_thumb_target
 
-            LOGGER.info(f"🖼️ Authoritative Season 16:9 Thumbnail: {season_thumb}")
+            # 2. Check candidate harvested thumb if verified >= 1280x720
+            if not season_thumb and item.harvested_thumb_path and os.path.exists(item.harvested_thumb_path):
+                try:
+                    with Image.open(item.harvested_thumb_path) as im:
+                        w, h = im.size
+                        if w >= 1280 and h >= 720:
+                            season_thumb = item.harvested_thumb_path
+                except Exception:
+                    pass
+
+            # 3. Fallback to poster card or any valid cached thumb
+            if not season_thumb and item.poster_card_path and os.path.exists(item.poster_card_path):
+                season_thumb = item.poster_card_path
+
+            LOGGER.info(f"🖼️ Authoritative HD (1280x720) Season 16:9 Thumbnail: {season_thumb}")
 
             # STEP 1: Post Season Poster Card (Template 11 Hero Card)
             caption_template = USER_SETTINGS.get("POST_ANIME_CAPTION") or (
@@ -992,16 +1076,11 @@ class StarfallPipelineManager:
             if poster_msg_id:
                 uploaded_msg_ids.append(poster_msg_id)
 
-            # STEP 2: Post Full-Season Merged Video File(s)
+            # STEP 2: Post Full-Season Merged Video File(s) (4GB Below Planner Chunks)
             if item.merged_season_parts:
-                formatted_merge_title = AutoRenameResolver.format_season_merge_filename(
-                    item.english_title, item.season_number,
-                    min(item.muxed_episodes.keys()), max(item.muxed_episodes.keys()),
-                    first_meta,
-                    year=item.year,
-                )
-                merge_caption = f"<b>{formatted_merge_title}</b>"
                 for m_part in item.merged_season_parts:
+                    part_title = m_part.get("filename") or os.path.basename(m_part["path"])
+                    merge_caption = f"<b>{part_title}</b>"
                     m_msg_id = await self.router.upload_file(
                         filepath=m_part["path"],
                         caption=merge_caption,
