@@ -941,10 +941,10 @@ class StarfallPipelineManager:
             merge_chunks = AutoRenameResolver.plan_merge_chunks(
                 ep_tuples, max_chunk_bytes=TG_MAX_USER_LIMIT_MIB * 1024 * 1024
             )
+            chunk_summary = [(c['ep_start'], c['ep_end'], f"{c['total_bytes'] / (1024 * 1024):.1f} MB") for c in merge_chunks]
             LOGGER.info(
                 f"📋 4GB Below Merge Planner created {len(merge_chunks)} chunk(s) for "
-                f"{item.english_title} S{item.season_number:02d}: "
-                f"{[(c['ep_start'], c['ep_end'], f'{c[\"total_bytes\"]/(1024*1024):.1f} MB') for c in merge_chunks]}"
+                f"{item.english_title} S{item.season_number:02d}: {chunk_summary}"
             )
 
             clean_slug = re.sub(r"[^\w\s-]", "", item.english_title).strip().replace(" ", "_")
@@ -1319,6 +1319,18 @@ if __name__ == "__main__":
             print("  • Resolved Metadata :", meta)
             print("  • Episode Filename  :", ep_fn)
             print("  • Merge Filename    :", merge_fn)
+            assert merge_fn.startswith("📦 🄰🅂- [S1E01-24]")
+
+            # Test 4GB Below Merge Planner simulation
+            from unittest.mock import patch
+            dummy_eps = [(i, f"/tmp/dummy_ep_{i}.mkv") for i in range(1, 26)]
+            with patch("os.path.exists", return_value=True), patch("os.path.getsize", return_value=400 * 1024 * 1024):
+                chunks = AutoRenameResolver.plan_merge_chunks(dummy_eps, max_chunk_bytes=3900 * 1024 * 1024)
+                print(f"  • Merge Planner 4GB Below Simulation ({len(dummy_eps)} eps x 400MB = 10GB): {len(chunks)} chunk(s)")
+                for idx, c in enumerate(chunks, 1):
+                    c_fn = AutoRenameResolver.format_season_merge_filename("My Hero Academia", 2, c["ep_start"], c["ep_end"], meta, year=2016)
+                    print(f"    Chunk {idx} (E{c['ep_start']:02d}-E{c['ep_end']:02d}, {c['total_bytes']/(1024*1024):.0f} MB): {c_fn}")
+                    assert c["total_bytes"] <= 3900 * 1024 * 1024, "Chunk exceeded 3900 MB limit!"
             return
 
         manager = StarfallPipelineManager(
