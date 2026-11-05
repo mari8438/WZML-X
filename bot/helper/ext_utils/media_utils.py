@@ -1286,9 +1286,7 @@ def _extract_source_quality(filename):
     quality_patterns = [
         (r"\bWEB[-\s.]?DL\b", "WEB-DL"),
         (r"\bWEB[-\s.]?Rip\b", "WEBRip"),
-        (r"\bBlu[-\s.]?Ray\b", "BluRay"),
-        (r"\bBD[-\s.]?Rip\b", "BDRip"),
-        (r"\bBR[-\s.]?Rip\b", "BRRip"),
+        (r"\bBlu[-\s.]?Ray\b|\bBD[-\s.]?Rip\b|\bBR[-\s.]?Rip\b|\bBD\b", "BluRay"),
         (r"\bHDRip\b", "HDRip"),
         (r"\bHDTV\b", "HDTV"),
         (r"\bDVDRip\b", "DVDRip"),
@@ -1356,6 +1354,9 @@ def _has_ds4k(filename):
 
 def _extract_release_group(filename):
     stem = Path(filename).stem
+    bracket_match = re.search(r"^\[([A-Za-z0-9_.-]{2,30})\]", str(filename).strip())
+    if bracket_match:
+        return bracket_match.group(1).strip(" -._")
     release_match = re.search(
         r"(?:^|\s)-\s*([A-Za-z0-9][A-Za-z0-9._-]{1,30})(?:[\s\]\)]|$)",
         stem,
@@ -2622,6 +2623,15 @@ async def extract_metadata_from_filename(filename, filepath=None):
         metadata["year"] = year_match.group(1)
 
     source_quality = _extract_source_quality(filename)
+    if not source_quality:
+        for alt_src in (extra.get("source_filename"), extra.get("merge_source_name"), extra.get("custom_name"), filepath, Path(filepath).parent.name if filepath else None):
+            if alt_src:
+                alt_q = _extract_source_quality(str(alt_src))
+                if alt_q:
+                    source_quality = alt_q
+                    break
+    if source_quality in ("BDRip", "BRRip", "BD"):
+        source_quality = "BluRay"
     if source_quality:
         metadata["quality"] = source_quality
     if _has_ds4k(filename):
@@ -2676,6 +2686,15 @@ async def extract_metadata_from_filename(filename, filepath=None):
         metadata["title"] = _clean_title_from_filename(filename)
     if metadata.get("lib") and metadata["title"].lower() == metadata["lib"].lower():
         metadata["lib"] = ""
+    if not metadata.get("release_group"):
+        for alt_src in (extra.get("source_filename"), extra.get("merge_source_name"), extra.get("custom_name"), filepath, Path(filepath).parent.name if filepath else None):
+            if alt_src:
+                alt_grp = _extract_release_group(str(alt_src))
+                if alt_grp and alt_grp.lower() not in ("mkv", "mp4", "avi"):
+                    metadata["release_group"] = alt_grp
+                    metadata["group"] = alt_grp
+                    metadata["lib"] = alt_grp
+                    break
     if not metadata.get("release_group"):
         metadata["release_group"] = metadata.get("lib", "")
     if not metadata.get("group"):

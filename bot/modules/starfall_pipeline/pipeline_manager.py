@@ -158,14 +158,14 @@ class StarfallPipelineManager:
         primary_source = batches[0]
         release_group = primary_source["release_group"]
         codec = primary_source["codec"]
-        quality = "BDRip" if primary_source["is_bluray"] else "WEBRip"
+        quality = "BluRay" if primary_source["is_bluray"] else "WEBRip"
         info_hash = primary_source["info_hash"]
 
         LOGGER.info(f"Selected Primary Source: [{release_group}] {primary_source['title']} ({quality}, {codec})")
 
         # 3. Check / Harvest Tamil Audios from Source Channel
         available_ep_nums = []
-        for ep in range(1, 25):
+        for ep in range(1, 100):
             rec = await get_audio_for_episode(season_id, ep)
             if rec and rec.get("local_m4a_path") and os.path.exists(rec["local_m4a_path"]):
                 available_ep_nums.append(ep)
@@ -183,7 +183,7 @@ class StarfallPipelineManager:
                 anime_name=anime_title,
             )
             # Recheck
-            for ep in range(1, 25):
+            for ep in range(1, 100):
                 rec = await get_audio_for_episode(season_id, ep)
                 if rec and rec.get("local_m4a_path") and os.path.exists(rec["local_m4a_path"]):
                     available_ep_nums.append(ep)
@@ -486,7 +486,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Starfall Pipeline Manager")
     parser.add_argument("--anime", type=str, default="A Couple of Cuckoos", help="Anime title")
     parser.add_argument("--season", type=int, default=1, help="Season number")
-    parser.add_argument("--limit", type=int, default=2, help="Episode limit")
+    parser.add_argument("--limit", type=int, default=0, help="Episode limit")
     parser.add_argument("--source-channel", type=int, default=HARVEST_CHANNEL_ID, help="Source Channel ID")
     parser.add_argument("--target-channel", type=int, default=TARGET_UPLOAD_CHANNEL_ID, help="Target Channel ID")
     args = parser.parse_args()
@@ -499,7 +499,7 @@ if __name__ == "__main__":
         res = await manager.process_series_season(
             args.anime,
             season_number=args.season,
-            max_episodes_to_process=args.limit
+            max_episodes_to_process=(args.limit if args.limit > 0 else None)
         )
         print("Pipeline Execution Result:", res)
 
