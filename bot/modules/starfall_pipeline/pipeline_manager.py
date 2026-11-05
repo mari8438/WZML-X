@@ -290,20 +290,23 @@ class AutoRenameResolver:
         resolved_meta: Dict[str, str],
     ) -> str:
         """
-        Produce canonical Starfall v1.6 episode filename:
-        `🄰🅂-[S01E01] {name} {year} 1080p 10bit BluRay x265 [Tamil-AAC 2.0] ESub ~ {release_group} ~ [@Anime_Starfall🥰].mkv`
+        Produce canonical Starfall episode filename (as edited by user):
+        `🄰🅂- [S01E01] A Couple of Cuckoos (2022) 1080p 10bit BluRay HEVC [Tamil-AAC 2.0] ESub ~ neoHEVC ~ [@Anime_Starfall🥰].mkv`
         """
         clean_name = re.sub(r"[^\w\s-]", "", anime_name).strip()
         quality = cls.sanitize_bluray_keyword(resolved_meta.get("quality", "BluRay"))
-        codec = resolved_meta.get("codec", "x265")
+        codec_raw = resolved_meta.get("codec", "HEVC")
+        codec = "HEVC" if codec_raw.lower() in ("x265", "hevc", "h.265", "h265") else codec_raw
         bit = resolved_meta.get("bit", "10bit")
         resolution = resolved_meta.get("resolution", "1080p")
         group = resolved_meta.get("release_group", "Starfall")
+        year_str = f"({year})" if year else ""
 
         raw_fn = (
-            f"🄰🅂-[S{season_num:02d}E{episode_num:02d}] {clean_name} {year} "
+            f"🄰🅂- [S{season_num:02d}E{episode_num:02d}] {clean_name} {year_str} "
             f"{resolution} {bit} {quality} {codec} [Tamil-AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
         )
+        raw_fn = re.sub(r"\s+", " ", raw_fn).strip()
         return cls.sanitize_bluray_keyword(raw_fn)
 
     @classmethod
@@ -314,22 +317,26 @@ class AutoRenameResolver:
         ep_start: int,
         ep_end: int,
         resolved_meta: Dict[str, str],
+        year: Optional[int] = None,
     ) -> str:
         """
-        Produce canonical Starfall v1.6 Full-Season Merge filename:
-        `🄰🅂-[S1E01-12] {name} S01 1080p 10bit BluRay x265 [Tamil-AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv`
+        Produce canonical Starfall Full-Season Merge filename (as edited by user):
+        `📦 🄰🅂- [S1E01-02] A Couple of Cuckoos (2022) 1080p 10bit BluRay HEVC [Tamil-AAC 2.0] ESub ~ neoHEVC ~ [@Anime_Starfall🥰].mkv`
         """
         clean_name = re.sub(r"[^\w\s-]", "", anime_name).strip()
         quality = cls.sanitize_bluray_keyword(resolved_meta.get("quality", "BluRay"))
-        codec = resolved_meta.get("codec", "x265")
+        codec_raw = resolved_meta.get("codec", "HEVC")
+        codec = "HEVC" if codec_raw.lower() in ("x265", "hevc", "h.265", "h265") else codec_raw
         bit = resolved_meta.get("bit", "10bit")
         resolution = resolved_meta.get("resolution", "1080p")
         group = resolved_meta.get("release_group", "Starfall")
+        year_str = f"({year})" if year else ""
 
         raw_fn = (
-            f"🄰🅂-[S{season_num}E{ep_start:02d}-{ep_end:02d}] {clean_name} S{season_num:02d} "
+            f"📦 🄰🅂- [S{season_num}E{ep_start:02d}-{ep_end:02d}] {clean_name} {year_str} "
             f"{resolution} {bit} {quality} {codec} [Tamil-AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
         )
+        raw_fn = re.sub(r"\s+", " ", raw_fn).strip()
         return cls.sanitize_bluray_keyword(raw_fn)
 
 
@@ -884,7 +891,35 @@ class StarfallPipelineManager:
         async with self.upload_season_sem:
             await self.router.start()
 
-            # STEP 1: Post Season Poster Card (Copy from -1004335327733 or formatted AniList card)
+            # SINGLE AUTHORITATIVE 16:9 THUMBNAIL FOR ENTIRE SEASON (Merge + All Episodes)
+            clean_slug = re.sub(r"[^\w-]", "_", item.english_title)
+            season_thumb: Optional[str] = None
+            if item.harvested_thumb_path and os.path.exists(item.harvested_thumb_path):
+                season_thumb = item.harvested_thumb_path
+            
+            if not season_thumb:
+                cand1 = os.path.join(self.thumbnails_dir, f"{clean_slug}_S{item.season_number:02d}_thumb.jpg")
+                cand2 = os.path.join(self.thumbnails_dir, f"thumb_{clean_slug}_S{item.season_number:02d}E01.jpg")
+                if os.path.exists(cand1) and os.path.getsize(cand1) > 1000:
+                    season_thumb = cand1
+                elif os.path.exists(cand2) and os.path.getsize(cand2) > 1000:
+                    season_thumb = cand2
+
+            if not season_thumb and item.poster_card_path and os.path.exists(item.poster_card_path):
+                season_thumb = item.poster_card_path
+
+            if not season_thumb and item.muxed_episodes:
+                first_ep_num = min(item.muxed_episodes.keys())
+                first_ep_path = item.muxed_episodes[first_ep_num]["path"]
+                if first_ep_path and os.path.exists(first_ep_path):
+                    gen_target = os.path.join(self.thumbnails_dir, f"thumb_{clean_slug}_S{item.season_number:02d}_Season.jpg")
+                    self.muxer.generate_16_9_thumbnail(first_ep_path, gen_target, 1440.0)
+                    if os.path.exists(gen_target):
+                        season_thumb = gen_target
+
+            LOGGER.info(f"🖼️ Authoritative Season 16:9 Thumbnail: {season_thumb}")
+
+            # STEP 1: Post Season Poster Card (Template 11 Hero Card)
             caption_template = USER_SETTINGS.get("POST_ANIME_CAPTION") or (
                 "<b>「 {title} - {year} 」</b>\n━━━━━━━━━━━━━━━━━━\n"
                 "╔════◇═══════════◇════\n"
@@ -906,7 +941,7 @@ class StarfallPipelineManager:
                     genres=item.genres_str,
                     resolution=first_meta["resolution"],
                     bit=first_meta["bit"],
-                    codec=codec_str,
+                    codec=first_meta.get("codec", "x265"),
                     audio_codec="AAC",
                     audio_channels="2.0",
                     shortsub="ESub",
@@ -915,31 +950,26 @@ class StarfallPipelineManager:
             )
             poster_msg_id = await self.router.publish_season_poster(
                 source_poster_msg_id=item.source_poster_msg_id,
-                photo_path=item.poster_path,
+                photo_path=item.poster_card_path or item.poster_path,
                 caption=poster_caption,
             )
             if poster_msg_id:
                 uploaded_msg_ids.append(poster_msg_id)
 
-            # STEP 2: Post Full-Season Merged Video File(s) via @Hsin_The_Moon_Fox
+            # STEP 2: Post Full-Season Merged Video File(s)
             if item.merged_season_parts:
-                ep_range_str = f"E{min(item.muxed_episodes.keys()):02d} - E{max(item.muxed_episodes.keys()):02d}"
-                merge_caption = AutoRenameResolver.sanitize_bluray_keyword(
-                    f"📦 <b>「 {item.english_title} - Season {item.season_number:02d} Complete Season Merge 」</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"╔════◇═══════════◇════\n"
-                    f"║ Episodes ➤ {ep_range_str} (Chapters Included)\n"
-                    f"║ Quality ➤ 1080p 10bit {quality_str} {codec_str} ~ [{group_str}]\n"
-                    f"║ Audio ➤ Tamil AAC 2.0 [Lossless Muxed]\n"
-                    f"║ Subtitles ➤ English + [@Anime_Starfall🥰] Promo\n"
-                    f"╚════◇═══════════◇════\n\n"
-                    f"🌟 <b>Channel:</b> [@Anime_Starfall🥰]"
+                formatted_merge_title = AutoRenameResolver.format_season_merge_filename(
+                    item.english_title, item.season_number,
+                    min(item.muxed_episodes.keys()), max(item.muxed_episodes.keys()),
+                    first_meta,
+                    year=item.year,
                 )
+                merge_caption = f"<b>{formatted_merge_title}</b>"
                 for m_part in item.merged_season_parts:
                     m_msg_id = await self.router.upload_file(
                         filepath=m_part["path"],
                         caption=merge_caption,
-                        thumb_path=m_part["thumb_path"],
+                        thumb_path=season_thumb,
                         duration_sec=m_part["duration_sec"],
                         width=m_part["width"],
                         height=m_part["height"],
@@ -948,22 +978,18 @@ class StarfallPipelineManager:
                     if m_msg_id:
                         uploaded_msg_ids.append(m_msg_id)
 
-            # STEP 3: Post Single Episodes Sequentially (S01E01, S01E02...) across 5 Helper Bots
+            # STEP 3: Post Single Episodes Sequentially
             episodes_payload: List[Dict[str, Any]] = []
             for ep_num in sorted(item.muxed_episodes.keys()):
                 ep_data = item.muxed_episodes[ep_num]
                 ep_meta = ep_data["resolved_meta"]
-                ep_caption = AutoRenameResolver.sanitize_bluray_keyword(
-                    f"🎬 <b>{item.english_title} - S{item.season_number:02d}E{ep_num:02d}</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"<b>Quality:</b> 1080p 10bit {ep_meta['quality']} {ep_meta['codec']} ~ [{ep_meta['release_group']}]\n"
-                    f"<b>Audio:</b> Tamil AAC 2.0 (Lossless Synced)\n"
-                    f"<b>Subtitles:</b> English + Periodic Channel Promo\n"
-                    f"<b>Sync Confidence:</b> PSR {ep_data['psr']:.1f} ({ep_data['sync_mode']})\n\n"
-                    f"🌟 <b>Channel:</b> [@Anime_Starfall🥰]"
+                formatted_ep_title = AutoRenameResolver.format_episode_filename(
+                    item.english_title, item.season_number, ep_num, item.year, ep_meta
                 )
+                ep_caption = f"<b>{formatted_ep_title}</b>"
                 episodes_payload.append({
                     **ep_data,
+                    "thumb_path": season_thumb,
                     "caption": ep_caption,
                     "cleanup_after_upload": True,
                 })
@@ -996,7 +1022,6 @@ class StarfallPipelineManager:
                     tg_single_msg_id=msg_id,
                     uploaded_by_bot=bot_tag,
                 )
-
         # Final Batch Purge & Quota Release
         await self.downloader.cleanup_batch(item.info_hash)
         await self.quota_guard.release_batch(item.info_hash)
