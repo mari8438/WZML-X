@@ -189,6 +189,8 @@ class TorrentDownloader:
             "aria2c",
             f"--dir={dest_dir}",
             f"--select-file={select_files_arg}",
+            "--allow-overwrite=true",
+            "--auto-file-renaming=false",
             "--seed-time=0",
             "--bt-stop-timeout=180",
             "--max-connection-per-server=16",
