@@ -60,3 +60,5 @@ configs/qbittorrent/qBittorrent/data/
 data/tam_audios/*.m4a
 data/*.db-wal
 data/*.db-shm
+data/torrents/*
+data/thumbnails/*

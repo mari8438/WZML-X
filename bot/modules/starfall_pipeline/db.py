@@ -194,6 +194,76 @@ async def get_all_audio_entries(limit: int = 100) -> List[Dict[str, Any]]:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
 
+async def get_audio_for_episode(season_id: int, episode_number: int) -> Optional[Dict[str, Any]]:
+    """Get tamil audio record for a specific season and episode."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT * FROM tamil_audio_library
+            WHERE season_id = ? AND episode_number = ?
+            LIMIT 1;
+            """,
+            (season_id, episode_number),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+async def record_episode_job(
+    season_id: int,
+    episode_number: int,
+    audio_id: Optional[int],
+    bd_relative_path: str,
+    sync_mode: str,
+    calculated_delay_ms: int,
+    speed_ratio: float,
+    min_psr_score: float,
+    anchor_telemetry: Any,
+    job_state: str = "COMPLETED",
+    tg_single_msg_id: Optional[int] = None,
+    uploaded_by_bot: Optional[str] = None,
+) -> int:
+    """Insert or update an episode job record."""
+    telemetry_json = json.dumps(anchor_telemetry) if not isinstance(anchor_telemetry, str) else anchor_telemetry
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            INSERT INTO episode_jobs (
+                season_id, episode_number, audio_id, bd_relative_path,
+                sync_mode, calculated_delay_ms, speed_ratio, min_psr_score,
+                anchor_telemetry, job_state, tg_single_msg_id, uploaded_by_bot
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING job_id;
+            """,
+            (
+                season_id,
+                episode_number,
+                audio_id,
+                bd_relative_path,
+                sync_mode,
+                calculated_delay_ms,
+                speed_ratio,
+                min_psr_score,
+                telemetry_json,
+                job_state,
+                tg_single_msg_id,
+                uploaded_by_bot,
+            ),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return row[0] if row else 0
+
+async def update_season_state(season_id: int, state: str) -> None:
+    """Update state of an anime season."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE anime_seasons SET season_state = ?, updated_at = CURRENT_TIMESTAMP WHERE season_id = ?;",
+            (state, season_id),
+        )
+        await db.commit()
+
 async def get_database_summary() -> Dict[str, Any]:
     """Retrieve summary of all pipeline tables."""
     summary = {}
