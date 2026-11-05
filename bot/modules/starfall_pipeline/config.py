@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 
@@ -8,8 +9,18 @@ AUDIO_VAULT_DIR = os.path.join(DATA_DIR, "tam_audios")
 RAM_MUX_DIR = "/dev/shm/starfall_mux" if os.path.exists("/dev/shm") else os.path.join(DATA_DIR, "tmp_mux")
 DB_PATH = os.path.join(DATA_DIR, "starfall_state.db")
 
-# Target Telegram channel for Tamil audio harvesting
-DEFAULT_TAMIL_CHANNEL_ID = -1004335327733
+# Target Telegram channels
+HARVEST_CHANNEL_ID = -1004335327733
+TARGET_UPLOAD_CHANNEL_ID = -1004415413346
+DEFAULT_TAMIL_CHANNEL_ID = TARGET_UPLOAD_CHANNEL_ID
+
+# User settings path
+USER_SETTINGS_PATH = os.path.join(BASE_DIR, "configs", "user_settings_8814651149.json")
+try:
+    with open(USER_SETTINGS_PATH, "r", encoding="utf-8") as f:
+        USER_SETTINGS = json.load(f).get("settings", {})
+except Exception:
+    USER_SETTINGS = {}
 
 # Disk quota governance (GB)
 MAX_NVME_PIPELINE_QUOTA_GB = 450.0

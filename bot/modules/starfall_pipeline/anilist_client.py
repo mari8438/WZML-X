@@ -67,6 +67,9 @@ class AniListClient:
             seasonYear
             episodes
             format
+            genres
+            averageScore
+            description(asHtml: false)
             coverImage {{
               extraLarge
               large

@@ -26,7 +26,8 @@ else:
         TG_SPLIT_THRESHOLD_MIB,
     )
 
-from pyrogram import Client
+from pyrogram import Client, enums
+from pyrogram.enums import ParseMode
 from pyrogram.types import Message
 
 # Suppress Pyrogram verbose logs
@@ -133,12 +134,75 @@ class UploadRouter:
             self._last_upload_time[bot.name] = time.time()
             return bot
 
+    async def upload_photo(
+        self,
+        photo_path: str,
+        caption: str = "",
+    ) -> Optional[int]:
+        """
+        Upload season poster photo with Unicode frame caption to target channel.
+        """
+        if not self._is_started:
+            await self.start()
+
+        if not os.path.exists(photo_path):
+            LOGGER.error(f"Poster photo does not exist: {photo_path}")
+            return None
+
+        # Prefer Premium User client for 2048-char caption support; fallback to helper bot
+        client = await self._ensure_user_client()
+        if not client and self.helper_clients:
+            client = self.helper_clients[0]
+
+        if not client:
+            LOGGER.error("No available client to upload poster.")
+            return None
+
+        # Bot API hard limit is 1024 chars for captions
+        is_bot = not getattr(client, "is_premium", False)
+        if is_bot and len(caption) > 1020:
+            LOGGER.warning(f"Truncating caption from {len(caption)} to 1020 chars for bot client")
+            caption = caption[:1015] + "..."
+
+        uploader_tag = getattr(client, "name", "Uploader")
+        LOGGER.info(f"📸 Sending Season Poster via {uploader_tag} to {self.target_channel_id}...")
+        try:
+            msg: Message = await client.send_photo(
+                chat_id=self.target_channel_id,
+                photo=photo_path,
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+            )
+            LOGGER.info(f"✅ Season Poster sent! Msg ID: {msg.id}")
+            return msg.id
+        except Exception as e:
+            LOGGER.error(f"Failed to send poster: {e}")
+            # If failed, attempt fallback with truncated caption via helper bot
+            if client != self.helper_clients[0] if self.helper_clients else False:
+                try:
+                    bot = self.helper_clients[0]
+                    short_caption = caption[:1000] if len(caption) > 1000 else caption
+                    LOGGER.info(f"Retrying poster via {bot.name} with truncated caption...")
+                    msg = await bot.send_photo(
+                        chat_id=self.target_channel_id,
+                        photo=photo_path,
+                        caption=short_caption,
+                        parse_mode=ParseMode.HTML,
+                    )
+                    LOGGER.info(f"✅ Season Poster fallback sent! Msg ID: {msg.id}")
+                    return msg.id
+                except Exception as ex2:
+                    LOGGER.error(f"Fallback poster upload also failed: {ex2}")
+            return None
+
     async def upload_file(
         self,
         filepath: str,
         caption: str = "",
         thumb_path: Optional[str] = None,
         duration_sec: int = 0,
+        width: int = 1920,
+        height: int = 1080,
         cleanup_after_upload: bool = True,
     ) -> Optional[int]:
         """
@@ -184,6 +248,8 @@ class UploadRouter:
                 caption=caption,
                 thumb=valid_thumb,
                 duration=duration_sec,
+                width=width,
+                height=height,
                 supports_streaming=True,
             )
 

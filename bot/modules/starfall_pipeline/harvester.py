@@ -259,12 +259,13 @@ async def harvest_single_message(
 async def harvest_channel(
     channel_id: int = DEFAULT_TAMIL_CHANNEL_ID,
     limit: int = 5,
+    anime_name: Optional[str] = None,
 ) -> List[int]:
     """
     Connect to Telegram using Premium session, harvest up to `limit` single episodes
     from channel, and register them in the SQLite WAL database.
     """
-    LOGGER.info(f"Starting Tamil Audio Harvester for channel {channel_id} (Target limit: {limit} episodes)")
+    LOGGER.info(f"Starting Tamil Audio Harvester for channel {channel_id} (Target limit: {limit} episodes, Filter: {anime_name})")
     await init_db()
 
     app = Client(
@@ -292,7 +293,7 @@ async def harvest_channel(
         candidate_messages: List[Message] = []
         batch_size = 100
         current_id = 1
-        max_scan_id = 2000
+        max_scan_id = 3000
 
         while len(candidate_messages) < limit and current_id < max_scan_id:
             ids_to_fetch = list(range(current_id, current_id + batch_size))
@@ -307,6 +308,12 @@ async def harvest_channel(
                     continue
                 text = m.caption or getattr(media, "file_name", "") or ""
                 if is_single_episode(text):
+                    if anime_name:
+                        t_parsed, s_parsed, _ = parse_episode_info(text)
+                        norm_target = re.sub(r"[^\w\s]", "", anime_name).lower().strip()
+                        norm_parsed = re.sub(r"[^\w\s]", "", t_parsed).lower().strip()
+                        if not (norm_target in norm_parsed or norm_parsed in norm_target):
+                            continue
                     candidate_messages.append(m)
                     if len(candidate_messages) >= limit:
                         break
