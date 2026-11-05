@@ -125,7 +125,7 @@ STAGE3_ACOUSTIC_SYNC_WORKERS: int = 6   # Sub-2s 4-Anchor GCC-PHAT workers (CPU/
 STAGE4_RAM_MUX_WORKERS: int = 4         # Concurrent mkvmerge jobs in 16 GB /dev/shm
 STAGE5_SEASON_UPLOAD_SLOTS: int = 2     # Overlapping season upload pipelines (6 clients)
 
-RAM_TMPFS_MAX_ACTIVE_EPISODES: int = 36  # Generous semaphore preventing deadlocks during full-season gathers
+RAM_TMPFS_MAX_ACTIVE_EPISODES: int = 4  # Strictly bounds active concurrent mkvmerge tasks in 16 GB tmpfs
 
 DEDICATED_NVME_QUOTA_GB: float = 500.0
 HIGH_WATERMARK_GB: float = 450.0        # 90% of 500 GB quota -> pause new pre-fetches
@@ -627,6 +627,9 @@ class StarfallPipelineManager:
         movie_keywords = ["movie", "two heroes", "heroes rising", "world heroes", "you're next", "youre next"]
         ep_pattern = re.compile(rf"\bS0*{season_num}\s*E0*{ep_num}\b", re.IGNORECASE)
 
+        stopwords = {"a", "an", "the", "in", "on", "of", "to", "for", "and", "no", "na", "ni", "ga", "wa", "season", "part"}
+        sig_words = [w for w in title_words if len(w) > 2 and w not in stopwords]
+
         for base_dir in search_dirs:
             if not os.path.exists(base_dir):
                 continue
@@ -641,8 +644,10 @@ class StarfallPipelineManager:
                         continue
                     if not is_vigilantes and "vigilantes" in f_lower:
                         continue
-                    if not all(w in f_lower for w in ["hero", "academia"] if w in title_words):
-                        continue
+                    if sig_words:
+                        matches = [w in f_lower for w in sig_words]
+                        if not all(matches) and not (len(matches) > 1 and sum(matches) >= 2):
+                            continue
                     if ep_pattern.search(f):
                         return os.path.join(root, f)
         return None
@@ -894,32 +899,56 @@ class StarfallPipelineManager:
             year=item.year,
             resolved_meta=resolved_meta,
         )
-        output_mkv_path = os.path.join(RAM_MUX_DIR, output_filename)
 
-        # Stage 4: Lossless MKV Muxing in `/dev/shm/starfall_mux` (4 concurrent workers)
-        await self.quota_guard.ram_episode_sem.acquire()
-        try:
-            async with self.mux_sem:
-                mux_ok = await self.muxer.mux_single_episode(
-                    video_path=video_file,
-                    tamil_audio_path=tamil_audio_path,
-                    output_mkv_path=output_mkv_path,
-                    calculated_delay_ms=calculated_delay,
-                    speed_ratio=speed_ratio,
-                    poster_path=item.poster_path,
-                    release_group=resolved_meta["release_group"],
-                    title_tag=output_filename,
-                )
-            if not mux_ok:
+        # 1. Fast Cache Check: If already muxed and valid in NVMe saved_muxes, reuse directly
+        safe_dest_dir = os.path.join(DATA_DIR, "saved_muxes")
+        os.makedirs(safe_dest_dir, exist_ok=True)
+        safe_saved_path = os.path.join(safe_dest_dir, output_filename)
+        if os.path.exists(safe_saved_path) and os.path.getsize(safe_saved_path) > 50 * 1024 * 1024:
+            LOGGER.info(f"⚡ Episode already muxed in storage: {output_filename}")
+            actual_mkv_path = safe_saved_path
+        else:
+            # 2. Check available RAM tmpfs space; spillover to NVMe tmp_mux if RAM is tight
+            try:
+                st = os.statvfs(RAM_MUX_DIR)
+                shm_free = st.f_bavail * st.f_frsize
+                raw_size = os.path.getsize(video_file) if os.path.exists(video_file) else 0
+                needed_bytes = int(raw_size * 1.3) + (2 * 1024 * 1024 * 1024)
+                if shm_free < needed_bytes:
+                    out_dir = os.path.join(DATA_DIR, "tmp_mux")
+                    os.makedirs(out_dir, exist_ok=True)
+                else:
+                    out_dir = RAM_MUX_DIR
+            except Exception:
+                out_dir = os.path.join(DATA_DIR, "tmp_mux")
+                os.makedirs(out_dir, exist_ok=True)
+
+            output_mkv_path = os.path.join(out_dir, output_filename)
+
+            # Stage 4: Lossless MKV Muxing (bounded by ram_episode_sem)
+            await self.quota_guard.ram_episode_sem.acquire()
+            try:
+                async with self.mux_sem:
+                    mux_ok = await self.muxer.mux_single_episode(
+                        video_path=video_file,
+                        tamil_audio_path=tamil_audio_path,
+                        output_mkv_path=output_mkv_path,
+                        calculated_delay_ms=calculated_delay,
+                        speed_ratio=speed_ratio,
+                        poster_path=item.poster_path,
+                        release_group=resolved_meta["release_group"],
+                        title_tag=output_filename,
+                    )
+                if not mux_ok:
+                    return None
+            finally:
                 self.quota_guard.ram_episode_sem.release()
-                return None
-        except Exception:
-            self.quota_guard.ram_episode_sem.release()
-            raise
+
+            actual_mkv_path = safe_saved_path if os.path.exists(safe_saved_path) else output_mkv_path
 
         return {
             "episode_num": ep_num,
-            "path": output_mkv_path,
+            "path": actual_mkv_path,
             "thumb_path": ep_thumb_path,
             "duration_sec": dur_sec,
             "width": width,
@@ -1030,8 +1059,6 @@ class StarfallPipelineManager:
                     })
 
         if skip_upload:
-            for _ in muxed_paths:
-                self.quota_guard.ram_episode_sem.release()
             return {"status": "SUCCESS", "season_id": item.season_id, "episodes_processed": len(muxed_paths)}
 
         # ====================================================================
@@ -1142,7 +1169,6 @@ class StarfallPipelineManager:
                 })
 
             async def _on_episode_purged(reclaimed_bytes: int) -> None:
-                self.quota_guard.ram_episode_sem.release()
                 await self.quota_guard.release_episode_bytes(item.info_hash, reclaimed_bytes)
 
             ep_upload_results = await self.router.upload_season_episodes_ordered(
@@ -1231,6 +1257,20 @@ class StarfallPipelineManager:
 
         async def _stage1_producer() -> None:
             for title, s_num in catalogue:
+                # Skip already completed seasons
+                try:
+                    async with aiosqlite.connect(self.db_path) as db:
+                        async with db.execute(
+                            "SELECT season_state FROM anime_seasons WHERE title_romaji = ? AND season_number = ?",
+                            (title, s_num),
+                        ) as cur:
+                            row = await cur.fetchone()
+                            if row and row[0] == "COMPLETED":
+                                LOGGER.info(f"⏭️ Skipping already completed season: {title} S{s_num:02d}")
+                                continue
+                except Exception as dbe:
+                    LOGGER.debug(f"DB check error: {dbe}")
+
                 item = SeasonWorkItem(anime_title=title, season_number=s_num)
                 try:
                     if await self._resolve_stage1_metadata_and_audio(item, max_episodes=max_episodes_per_season):

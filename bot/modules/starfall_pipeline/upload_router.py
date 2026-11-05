@@ -178,6 +178,9 @@ class UploadRouter:
         if self._is_started:
             return
 
+        sessions_dir = os.path.join(DATA_DIR, "sessions")
+        os.makedirs(sessions_dir, exist_ok=True)
+
         async def _boot_helper(idx: int, token: str) -> Optional[Client]:
             client_name = f"starfall_helper_{idx}"
             bot = Client(
@@ -185,7 +188,8 @@ class UploadRouter:
                 api_id=TELEGRAM_API,
                 api_hash=TELEGRAM_HASH,
                 bot_token=token,
-                in_memory=True,
+                workdir=sessions_dir,
+                in_memory=False,
                 workers=8,
                 max_concurrent_transmissions=4,
             )
