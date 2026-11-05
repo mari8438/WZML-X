@@ -612,6 +612,42 @@ class StarfallPipelineManager:
         os.makedirs(self.thumbnails_dir, exist_ok=True)
 
     @staticmethod
+    def find_audio_in_vault(anime_title: str, season_num: int, ep_num: int) -> Optional[str]:
+        """
+        Scans both tam_audios and vt_audio_bank (with strict movie exclusion).
+        """
+        search_dirs = [
+            AUDIO_VAULT_DIR,
+            os.path.join(os.path.dirname(DATA_DIR), "downloads", "vt_audio_bank"),
+            "/home/administrator/starfall/downloads/vt_audio_bank",
+        ]
+        clean_title = re.sub(r"[^\w\s]", " ", anime_title).lower().strip()
+        title_words = set(clean_title.split())
+        is_vigilantes = "vigilantes" in title_words
+        movie_keywords = ["movie", "two heroes", "heroes rising", "world heroes", "you're next", "youre next"]
+        ep_pattern = re.compile(rf"\bS0*{season_num}\s*E0*{ep_num}\b", re.IGNORECASE)
+
+        for base_dir in search_dirs:
+            if not os.path.exists(base_dir):
+                continue
+            for root, _, files in os.walk(base_dir):
+                for f in sorted(files):
+                    if not f.endswith((".m4a", ".opus", ".aac", ".ac3", ".mp3")):
+                        continue
+                    f_lower = f.lower()
+                    if any(k in f_lower for k in movie_keywords):
+                        continue
+                    if is_vigilantes and "vigilantes" not in f_lower:
+                        continue
+                    if not is_vigilantes and "vigilantes" in f_lower:
+                        continue
+                    if not all(w in f_lower for w in ["hero", "academia"] if w in title_words):
+                        continue
+                    if ep_pattern.search(f):
+                        return os.path.join(root, f)
+        return None
+
+    @staticmethod
     def parse_nyaa_size_bytes(size_str: str) -> int:
         """Convert Nyaa RSS size string (e.g. '14.2 GiB', '850 MiB') to exact bytes."""
         if not size_str:
@@ -726,11 +762,9 @@ class StarfallPipelineManager:
                 if rec and rec.get("local_m4a_path") and os.path.exists(rec["local_m4a_path"]):
                     available_eps.append(ep)
                 else:
-                    for s in (clean_slug, clean_eng_slug, clean_romaji_slug):
-                        cand = os.path.join(AUDIO_VAULT_DIR, f"{s}_S{item.season_number:02d}E{ep:02d}.m4a")
-                        if os.path.exists(cand):
-                            available_eps.append(ep)
-                            break
+                    found_aud = self.find_audio_in_vault(item.english_title or item.anime_title, item.season_number, ep)
+                    if found_aud:
+                        available_eps.append(ep)
 
             if not available_eps:
                 LOGGER.info(f"[Stage 1] Harvesting Tamil AAC audio for {item.anime_title} from {self.source_channel_id}...")
@@ -745,11 +779,9 @@ class StarfallPipelineManager:
                     if rec and rec.get("local_m4a_path") and os.path.exists(rec["local_m4a_path"]):
                         available_eps.append(ep)
                     else:
-                        for s in (clean_slug, clean_eng_slug, clean_romaji_slug):
-                            cand = os.path.join(AUDIO_VAULT_DIR, f"{s}_S{item.season_number:02d}E{ep:02d}.m4a")
-                            if os.path.exists(cand):
-                                available_eps.append(ep)
-                                break
+                        found_aud = self.find_audio_in_vault(item.english_title or item.anime_title, item.season_number, ep)
+                        if found_aud:
+                            available_eps.append(ep)
 
             if not available_eps:
                 LOGGER.error(f"[Stage 1] No Tamil audio available for {item.anime_title} S{item.season_number:02d}")
@@ -813,11 +845,11 @@ class StarfallPipelineManager:
         clean_romaji_slug = re.sub(r"[^\w\s-]", "", item.romaji_title).strip().replace(" ", "_")
 
         if not tamil_audio_path or not os.path.exists(tamil_audio_path):
-            for s in (clean_slug, clean_eng_slug, clean_romaji_slug):
-                cand = os.path.join(AUDIO_VAULT_DIR, f"{s}_S{item.season_number:02d}E{ep_num:02d}.m4a")
-                if os.path.exists(cand):
-                    tamil_audio_path = cand
-                    break
+            tamil_audio_path = self.find_audio_in_vault(
+                anime_title=item.english_title or item.anime_title,
+                season_num=item.season_number,
+                ep_num=ep_num,
+            )
 
         if not tamil_audio_path or not os.path.exists(tamil_audio_path):
             LOGGER.warning(f"Skipping {item.english_title} S{item.season_number:02d}E{ep_num:02d}: missing Tamil audio")
