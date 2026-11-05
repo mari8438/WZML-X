@@ -95,8 +95,10 @@ class NyaaMatcher:
 
     @staticmethod
     def is_bluray(title: str) -> bool:
-        """Check if release is from Blu-ray source."""
+        """Check if release is from Blu-ray source (encoded BD, not uncompressed Remux)."""
         t = title.upper()
+        if "REMUX" in t:
+            return False
         return bool(re.search(r"\b(BD|BLURAY|BD-RIP|BDRIP|BLU-RAY)\b", t))
 
     @staticmethod
@@ -249,6 +251,9 @@ class NyaaMatcher:
                     title = item["title"]
                     # Must be 1080p
                     if "1080" not in title:
+                        continue
+                    # Exclude uncompressed raw REMUXes (which create 6-8GB stubs exceeding RAM/upload caps)
+                    if "REMUX" in title.upper():
                         continue
                     # Must be complete batch
                     if not self.is_complete_batch(title, target_season=season_number):

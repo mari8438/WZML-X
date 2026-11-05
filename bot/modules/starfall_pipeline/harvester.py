@@ -26,6 +26,7 @@ if __package__ is None or __package__ == "":
         TELEGRAM_HASH,
         USER_SESSION_STRING,
         DB_PATH,
+        DATA_DIR,
     )
     from bot.modules.starfall_pipeline.db import (
         init_db,
@@ -42,6 +43,7 @@ else:
         TELEGRAM_HASH,
         USER_SESSION_STRING,
         DB_PATH,
+        DATA_DIR,
     )
     from .db import (
         init_db,
@@ -189,6 +191,28 @@ async def harvest_single_message(
     output_audio_name = f"{clean_show}_S{season_num:02d}E{ep_num:02d}.m4a"
     final_audio_path = os.path.join(AUDIO_VAULT_DIR, output_audio_name)
 
+    # Fast-path: Reuse existing extracted audio in vault to avoid redundant redownloads
+    if os.path.exists(final_audio_path) and os.path.getsize(final_audio_path) > 1000:
+        LOGGER.info(f"⏩ Audio already present in vault: {output_audio_name}")
+        season_id = await get_or_create_season(
+            title_romaji=title,
+            season_number=season_num,
+            total_episodes=12,
+            season_state="HARVESTING",
+        )
+        file_unique_id = getattr(media, "file_unique_id", f"msg_{message.id}")
+        audio_id = await register_audio_entry(
+            season_id=season_id,
+            episode_number=ep_num,
+            source_msg_id=message.id,
+            source_file_unique=file_unique_id,
+            local_m4a_path=final_audio_path,
+            duration_ms=get_audio_duration_ms(final_audio_path),
+            audio_sha256=compute_sha256(final_audio_path),
+            file_size_bytes=os.path.getsize(final_audio_path),
+        )
+        return audio_id
+
     LOGGER.info(
         f"⏳ Harvesting Msg #{message.id}: {title} S{season_num:02d}E{ep_num:02d} "
         f"({media.file_size / (1024**2):.1f} MB)"
@@ -215,6 +239,16 @@ async def harvest_single_message(
         duration_ms = get_audio_duration_ms(final_audio_path)
         audio_sha = compute_sha256(final_audio_path)
         file_size = os.path.getsize(final_audio_path)
+
+        # 3.1 Extract 16:9 thumbnail from source channel if present
+        thumb_dest = os.path.join(DATA_DIR, "thumbnails", f"{clean_show}_S{season_num:02d}_thumb.jpg")
+        if not os.path.exists(thumb_dest) and hasattr(media, "thumbs") and media.thumbs:
+            try:
+                os.makedirs(os.path.dirname(thumb_dest), exist_ok=True)
+                await client.download_media(media.thumbs[-1], file_name=thumb_dest)
+                LOGGER.info(f"Saved source 16:9 thumbnail to {thumb_dest}")
+            except Exception as te:
+                LOGGER.warning(f"Could not download source thumbnail: {te}")
 
         # 4. Associate with anime_seasons
         season_id = await get_or_create_season(
@@ -260,12 +294,14 @@ async def harvest_channel(
     channel_id: int = DEFAULT_TAMIL_CHANNEL_ID,
     limit: int = 5,
     anime_name: Optional[str] = None,
+    season_number: Optional[int] = None,
 ) -> List[int]:
     """
     Connect to Telegram using Premium session, harvest up to `limit` single episodes
     from channel, and register them in the SQLite WAL database.
     """
-    LOGGER.info(f"Starting Tamil Audio Harvester for channel {channel_id} (Target limit: {limit} episodes, Filter: {anime_name})")
+    season_str = f" S{season_number:02d}" if season_number is not None else ""
+    LOGGER.info(f"Starting Tamil Audio Harvester for channel {channel_id} (Target limit: {limit} episodes, Filter: {anime_name}{season_str})")
     await init_db()
 
     app = Client(
@@ -293,7 +329,7 @@ async def harvest_channel(
         candidate_messages: List[Message] = []
         batch_size = 100
         current_id = 1
-        max_scan_id = 3000
+        max_scan_id = 10000
 
         while len(candidate_messages) < limit and current_id < max_scan_id:
             ids_to_fetch = list(range(current_id, current_id + batch_size))
@@ -308,12 +344,20 @@ async def harvest_channel(
                     continue
                 text = m.caption or getattr(media, "file_name", "") or ""
                 if is_single_episode(text):
+                    t_parsed, s_parsed, _ = parse_episode_info(text)
+                    if season_number is not None and s_parsed != season_number:
+                        continue
                     if anime_name:
-                        t_parsed, s_parsed, _ = parse_episode_info(text)
                         norm_target = re.sub(r"[^\w\s]", "", anime_name).lower().strip()
                         norm_parsed = re.sub(r"[^\w\s]", "", t_parsed).lower().strip()
-                        if not (norm_target in norm_parsed or norm_parsed in norm_target):
-                            continue
+                        if norm_target != norm_parsed:
+                            target_words = set(norm_target.split())
+                            parsed_words = set(norm_parsed.split())
+                            extra = parsed_words - target_words
+                            if extra & {"vigilantes", "movie", "film"}:
+                                continue
+                            if not (norm_target in norm_parsed or norm_parsed in norm_target):
+                                continue
                     candidate_messages.append(m)
                     if len(candidate_messages) >= limit:
                         break

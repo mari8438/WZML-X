@@ -210,7 +210,8 @@ class TorrentDownloader:
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
             if proc.returncode != 0:
-                LOGGER.error(f"aria2c failed (code {proc.returncode}): {stderr.decode()[:400]}")
+                err_msg = stderr.decode().strip() or stdout.decode().strip()
+                LOGGER.error(f"aria2c failed (code {proc.returncode}): {err_msg[:400]}")
                 await self.quota_guard.release_reservation(estimated_bytes)
                 return None
         except asyncio.TimeoutError:

@@ -119,7 +119,7 @@ STAGE3_ACOUSTIC_SYNC_WORKERS: int = 6   # Sub-2s 4-Anchor GCC-PHAT workers (CPU/
 STAGE4_RAM_MUX_WORKERS: int = 4         # Concurrent mkvmerge jobs in 16 GB /dev/shm
 STAGE5_SEASON_UPLOAD_SLOTS: int = 2     # Overlapping season upload pipelines (6 clients)
 
-RAM_TMPFS_MAX_ACTIVE_EPISODES: int = 8  # Caps /dev/shm mux output footprint at <= 11.5 GB / 16 GB
+RAM_TMPFS_MAX_ACTIVE_EPISODES: int = 36  # Generous semaphore preventing deadlocks during full-season gathers
 
 DEDICATED_NVME_QUOTA_GB: float = 500.0
 HIGH_WATERMARK_GB: float = 450.0        # 90% of 500 GB quota -> pause new pre-fetches
@@ -295,6 +295,8 @@ class AutoRenameResolver:
         """
         clean_name = re.sub(r"[^\w\s-]", "", anime_name).strip()
         quality = cls.sanitize_bluray_keyword(resolved_meta.get("quality", "BluRay"))
+        if quality.lower() in ("bdrip", "bd-rip", "brrip", "bluray", "bdremux", "bd"):
+            quality = "BluRay"
         codec_raw = resolved_meta.get("codec", "HEVC")
         codec = "HEVC" if codec_raw.lower() in ("x265", "hevc", "h.265", "h265") else codec_raw
         bit = resolved_meta.get("bit", "10bit")
@@ -320,11 +322,13 @@ class AutoRenameResolver:
         year: Optional[int] = None,
     ) -> str:
         """
-        Produce canonical Starfall Full-Season Merge filename (as edited by user):
-        `📦 🄰🅂- [S1E01-02] A Couple of Cuckoos (2022) 1080p 10bit BluRay HEVC [Tamil-AAC 2.0] ESub ~ neoHEVC ~ [@Anime_Starfall🥰].mkv`
+        Produce canonical Starfall Full-Season Merge filename:
+        `🄰🅂- [S01E01-02] A Couple of Cuckoos (2022) 1080p 10bit BluRay HEVC [Tamil-AAC 2.0] ESub ~ neoHEVC ~ [@Anime_Starfall🥰].mkv`
         """
         clean_name = re.sub(r"[^\w\s-]", "", anime_name).strip()
         quality = cls.sanitize_bluray_keyword(resolved_meta.get("quality", "BluRay"))
+        if quality.lower() in ("bdrip", "bd-rip", "brrip", "bluray", "bdremux", "bd"):
+            quality = "BluRay"
         codec_raw = resolved_meta.get("codec", "HEVC")
         codec = "HEVC" if codec_raw.lower() in ("x265", "hevc", "h.265", "h265") else codec_raw
         bit = resolved_meta.get("bit", "10bit")
@@ -333,7 +337,7 @@ class AutoRenameResolver:
         year_str = f"({year})" if year else ""
 
         raw_fn = (
-            f"📦 🄰🅂- [S{season_num}E{ep_start:02d}-{ep_end:02d}] {clean_name} {year_str} "
+            f"🄰🅂- [S{season_num:02d}E{ep_start:02d}-{ep_end:02d}] {clean_name} {year_str} "
             f"{resolution} {bit} {quality} {codec} [Tamil-AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
         )
         raw_fn = re.sub(r"\s+", " ", raw_fn).strip()
@@ -504,6 +508,7 @@ class SeasonWorkItem:
     rating_str: str = "7.8"
     clean_synopsis: str = ""
     poster_path: Optional[str] = None
+    poster_card_path: Optional[str] = None
     source_poster_msg_id: Optional[int] = None
     harvested_thumb_path: Optional[str] = None
     primary_source: Dict[str, Any] = field(default_factory=dict)
@@ -638,15 +643,19 @@ class StarfallPipelineManager:
             item.info_hash = item.primary_source.get("info_hash") or f"season_{item.season_id}"
 
             # Check existing Tamil AAC audio files
+            clean_eng_slug = re.sub(r"[^\w\s-]", "", item.english_title).strip().replace(" ", "_")
+            clean_romaji_slug = re.sub(r"[^\w\s-]", "", item.romaji_title).strip().replace(" ", "_")
             available_eps: List[int] = []
             for ep in range(1, 200):
                 rec = await get_audio_for_episode(item.season_id, ep)
                 if rec and rec.get("local_m4a_path") and os.path.exists(rec["local_m4a_path"]):
                     available_eps.append(ep)
                 else:
-                    cand = os.path.join(AUDIO_VAULT_DIR, f"{clean_slug}_S{item.season_number:02d}E{ep:02d}.m4a")
-                    if os.path.exists(cand):
-                        available_eps.append(ep)
+                    for s in (clean_slug, clean_eng_slug, clean_romaji_slug):
+                        cand = os.path.join(AUDIO_VAULT_DIR, f"{s}_S{item.season_number:02d}E{ep:02d}.m4a")
+                        if os.path.exists(cand):
+                            available_eps.append(ep)
+                            break
 
             if not available_eps:
                 LOGGER.info(f"[Stage 1] Harvesting Tamil AAC audio for {item.anime_title} from {self.source_channel_id}...")
@@ -654,11 +663,18 @@ class StarfallPipelineManager:
                     channel_id=self.source_channel_id,
                     limit=max_episodes or 24,
                     anime_name=item.anime_title,
+                    season_number=item.season_number,
                 )
                 for ep in range(1, 200):
                     rec = await get_audio_for_episode(item.season_id, ep)
                     if rec and rec.get("local_m4a_path") and os.path.exists(rec["local_m4a_path"]):
                         available_eps.append(ep)
+                    else:
+                        for s in (clean_slug, clean_eng_slug, clean_romaji_slug):
+                            cand = os.path.join(AUDIO_VAULT_DIR, f"{s}_S{item.season_number:02d}E{ep:02d}.m4a")
+                            if os.path.exists(cand):
+                                available_eps.append(ep)
+                                break
 
             if not available_eps:
                 LOGGER.error(f"[Stage 1] No Tamil audio available for {item.anime_title} S{item.season_number:02d}")
@@ -718,11 +734,15 @@ class StarfallPipelineManager:
         audio_rec = await get_audio_for_episode(item.season_id, ep_num)
         tamil_audio_path = audio_rec["local_m4a_path"] if audio_rec else None
         clean_slug = re.sub(r"[^\w\s-]", "", item.anime_title).strip().replace(" ", "_")
+        clean_eng_slug = re.sub(r"[^\w\s-]", "", item.english_title).strip().replace(" ", "_")
+        clean_romaji_slug = re.sub(r"[^\w\s-]", "", item.romaji_title).strip().replace(" ", "_")
 
         if not tamil_audio_path or not os.path.exists(tamil_audio_path):
-            cand = os.path.join(AUDIO_VAULT_DIR, f"{clean_slug}_S{item.season_number:02d}E{ep_num:02d}.m4a")
-            if os.path.exists(cand):
-                tamil_audio_path = cand
+            for s in (clean_slug, clean_eng_slug, clean_romaji_slug):
+                cand = os.path.join(AUDIO_VAULT_DIR, f"{s}_S{item.season_number:02d}E{ep_num:02d}.m4a")
+                if os.path.exists(cand):
+                    tamil_audio_path = cand
+                    break
 
         if not tamil_audio_path or not os.path.exists(tamil_audio_path):
             LOGGER.warning(f"Skipping {item.english_title} S{item.season_number:02d}E{ep_num:02d}: missing Tamil audio")
@@ -850,8 +870,24 @@ class StarfallPipelineManager:
                 ep_start=ep_min,
                 ep_end=ep_max,
                 resolved_meta=first_meta,
+                year=item.year,
             )
-            merge_out_path = os.path.join(RAM_MUX_DIR, merge_fn)
+            merge_dir = RAM_MUX_DIR
+            try:
+                st = os.statvfs(RAM_MUX_DIR)
+                shm_free = st.f_bavail * st.f_frsize
+                needed_merge = sum(os.path.getsize(p) for p in muxed_paths if os.path.exists(p)) * 1.15
+                if shm_free < needed_merge:
+                    merge_dir = os.path.join(DATA_DIR, "tmp_mux")
+                    os.makedirs(merge_dir, exist_ok=True)
+                    LOGGER.info(
+                        f"💾 Low RAM disk ({shm_free/(1024**3):.1f} GB free < {needed_merge/(1024**3):.1f} GB needed). "
+                        f"Redirecting season merge to NVMe: {merge_dir}"
+                    )
+            except Exception as se:
+                LOGGER.warning(f"Error checking RAM space: {se}")
+
+            merge_out_path = os.path.join(merge_dir, merge_fn)
             async with self.mux_sem:
                 created_parts = await self.muxer.merge_season(
                     muxed_paths,
@@ -1196,7 +1232,7 @@ if __name__ == "__main__":
                 torrent_batch_title="[neoHEVC] A Couple of Cuckoos [Season 1] [BDRip 1080p x265 HEVC AAC]",
             )
             ep_fn = AutoRenameResolver.format_episode_filename("A Couple of Cuckoos", 1, 1, 2022, meta)
-            merge_fn = AutoRenameResolver.format_season_merge_filename("A Couple of Cuckoos", 1, 1, 24, meta)
+            merge_fn = AutoRenameResolver.format_season_merge_filename("A Couple of Cuckoos", 1, 1, 24, meta, year=2022)
             assert meta["quality"] == "BluRay", f"Expected BluRay, got {meta['quality']}"
             assert meta["release_group"] == "neoHEVC", f"Expected neoHEVC, got {meta['release_group']}"
             assert "BDRip" not in ep_fn and "BluRay" in ep_fn

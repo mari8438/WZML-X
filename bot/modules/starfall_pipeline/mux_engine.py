@@ -35,6 +35,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional
@@ -44,6 +45,7 @@ if __package__ is None or __package__ == "":
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent.parent.parent))
     from bot.modules.starfall_pipeline.config import (
         RAM_MUX_DIR,
+        DATA_DIR,
         TG_MAX_USER_LIMIT_MIB,
         TG_SPLIT_THRESHOLD_MIB,
         USER_SETTINGS,
@@ -51,6 +53,7 @@ if __package__ is None or __package__ == "":
 else:
     from .config import (
         RAM_MUX_DIR,
+        DATA_DIR,
         TG_MAX_USER_LIMIT_MIB,
         TG_SPLIT_THRESHOLD_MIB,
         USER_SETTINGS,
@@ -359,7 +362,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         cmd: List[str] = [
             "mkvmerge",
             "--ui-language", "en_US",
-            "--threads", str(self.threads_per_job),
             "-o", output_mkv_path,
             "--title", container_title,
             "-d", str(video_track_id),
@@ -373,6 +375,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 cmd.extend([
                     "--track-name", f"{sid}:{sub_track_name}",
                     "--language", f"{sid}:eng",
+                    "--default-track-flag", f"{sid}:no",
                 ])
         else:
             cmd.append("-S")
@@ -424,12 +427,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 )
                 return False
 
-            if not os.path.exists(output_mkv_path) or os.path.getsize(output_mkv_path) == 0:
-                LOGGER.error(f"Output file {output_mkv_path} missing or empty after muxing")
+            if not os.path.exists(output_mkv_path) or os.path.getsize(output_mkv_path) < 50 * 1024 * 1024:
+                LOGGER.error(f"Output file {output_mkv_path} missing or too small (< 50MB) after muxing")
                 return False
 
             size_mib = os.path.getsize(output_mkv_path) / (1024 ** 2)
             LOGGER.info(f"✅ Muxed {os.path.basename(output_mkv_path)} ({size_mib:.2f} MiB)")
+
+            # Save safely in VPS persistent NVMe storage
+            try:
+                safe_dest_dir = os.path.join(DATA_DIR, "saved_muxes")
+                os.makedirs(safe_dest_dir, exist_ok=True)
+                safe_dest_path = os.path.join(safe_dest_dir, os.path.basename(output_mkv_path))
+                if not os.path.exists(safe_dest_path):
+                    shutil.copy2(output_mkv_path, safe_dest_path)
+                    LOGGER.info(f"💾 Safely saved copy in VPS NVMe: {os.path.basename(safe_dest_path)}")
+            except Exception as e:
+                LOGGER.warning(f"Could not persist copy to safe storage: {e}")
+
             return True
         except Exception as e:
             LOGGER.error(f"Exception during mux_single_episode: {e}")
@@ -469,7 +484,6 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         cmd: List[str] = [
             "mkvmerge",
             "--ui-language", "en_US",
-            "--threads", str(self.threads_per_job),
             "-o", output_season_path,
             "--title", container_title,
             "--append-mode", "file",
@@ -518,6 +532,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                         created_files.append(os.path.join(out_dir, fn))
 
             LOGGER.info(f"✅ Full-Season Merge complete: {len(created_files)} part(s) generated.")
+            for cf in created_files:
+                try:
+                    safe_dest_dir = os.path.join(DATA_DIR, "saved_muxes")
+                    os.makedirs(safe_dest_dir, exist_ok=True)
+                    safe_dest_path = os.path.join(safe_dest_dir, os.path.basename(cf))
+                    if not os.path.exists(safe_dest_path):
+                        shutil.copy2(cf, safe_dest_path)
+                        LOGGER.info(f"💾 Safely saved merge part in VPS NVMe: {os.path.basename(safe_dest_path)}")
+                except Exception as e:
+                    LOGGER.warning(f"Could not persist merge part to safe storage: {e}")
+
             return created_files
         except Exception as e:
             LOGGER.error(f"Error merging season: {e}")
