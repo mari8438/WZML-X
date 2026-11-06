@@ -80,8 +80,8 @@ class QBittorrentBridge:
         }
         try:
             r = self.session.post(url, data=data, timeout=self.timeout)
-            if r.status_code == 200:
-                # Extract info_hash from JSON or magnet link
+            if r.status_code in (200, 409):
+                # 200 = added fresh, 409 = already queued in qBittorrent
                 try:
                     resp_json = r.json()
                     added = resp_json.get("added_torrent_ids", [])
@@ -90,8 +90,8 @@ class QBittorrentBridge:
                 except Exception:
                     pass
 
-                # Fallback: extract hash from magnet
-                m = re.search(r"urn:btih:([a-fA-F0-9]{40})", magnet_or_url)
+                # Extract hash from magnet
+                m = re.search(r"urn:btih:([a-fA-F0-9]{40})", magnet_or_url, re.IGNORECASE)
                 if m:
                     return m.group(1).lower()
 

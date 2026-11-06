@@ -298,6 +298,17 @@ class StarfallAutonomousAgent:
         host_save_dir = os.path.join(CLEAN_VIDEOS_HOST_DIR, slug)
         os.makedirs(host_save_dir, exist_ok=True)
 
+        # Check if batch files are already downloaded on disk
+        existing_vids = []
+        if os.path.exists(host_save_dir):
+            for root, _, files in os.walk(host_save_dir):
+                for f in files:
+                    if f.lower().endswith((".mkv", ".mp4")) and not any(x in f.upper() for x in ("NCOP", "NCED", "MENU", "SP", "PV")):
+                        existing_vids.append(f)
+        if len(existing_vids) >= anime_def["total_eps"]:
+            LOGGER.info(f"⚡ Batch files already present on disk ({len(existing_vids)} files): {host_save_dir}")
+            return host_save_dir, candidate.get("info_hash")
+
         is_safe, free_gb = self.check_disk_space()
         if not is_safe:
             LOGGER.error(f"❌ Disk space safety tripped! Free: {free_gb:.1f} GB (< 80 GB). Halting ingestion.")
@@ -378,6 +389,19 @@ class StarfallAutonomousAgent:
         season = anime_def["season"]
         total_eps = anime_def["total_eps"]
         year = anime_def.get("year", 2024)
+
+        # Step 0: Check if already 100% muxed in MUXED_OUTPUT_DIR
+        clean_title_sub = re.sub(r"[^\w]", "", title).lower()
+        existing_muxes = []
+        if os.path.exists(MUXED_OUTPUT_DIR):
+            for f in os.listdir(MUXED_OUTPUT_DIR):
+                if f.lower().endswith(".mkv") and f"s{season:02d}" in f.lower():
+                    if clean_title_sub in re.sub(r"[^\w]", "", f).lower():
+                        existing_muxes.append(f)
+        if len(existing_muxes) >= total_eps:
+            LOGGER.info(f"🎉 '{title}' S{season:02d} is ALREADY 100% muxed ({len(existing_muxes)}/{total_eps} eps present in muxed_output)! Skipping.")
+            self.completed_titles += 1
+            return True
 
         LOGGER.info(f"\n=======================================================\n"
                     f"🚀 STARTING PROCESSING: {title} S{season:02d} ({total_eps} eps)\n"
@@ -504,8 +528,16 @@ class StarfallAutonomousAgent:
             )
 
             # Step 6: Verify Mux Output & Purge Source Video
-            if ok and os.path.exists(out_mkv_path) and os.path.getsize(out_mkv_path) > 50 * 1024 * 1024:
-                file_sz_mb = os.path.getsize(out_mkv_path) / (1024 * 1024)
+            actual_mkv_path = out_mkv_path
+            fallback_path = os.path.join(DATA_DIR, "saved_muxes", out_filename)
+            if not os.path.exists(actual_mkv_path) and os.path.exists(fallback_path):
+                try:
+                    shutil.move(fallback_path, actual_mkv_path)
+                except Exception:
+                    actual_mkv_path = fallback_path
+
+            if ok and os.path.exists(actual_mkv_path) and os.path.getsize(actual_mkv_path) > 50 * 1024 * 1024:
+                file_sz_mb = os.path.getsize(actual_mkv_path) / (1024 * 1024)
                 LOGGER.info(f"✅ Mux Verified ({file_sz_mb:.1f} MB): {out_filename}")
                 
                 # Delete source video immediately to free NVMe disk space
