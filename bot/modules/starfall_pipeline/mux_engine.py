@@ -322,36 +322,20 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         tracks = meta.get("tracks", [])
 
         video_track_id = 0
-        sub_track_ids: List[str] = []
+        orig_audio_ids: List[int] = []
+        sub_track_ids: List[int] = []
         for tr in tracks:
             tr_type = tr.get("type")
             tr_id = tr.get("id", 0)
             if tr_type == "video":
                 video_track_id = tr_id
+            elif tr_type == "audio":
+                orig_audio_ids.append(tr_id)
             elif tr_type == "subtitles":
-                # Keep English or undetermined subtitle tracks; drop signs-only if needed
-                lang = str(tr.get("properties", {}).get("language", "eng")).lower()
-                if lang in ("eng", "en", "und", ""):
-                    sub_track_ids.append(str(tr_id))
-
-        # Fallback: if no subtitle matched language filter, keep all subtitle tracks from source
-        if not sub_track_ids:
-            for tr in tracks:
-                if tr.get("type") == "subtitles":
-                    sub_track_ids.append(str(tr.get("id", 0)))
+                sub_track_ids.append(tr_id)
 
         container_title = USER_SETTINGS.get("METADATA_TITLE", "[@Anime_Starfall🥰]")
         video_track_name = USER_SETTINGS.get("VIDEO_METADATA", {}).get("title", "[@Anime_Starfall🥰]")
-        audio_track_name = (
-            USER_SETTINGS.get("AUDIO_METADATA", {})
-            .get("title", "[@Anime_Starfall🥰] - {audiolang}")
-            .format(audiolang="Tamil")
-        )
-        sub_track_name = (
-            USER_SETTINGS.get("SUBTITLE_METADATA", {})
-            .get("title", "[@Anime_Starfall🥰] - {sublang}")
-            .format(sublang="English")
-        )
 
         # Format mkvmerge `--sync` argument (supports both CONSTANT delay and PAL_DRIFT ratio)
         if abs(speed_ratio - 1.0) > 1e-5:
@@ -366,26 +350,26 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "--title", container_title,
             "-d", str(video_track_id),
             "--track-name", f"{video_track_id}:{video_track_name}",
-            "-A",  # Drop Japanese/original audio tracks from source video
         ]
 
+        # Preserve original Japanese / multi-audio tracks (marked non-default)
+        for aid in orig_audio_ids:
+            cmd.extend(["--default-track-flag", f"{aid}:no"])
+
+        # Preserve all multi-subtitles intact
         if sub_track_ids:
-            cmd.extend(["-s", ",".join(sub_track_ids)])
+            cmd.extend(["-s", ",".join(str(s) for s in sub_track_ids)])
             for sid in sub_track_ids:
-                cmd.extend([
-                    "--track-name", f"{sid}:{sub_track_name}",
-                    "--language", f"{sid}:eng",
-                    "--default-track-flag", f"{sid}:no",
-                ])
+                cmd.extend(["--default-track-flag", f"{sid}:no"])
         else:
             cmd.append("-S")
 
         cmd.append(video_path)
 
-        # Input #2: Synced Tamil AAC Audio Track (made default audio track)
+        # Input #2: Synced Tamil AAC Audio Track (made default primary)
         cmd.extend([
             "--language", "0:tam",
-            "--track-name", f"0:{audio_track_name}",
+            "--track-name", '0:Tamil [Stereo]',
             "--default-track-flag", "0:yes",
             "--sync", sync_arg,
             tamil_audio_path,
@@ -398,6 +382,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "--default-track-flag", "0:yes",
             promo_sub_file,
         ])
+
+        # Maintain proper track order: Video, Tamil Audio, Original Audio(s), Multi-Subs, Promo Sub
+        track_order = [f"0:{video_track_id}", "1:0"]
+        for aid in orig_audio_ids:
+            track_order.append(f"0:{aid}")
+        for sid in sub_track_ids:
+            track_order.append(f"0:{sid}")
+        track_order.append("2:0")
+        cmd.extend(["--track-order", ",".join(track_order)])
 
         # Attachment: Official Season Poster as cover.jpg
         if poster_path and os.path.exists(poster_path):

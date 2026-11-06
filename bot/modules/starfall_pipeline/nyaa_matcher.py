@@ -134,6 +134,21 @@ class NyaaMatcher:
 
         return False
 
+    @staticmethod
+    def matches_any_title(candidate_title: str, search_titles: List[str]) -> bool:
+        """Check if candidate title matches any of the known anime titles/synonyms."""
+        cand_clean = re.sub(r"[^a-zA-Z0-9]", "", candidate_title).lower()
+        for st in search_titles:
+            st_clean = re.sub(r"[^a-zA-Z0-9]", "", st).lower()
+            if not st_clean or len(st_clean) < 3:
+                continue
+            if st_clean in cand_clean:
+                return True
+            words = [w.lower() for w in re.findall(r"[a-zA-Z0-9]+", st) if len(w) > 2]
+            if words and all(re.search(r"\b" + re.escape(w) + r"\b", candidate_title, re.IGNORECASE) for w in words):
+                return True
+        return False
+
     def search_nyaa_rss(self, query: str) -> List[Dict[str, Any]]:
         """Query Nyaa.si RSS feed with category 1_2 (Anime - English-translated)."""
         url = f"https://nyaa.si/?page=rss&f=0&c=1_2&q={urllib.parse.quote_plus(query)}"
@@ -232,6 +247,10 @@ class NyaaMatcher:
             search_titles.append(romaji_title)
         if eng_title and eng_title.lower() != romaji_title.lower():
             search_titles.append(eng_title)
+        if meta and meta.get("synonyms"):
+            for syn in meta["synonyms"]:
+                if syn and syn not in search_titles:
+                    search_titles.append(syn)
         if not search_titles:
             search_titles.append(title_english)
 
@@ -254,6 +273,9 @@ class NyaaMatcher:
                         continue
                     # Exclude uncompressed raw REMUXes (which create 6-8GB stubs exceeding RAM/upload caps)
                     if "REMUX" in title.upper():
+                        continue
+                    # Must match anime title
+                    if not self.matches_any_title(title, search_titles):
                         continue
                     # Must be complete batch
                     if not self.is_complete_batch(title, target_season=season_number):
