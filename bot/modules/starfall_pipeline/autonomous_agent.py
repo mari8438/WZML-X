@@ -237,43 +237,57 @@ class StarfallAutonomousAgent:
         if not os.path.exists(AUDIO_BANK_DIR):
             return False, {}
 
-        files = [f for f in os.listdir(AUDIO_BANK_DIR) if os.path.isfile(os.path.join(AUDIO_BANK_DIR, f))]
+        files = []
+        for root, _, fs in os.walk(AUDIO_BANK_DIR):
+            for f in fs:
+                files.append((f, os.path.join(root, f)))
+
         season = anime_def["season"]
         total_eps = anime_def["total_eps"]
         aliases = anime_def["aliases"]
 
         matched = {}
-        for f in files:
+        for f, full_path in files:
             f_lower = f.lower()
             if any(alias.lower() in f_lower for alias in aliases):
                 s, e = self.parse_audio_season_ep(f)
                 if s == season and e and 1 <= e <= total_eps:
-                    matched[e] = os.path.join(AUDIO_BANK_DIR, f)
+                    matched[e] = full_path
 
         is_complete = len(matched) == total_eps
         return is_complete, matched
 
     @staticmethod
-    def parse_video_episode(filename: str) -> Optional[int]:
-        """Extract episode number from source video filename."""
-        base = re.sub(r"\.(mkv|mp4)$", "", filename, flags=re.IGNORECASE)
-        # S01E01
-        m = re.search(r"[Ss]\d{1,2}[Ee](\d{1,3})", base)
+    def parse_video_season_and_ep(filename: str, parent_path: str = "") -> Tuple[Optional[int], Optional[int]]:
+        """Extract both season and episode numbers from video filename and parent path."""
+        # 1. Match SxxExx in filename: e.g. S01E05 or S1E5
+        m = re.search(r"[Ss]0*(\d{1,2})[._\s-]*[Ee]0*(\d{1,3})", filename)
         if m:
-            return int(m.group(1))
-        # EP01, Episode 01
-        m = re.search(r"\b(?:EP|EPISODE)[.\s_-]*(\d{1,3})\b", base, re.IGNORECASE)
-        if m:
-            return int(m.group(1))
-        # ' - 01 ' or ' - 01.' or '_01_'
-        m = re.search(r"[-_]\s*0*(\d{1,3})(?:\s*\(|\s*\[|\s*_|\s*-|\.|$)", base)
-        if m:
-            return int(m.group(1))
-        # standalone 2-3 digit number surrounded by whitespace or brackets
-        m = re.search(r"\s+0*(\d{1,3})\s+(?:\[|\()", base)
-        if m:
-            return int(m.group(1))
-        return None
+            return int(m.group(1)), int(m.group(2))
+
+        # 2. Check season in parent directory or filename
+        full_str = f"{parent_path}/{filename}"
+        season = 1
+        sm = re.search(r"\b(?:Season|S)[._\s-]*0*(\d{1,2})\b", full_str, re.IGNORECASE)
+        if sm:
+            season = int(sm.group(1))
+
+        # Match EP xx or Episode xx
+        m_ep = re.search(r"\b(?:EP|EPISODE)[.\s_-]*0*(\d{1,3})\b", filename, re.IGNORECASE)
+        if m_ep:
+            return season, int(m_ep.group(1))
+
+        # Match ' - 01 ' or ' - 01.' or '_01_'
+        m_dash = re.search(r"[-_]\s*0*(\d{1,3})(?:\s*\(|\s*\[|\s*_|\s*-|\.|$)", filename)
+        if m_dash:
+            return season, int(m_dash.group(1))
+
+        # Standalone number surrounded by whitespace or brackets
+        m_num = re.search(r"\s+0*(\d{1,3})\s+(?:\[|\()", filename)
+        if m_num:
+            return season, int(m_num.group(1))
+
+        return season, None
 
     async def maybe_run_watchdog(self, next_anime: str):
         """Run 1-hour watchdog pulse if 3600 seconds elapsed."""
@@ -298,15 +312,17 @@ class StarfallAutonomousAgent:
         host_save_dir = os.path.join(CLEAN_VIDEOS_HOST_DIR, slug)
         os.makedirs(host_save_dir, exist_ok=True)
 
-        # Check if batch files are already downloaded on disk
-        existing_vids = []
+        # Check if batch files are already downloaded on disk for THIS season
+        existing_vids = set()
         if os.path.exists(host_save_dir):
             for root, _, files in os.walk(host_save_dir):
                 for f in files:
                     if f.lower().endswith((".mkv", ".mp4")) and not any(x in f.upper() for x in ("NCOP", "NCED", "MENU", "SP", "PV")):
-                        existing_vids.append(f)
+                        s_num, ep_num = self.parse_video_season_and_ep(f, parent_path=root)
+                        if s_num == anime_def["season"] and ep_num and 1 <= ep_num <= anime_def["total_eps"]:
+                            existing_vids.add(ep_num)
         if len(existing_vids) >= anime_def["total_eps"]:
-            LOGGER.info(f"⚡ Batch files already present on disk ({len(existing_vids)} files): {host_save_dir}")
+            LOGGER.info(f"⚡ Batch files already present on disk ({len(existing_vids)}/{anime_def['total_eps']} eps): {host_save_dir}")
             return host_save_dir, candidate.get("info_hash")
 
         is_safe, free_gb = self.check_disk_space()
@@ -451,19 +467,24 @@ class StarfallAutonomousAgent:
             return False
 
         # Step 4: Scan Downloaded Files and Map Episodes
-        video_files = []
+        found_videos = []
         for root, _, files in os.walk(download_dir):
             for f in sorted(files):
                 if f.lower().endswith((".mkv", ".mp4")):
                     # Skip extras
                     if any(x in f.upper() for x in ("NCOP", "NCED", "MENU", "SP", "PV", "TRAILER", "OST", "SCANS")):
                         continue
-                    ep_num = self.parse_video_episode(f)
-                    if ep_num and 1 <= ep_num <= total_eps:
-                        video_files.append((ep_num, os.path.join(root, f)))
+                    s_num, ep_num = self.parse_video_season_and_ep(f, parent_path=root)
+                    if s_num == season and ep_num and 1 <= ep_num <= total_eps:
+                        found_videos.append((ep_num, os.path.join(root, f)))
 
-        video_files.sort(key=lambda x: x[0])
-        LOGGER.info(f"Found {len(video_files)} valid video episode files in batch directory.")
+        # Deduplicate to ensure each episode is mapped once
+        ep_to_path = {}
+        for ep_num, p in found_videos:
+            if ep_num not in ep_to_path:
+                ep_to_path[ep_num] = p
+        video_files = sorted(ep_to_path.items(), key=lambda x: x[0])
+        LOGGER.info(f"Found {len(video_files)} valid Season {season:02d} video episode files in batch directory.")
 
         if not video_files:
             LOGGER.error(f"No episode files could be parsed from {download_dir}")
