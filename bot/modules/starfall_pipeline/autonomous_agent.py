@@ -287,10 +287,10 @@ class StarfallAutonomousAgent:
             )
             self._last_watchdog_ts = now
 
-    async def download_batch(self, anime_def: Dict[str, Any], candidate: Dict[str, Any]) -> Optional[str]:
+    async def download_batch(self, anime_def: Dict[str, Any], candidate: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
         """
         Download clean video batch via local qBittorrent into /usr/src/app/downloads/clean_videos/<slug>.
-        Returns the host path to downloaded video files.
+        Returns (host_save_dir, info_hash).
         """
         slug = re.sub(r"[^\w\s-]", "", anime_def["title"]).strip().replace(" ", "_").lower()
         slug = f"{slug}_s{anime_def['season']:02d}"
@@ -301,12 +301,12 @@ class StarfallAutonomousAgent:
         is_safe, free_gb = self.check_disk_space()
         if not is_safe:
             LOGGER.error(f"❌ Disk space safety tripped! Free: {free_gb:.1f} GB (< 80 GB). Halting ingestion.")
-            return None
+            return None, None
 
         magnet_or_url = candidate.get("magnet_uri") or candidate.get("torrent_url")
         if not magnet_or_url:
             LOGGER.error(f"No magnet or torrent URL for candidate {candidate.get('title')}")
-            return None
+            return None, None
 
         LOGGER.info(
             f"📥 Initiating qBittorrent download for '{anime_def['title']}' S{anime_def['season']:02d}\n"
@@ -324,7 +324,7 @@ class StarfallAutonomousAgent:
 
         if not info_hash:
             LOGGER.error("Failed to add torrent to qBittorrent")
-            return None
+            return None, None
 
         LOGGER.info(f"Torrent submitted successfully. Hash: {info_hash}")
 
@@ -363,7 +363,7 @@ class StarfallAutonomousAgent:
                 LOGGER.warning(f"Torrent stalled for 30m without progress. Reannouncing...")
                 self.qbt.reannounce(info_hash)
 
-        return host_save_dir
+        return host_save_dir, info_hash
 
     async def process_anime(self, anime_def: Dict[str, Any]) -> bool:
         """
@@ -421,7 +421,7 @@ class StarfallAutonomousAgent:
         )
 
         # Step 3: Download Clean Batch via qBittorrent
-        download_dir = await self.download_batch(anime_def, candidate)
+        download_dir, info_hash = await self.download_batch(anime_def, candidate)
         if not download_dir or not os.path.exists(download_dir):
             LOGGER.error(f"Download failed or directory missing for '{title}'")
             return False
@@ -486,7 +486,12 @@ class StarfallAutonomousAgent:
             if not os.path.exists(thumb_path):
                 # Generate 16:9 thumbnail dynamically at 20% mark
                 prop = await self.mux_engine.probe_video_properties_async(video_path)
-                self.mux_engine.generate_16_9_thumbnail(video_path, thumb_path, prop.get("duration", 1440.0))
+                await asyncio.to_thread(
+                    self.mux_engine.generate_16_9_thumbnail,
+                    video_path,
+                    thumb_path,
+                    prop.get("duration", 1440.0),
+                )
 
             # Lossless MKV Multiplexing
             ok = await self.mux_engine.mux_single_episode(
@@ -514,7 +519,11 @@ class StarfallAutonomousAgent:
             else:
                 LOGGER.error(f"❌ Mux failed for episode {ep_num}: {out_mkv_path}")
 
-        # Clean up empty source directory
+        # Clean up torrent in qBittorrent and delete empty source directory
+        if info_hash:
+            self.qbt.delete_torrent(info_hash, delete_files=False)
+            LOGGER.info(f"Removed completed batch torrent {info_hash} from qBittorrent.")
+
         try:
             shutil.rmtree(download_dir, ignore_errors=True)
             LOGGER.info(f"Cleaned source directory: {download_dir}")
