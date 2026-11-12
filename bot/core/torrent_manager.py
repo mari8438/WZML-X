@@ -141,10 +141,19 @@ class TorrentManager:
     async def remove_all(cls):
         await cls.pause_all()
         if cls.qbittorrent:
-            await gather(
-                cls.qbittorrent.torrents.delete("all", False),
-                cls.aria2.purgeDownloadResult(),
-            )
+            try:
+                torrents = await cls.qbittorrent.torrents.info()
+                hashes = [
+                    getattr(t, "hash", "")
+                    for t in torrents
+                    if "/seeding" not in getattr(t, "save_path", "")
+                    and "/seeding" not in getattr(t, "content_path", "")
+                ]
+                if hashes:
+                    await cls.qbittorrent.torrents.delete(hashes, False)
+            except Exception as e:
+                LOGGER.error(f"Error removing torrents: {e}")
+            await cls.aria2.purgeDownloadResult()
         else:
             await gather(
                 cls.aria2.purgeDownloadResult(),
@@ -177,7 +186,18 @@ class TorrentManager:
     async def pause_all(cls):
         pause_tasks = [cls.aria2.forcePauseAll()]
         if cls.qbittorrent:
-            pause_tasks.append(cls.qbittorrent.torrents.stop("all"))
+            try:
+                torrents = await cls.qbittorrent.torrents.info()
+                hashes = [
+                    getattr(t, "hash", "")
+                    for t in torrents
+                    if "/seeding" not in getattr(t, "save_path", "")
+                    and "/seeding" not in getattr(t, "content_path", "")
+                ]
+                if hashes:
+                    pause_tasks.append(cls.qbittorrent.torrents.stop(hashes))
+            except Exception:
+                pass
         await gather(*pause_tasks)
 
     @classmethod
