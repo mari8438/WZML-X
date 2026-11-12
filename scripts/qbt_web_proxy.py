@@ -12,8 +12,21 @@ import time
 
 LISTEN_HOST = "0.0.0.0"
 LISTEN_PORT = 8090
-TARGET_HOST = "172.18.0.3"
 TARGET_PORT = 8090
+
+def get_target_host():
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["docker", "inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", "starfall-app-1"],
+            stderr=subprocess.DEVNULL,
+            timeout=2.0
+        ).decode().strip()
+        if out:
+            return out
+    except Exception:
+        pass
+    return "172.18.0.3"
 
 CONFIG_PATH = "/home/administrator/starfall/secrets/qbt_web_auth.json"
 
@@ -94,7 +107,7 @@ async def handle_client(client_reader, client_writer):
             return
 
         # Connect to qBittorrent backend
-        target_reader, target_writer = await asyncio.open_connection(TARGET_HOST, TARGET_PORT)
+        target_reader, target_writer = await asyncio.open_connection(get_target_host(), TARGET_PORT)
 
         # Forward initial buffered bytes
         target_writer.write(initial_data)

@@ -183,11 +183,15 @@ async def update_qb_options():
                 del qbit_options[k]
         qbit_options["web_ui_password"] = pwd
         qbit_options.update(perf)
+        qbit_options["bypass_auth_subnet_whitelist_enabled"] = True
+        qbit_options["bypass_auth_subnet_whitelist"] = "172.16.0.0/12, 127.0.0.1/32, 10.0.0.0/8"
         await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
     else:
         if qbit_options.get("web_ui_password") in ("admin", "admin1", ""):
             qbit_options["web_ui_password"] = pwd
         qbit_options.update(perf)
+        qbit_options["bypass_auth_subnet_whitelist_enabled"] = True
+        qbit_options["bypass_auth_subnet_whitelist"] = "172.16.0.0/12, 127.0.0.1/32, 10.0.0.0/8"
         await TorrentManager.qbittorrent.app.set_preferences(qbit_options)
 
 
