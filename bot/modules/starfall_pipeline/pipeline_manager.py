@@ -174,8 +174,10 @@ class AutoRenameResolver:
 
     @classmethod
     def sanitize_bluray_keyword(cls, text: str) -> str:
-        """Strictly replace any variation of BDRip / BD-Rip / BRRip with `BluRay`."""
-        return re.sub(r"\b(?:BDRip|BD-Rip|BRRip|Blu-Ray|BDRemux)\b", "BluRay", text, flags=re.IGNORECASE)
+        """Strictly replace any variation of BDRip / BD-Rip / BRRip with `BluRay`, and remove the CR word."""
+        res = re.sub(r"\b(?:BDRip|BD-Rip|BRRip|Blu-Ray|BDRemux)\b", "BluRay", text, flags=re.IGNORECASE)
+        res = re.sub(r"\bCR\b\s*", "", res)
+        return re.sub(r"\s+", " ", res).strip()
 
     @classmethod
     def resolve_metadata(
@@ -202,16 +204,16 @@ class AutoRenameResolver:
             str(nyaa_metadata.get("title", "")),
         ]
 
-        # 1. Resolve Quality (`BluRay` vs `WEBRip`)
+            # 1. Resolve Quality (`BluRay` vs `WEBRip`)
         quality = ""
         for layer in context_layers:
             if not layer:
                 continue
-            if cls.BLURAY_REGEX.search(layer):
-                quality = "BluRay"
-                break
             if cls.WEBRIP_REGEX.search(layer):
                 quality = "WEBRip"
+                break
+            if cls.BLURAY_REGEX.search(layer):
+                quality = "BluRay"
                 break
         if not quality:
             quality = "BluRay" if nyaa_metadata.get("is_bluray", True) else "WEBRip"
@@ -312,7 +314,7 @@ class AutoRenameResolver:
 
         raw_fn = (
             f"🄰🅂- [S{season_num:02d}E{episode_num:02d}] {clean_name} {year_str} "
-            f"{resolution} {bit} {quality} {codec} [Tamil-AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
+            f"{resolution} {bit} {quality} {codec} [Tam + Jap AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
         )
         raw_fn = re.sub(r"\s+", " ", raw_fn).strip()
         return cls.sanitize_bluray_keyword(raw_fn)
@@ -345,7 +347,7 @@ class AutoRenameResolver:
 
         raw_fn = (
             f"📦 🄰🅂- [{s_tag}E{ep_start:02d}-{ep_end:02d}] {clean_name} {year_str} "
-            f"{resolution} {bit} {quality} {codec} [Tamil-AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
+            f"{resolution} {bit} {quality} {codec} [Tam + Jap AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
         )
         raw_fn = re.sub(r"\s+", " ", raw_fn).strip()
         return cls.sanitize_bluray_keyword(raw_fn)
@@ -1105,7 +1107,7 @@ class StarfallPipelineManager:
                 "║ Season ➤ {season}\n"
                 "║ AniList ➤ {rating} Rating\n"
                 "║ Genres ➤ {genres}\n"
-                "║ Quality ➤ {resolution} {bit} BluRay {codec}\n"
+                "║ Quality ➤ {resolution} {bit} {quality} {codec}\n"
                 "║ Audio ➤ Tamil {audio_codec} {audio_channels} ~ {shortsub}\n"
                 "╚════◇═══════════◇════\n"
                 " <blockquote expandable>Synopsis :\n   {plot}</blockquote>\n\n"
@@ -1120,6 +1122,7 @@ class StarfallPipelineManager:
                     genres=item.genres_str,
                     resolution=first_meta["resolution"],
                     bit=first_meta["bit"],
+                    quality=first_meta.get("quality", "BluRay"),
                     codec=first_meta.get("codec", "x265"),
                     audio_codec="AAC",
                     audio_channels="2.0",

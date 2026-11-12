@@ -30,9 +30,12 @@ class CustomFilters:
             chat_id = update.message.chat.id if update.message else None
             thread_id = update.message.message_thread_id if update.message and getattr(update.message, "is_topic_message", False) else None
         else:
-            uid = (update.from_user or update.sender_chat).id
-            chat_id = update.chat.id
-            thread_id = update.message_thread_id if update.is_topic_message else None
+            sender = getattr(update, "from_user", None) or getattr(update, "sender_chat", None)
+            if not sender:
+                return False
+            uid = sender.id
+            chat_id = update.chat.id if getattr(update, "chat", None) else None
+            thread_id = update.message_thread_id if getattr(update, "is_topic_message", False) else None
         return bool(
             uid == Config.OWNER_ID
             or (

@@ -498,8 +498,6 @@ async def _run_ytdlp(url, output_dir, source_url, cancel_event, processes):
         "-o",
         template,
     ]
-    if ospath.isfile("cookies.txt"):
-        command.extend(("--cookies", "cookies.txt"))
     command.append(url)
     process = await create_subprocess_exec(*command, stdout=PIPE, stderr=PIPE)
     processes.add(process)
@@ -916,8 +914,8 @@ async def _upload_episode(prepared, destination, thread_id, cancel_event):
         }
         if prepared["thumb"] and ospath.isfile(prepared["thumb"]):
             media["thumb"] = prepared["thumb"]
-        if prepared["cover"] and ospath.isfile(prepared["cover"]):
-            media["cover"] = prepared["cover"]
+        elif prepared.get("cover") and ospath.isfile(prepared["cover"]):
+            media["thumb"] = prepared["cover"]
         try:
             await _telegram_call(TgClient.bot.send_video, **media)
         except Exception as error:

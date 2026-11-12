@@ -62,3 +62,16 @@ data/*.db-wal
 data/*.db-shm
 data/torrents/*
 data/thumbnails/*
+data/*
+*.zip
+*.tar.gz
+*.csv
+*.pdf
+AGENTS.md
+GEMINI.md
+FAILED_REPORT.md
+manifests/*
+*.ass
+log.txt.*
+starfall_state.db
+tamil_anime_phased_mux_plan.md

@@ -1083,16 +1083,9 @@ async def _auto_extract_streams_pipeline(listener, up_path):
 
     if save_to_vps and not upload_to_tg:
         listener._vt_vps_saved_only = True
-        file_list_str = "\n".join(f"• <code>{ospath.basename(p)}</code>" for p in all_extracted_paths[:10])
-        if len(all_extracted_paths) > 10:
-            file_list_str += f"\n<i>...and {len(all_extracted_paths) - 10} more</i>"
         await send_message(
             listener.message,
-            f"💾 <b>[Auto Process] Extracted {len(all_extracted_paths)} stream(s) directly to VPS Audio Bank!</b>\n"
-            f"<b>Target:</b> <code>{raw_extract_langs}</code>\n"
-            f"<b>Folder:</b> <code>{ospath.basename(up_path.rstrip('/'))}</code>\n\n"
-            f"{file_list_str}\n\n"
-            "<i>Saved in VPS (Upload to Telegram skipped). Files are ready for merging.</i>",
+            f"💾 <b>Saved {len(all_extracted_paths)} audio file(s) to Audio Bank.</b>",
         )
         return None
 

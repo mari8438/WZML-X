@@ -129,13 +129,17 @@ class QbittorrentStatus:
                 LOGGER.info(f"Cancelling Download: {self._info.name}")
                 msg = "Stopped by user!"
             await sleep(0.3)
-            await gather(
+            raw_tags = getattr(self._info, "tags", None) or []
+            tags = raw_tags if isinstance(raw_tags, list) else [t.strip() for t in str(raw_tags).split(",") if t.strip()]
+            tag_to_del = tags[0] if tags else None
+            cleanups = [
                 self.listener.on_download_error(msg),
                 TorrentManager.qbittorrent.torrents.delete([self._info.hash], True),
-                TorrentManager.qbittorrent.torrents.delete_tags(
-                    tags=[self._info.tags[0]]
-                ),
-            )
-            async with qb_listener_lock:
-                if self._info.tags[0] in qb_torrents:
-                    del qb_torrents[self._info.tags[0]]
+            ]
+            if tag_to_del:
+                cleanups.append(TorrentManager.qbittorrent.torrents.delete_tags(tags=[tag_to_del]))
+            await gather(*cleanups)
+            if tag_to_del:
+                async with qb_listener_lock:
+                    if tag_to_del in qb_torrents:
+                        del qb_torrents[tag_to_del]

@@ -287,14 +287,14 @@ def get_starfall_system_status():
     disk = disk_usage(DOWNLOAD_DIR)
     uptime = get_readable_time(time() - bot_start_time) or "0s"
     total_net, tx_rate, rx_rate = _network_status()
+    free_disk = get_readable_file_size(disk.free)
     return (
-        "◉⃝     <b>Starfall Status</b>  ◉⃝\n"
-        "╔══════════════════\n"
-        f"╠ CPU ➥ {cpu_percent()}% | F ➥ {get_readable_file_size(disk.free)}\n"
-        f"╠ RAM ➥ {_real_ram_percent()}% | UP ➥ {uptime}\n"
-        f"╠ NET ➥ {get_readable_file_size(total_net)} | "
-        f"↓ {get_readable_file_size(rx_rate)}/s ↑ {get_readable_file_size(tx_rate)}/s\n"
-        "╚══════════════════"
+        "<blockquote>\n"
+        "<b>📊 Starfall System Health</b>\n"
+        f"• <b>CPU:</b> {cpu_percent()}% | <b>RAM:</b> {_real_ram_percent()}%\n"
+        f"• <b>Free NVMe:</b> {free_disk} | <b>Uptime:</b> {uptime}\n"
+        f"• <b>Traffic:</b> ↓ {get_readable_file_size(rx_rate)}/s | ↑ {get_readable_file_size(tx_rate)}/s (Total: {get_readable_file_size(total_net)})\n"
+        "</blockquote>"
     )
 
 
@@ -351,41 +351,36 @@ def _starfall_task_card(number, task, task_status, cancel_command):
     owner = getattr(message, "from_user", None)
     owner_name = owner.mention(style="html") if owner else "Unknown"
     source_link = getattr(message, "link", None)
-    owner_line = f"𝆺𝅥⃝🐦‍🔥❯ {owner_name}"
+    owner_line = f"👤 {owner_name}"
     if source_link:
         owner_line += f" <a href='{escape(str(source_link), quote=True)}'>[Link]</a>"
 
     elapsed_seconds = max(0, time() - message.date.timestamp())
     progress = _task_value(task, "progress", "0%")
     bar, progress_label = _starfall_progress(progress)
-    lines = [
-        f"<code>{number}. {name}</code>",
-        "",
-        owner_line,
-        "╔════════════════",
-        f"╠ {bar} {progress_label}",
-    ]
+
+    mode = getattr(listener, "mode", ("#Unknown", "#Unknown"))
+    in_mode = escape(str(mode[0] if len(mode) > 0 else "#Unknown"))
+    out_mode = escape(str(mode[1] if len(mode) > 1 else "#Unknown"))
+    engine = escape(str(getattr(task, "engine", "Unknown")))
+    gid = escape(str(_task_value(task, "gid", "unknown")))
 
     if task_status == MirrorStatus.STATUS_SEED:
-        lines.extend(
-            (
-                f"╠ Processed ➥ {_task_value(task, 'uploaded_bytes', '0B')} of {_task_value(task, 'size', '0B')}",
-                f"╠ Status ➥ {escape(str(task_status))}",
-                f"╠ Speed ➥ {_task_value(task, 'seed_speed', '0B/s')}",
-                f"╠ Ratio ➥ {_task_value(task, 'ratio')}",
-                f"╠ Time ➥ {_task_value(task, 'seeding_time')}",
-            )
-        )
+        speed = _task_value(task, "seed_speed", "0B/s")
+        details = [
+            f"• <b>Size:</b> {_task_value(task, 'size', '0B')} | <b>Uploaded:</b> {_task_value(task, 'uploaded_bytes', '0B')}",
+            f"• <b>Ratio:</b> {_task_value(task, 'ratio')} | <b>Speed:</b> {speed}",
+            f"• <b>Seeding Time:</b> {_task_value(task, 'seeding_time')} (Elapsed: {get_readable_time(elapsed_seconds)})",
+            f"• <b>Engine:</b> {engine} ({in_mode} ~ {out_mode})",
+            f"• <b>Stop:</b> <code>/{cancel_command}_{gid}</code>",
+        ]
     else:
+        speed = _task_value(task, "speed", "0B/s")
         eta, total = _eta_total(_task_value(task, "eta"), elapsed_seconds)
-        lines.extend(
-            (
-                f"╠ Processed ➥ {_task_value(task, 'processed_bytes', '0B')} of {_task_value(task, 'size', '0B')}",
-                f"╠ Status ➥ {escape(str(task_status))}",
-                f"╠ Speed ➥ {_task_value(task, 'speed', '0B/s')}",
-                f"╠ Time ➥ {escape(str(eta))} ({escape(str(total))})",
-            )
-        )
+        details = [
+            f"• <b>Processed:</b> {_task_value(task, 'processed_bytes', '0B')} of {_task_value(task, 'size', '0B')}",
+            f"• <b>Speed:</b> {speed} | <b>ETA:</b> {escape(str(eta))} ({escape(str(total))})",
+        ]
         if task_status == MirrorStatus.STATUS_DOWNLOAD and (
             getattr(listener, "is_torrent", False)
             or getattr(listener, "is_qbit", False)
@@ -393,20 +388,22 @@ def _starfall_task_card(number, task, task_status, cancel_command):
             seeders = _task_value(task, "seeders_num", None)
             leechers = _task_value(task, "leechers_num", None)
             if seeders is not None and leechers is not None:
-                lines.append(f"╠ Seeders ➥ {seeders} | Leechers ➥ {leechers}")
+                details.append(f"• <b>Swarm:</b> {seeders} seeds | {leechers} peers")
+        details.extend([
+            f"• <b>Engine:</b> {engine} ({in_mode} ~ {out_mode})",
+            f"• <b>Stop:</b> <code>/{cancel_command}_{gid}</code>",
+        ])
 
-    mode = getattr(listener, "mode", ("#Unknown", "#Unknown"))
-    in_mode = escape(str(mode[0] if len(mode) > 0 else "#Unknown"))
-    out_mode = escape(str(mode[1] if len(mode) > 1 else "#Unknown"))
-    lines.extend(
-        (
-            f"╠ Engine ➥ {escape(str(getattr(task, 'engine', 'Unknown')))}",
-            f"╠ Mode ➥ {in_mode} ~ {out_mode}",
-            f"╠ Stop ➥ <code>/{cancel_command}_{escape(str(_task_value(task, 'gid', 'unknown')))}</code>",
-            "╚═════════════════",
-        )
+    details_body = "\n".join(details)
+    return (
+        f"<b>{number}.</b> <code>{name}</code>\n"
+        f"{bar} <b>{progress_label}</b> • <b>{escape(str(task_status))}</b> ({speed})\n"
+        f"<blockquote expandable>\n"
+        f"<b>⚡ Task Metrics:</b>\n"
+        f"• <b>Requester:</b> {owner_line}\n"
+        f"{details_body}\n"
+        f"</blockquote>"
     )
-    return "\n".join(lines)
 
 
 async def _get_readable_message_legacy(sid, is_user, page_no=1, status="All", page_step=1):

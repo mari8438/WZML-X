@@ -452,6 +452,52 @@ def _base_state(task_id, filename, audio_tracks, sub_tracks, input_path=""):
     }
 
 
+async def compute_acoustic_sync_delay(video_path: str, audio_path: str) -> dict:
+    """
+    Perform multi-anchor acoustic cross-correlation between reference video audio
+    and external target audio track using AcousticSyncEngine.
+    Returns:
+        dict(delay_ms=int, psr_score=float, sync_mode=str, healed_path=str or None)
+    """
+    try:
+        from ...modules.starfall_pipeline.acoustic_sync import AcousticSyncEngine
+        engine = AcousticSyncEngine()
+        res = await engine.analyze_sync(video_path, audio_path)
+        mode = res.get("sync_mode", "FAILED")
+        psr = round(float(res.get("min_psr_score", 0.0) or 0.0), 2)
+        delay = int(round(float(res.get("calculated_delay_ms", 0) or 0)))
+        healed = res.get("healed_audio_path")
+        LOGGER.info(
+            f"AcousticSyncEngine result for {ospath.basename(audio_path)}: "
+            f"mode={mode}, delay={delay:+d}ms, psr={psr}, healed={bool(healed)}"
+        )
+        if mode != "FAILED" and psr >= 2.5:
+            return {
+                "delay_ms": delay,
+                "psr_score": psr,
+                "sync_mode": mode,
+                "healed_path": healed,
+            }
+        else:
+            LOGGER.warning(
+                f"Acoustic sync confidence low for {ospath.basename(audio_path)} (PSR: {psr}, mode: {mode})"
+            )
+            return {
+                "delay_ms": delay if psr >= 2.0 else 0,
+                "psr_score": psr,
+                "sync_mode": "FALLBACK" if mode == "FAILED" else mode,
+                "healed_path": None,
+            }
+    except Exception as e:
+        LOGGER.error(f"compute_acoustic_sync_delay failed: {e}", exc_info=True)
+        return {
+            "delay_ms": 0,
+            "psr_score": 0.0,
+            "sync_mode": "ERROR",
+            "healed_path": None,
+        }
+
+
 async def _refresh_external_tracks(state, input_path):
     saved_audio = {
         (item.get("path"), item.get("stream_index")): {
@@ -546,11 +592,25 @@ async def _refresh_external_tracks(state, input_path):
             item["size_mb"] = details["size_mb"]
 
     if state.get("auto_sync", True):
+        video_path = input_path or state.get("input_path")
+        if not video_path and state.get("folder_videos"):
+            video_path = state["folder_videos"][0]
         video_dur = float(state.get("video_duration", 0) or 0)
         for item in external_audio:
-            track_dur = float(item.get("duration", 0) or 0)
-            if video_dur and track_dur:
-                item["delay_ms"] = int(round((video_dur - track_dur) * 1000))
+            if "acoustic_sync_done" not in item:
+                audio_path = item.get("path")
+                if video_path and audio_path and await aiopath.isfile(video_path) and await aiopath.isfile(audio_path):
+                    sync_res = await compute_acoustic_sync_delay(video_path, audio_path)
+                    item["delay_ms"] = sync_res["delay_ms"]
+                    item["psr_score"] = sync_res["psr_score"]
+                    item["sync_mode"] = sync_res["sync_mode"]
+                    item["acoustic_sync_done"] = True
+                    if sync_res.get("healed_path") and await aiopath.isfile(sync_res["healed_path"]):
+                        item["path"] = sync_res["healed_path"]
+                else:
+                    track_dur = float(item.get("duration", 0) or 0)
+                    if video_dur and track_dur:
+                        item["delay_ms"] = int(round((video_dur - track_dur) * 1000))
 
     state["external_audio"] = external_audio
     state["external_sub"] = external_sub
@@ -1434,7 +1494,7 @@ async def process_video_tool(listener, up_path):
         token = make_vt_studio_token(task_id, user_id)
         state["user_id"] = user_id
         state["token"] = token
-        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL and "trycloudflare.com" not in Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
+        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL else f"http://127.0.0.1:{Config.BASE_URL_PORT or 8080}"
         state["web_studio_url"] = f"{base_url}/app/video-studio?task_id={task_id}&token={token}"
 
         bank_data = await list_audio_bank(user_id)
@@ -2041,7 +2101,7 @@ async def _process_vt_directory(listener, up_path, pre_state=None):
         state["token"] = token
         state["is_folder"] = True
         state["folder_videos"] = videos
-        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL and "trycloudflare.com" not in Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
+        base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL else f"http://127.0.0.1:{Config.BASE_URL_PORT or 8080}"
         state["web_studio_url"] = f"{base_url}/app/video-studio?task_id={task_id}&token={token}"
 
         bank_data = await list_audio_bank(user_id)

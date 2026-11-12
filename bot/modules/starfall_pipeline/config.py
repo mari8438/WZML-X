@@ -31,11 +31,11 @@ HARVESTER_MAX_WORKERS = 5
 ACOUSTIC_SYNC_MAX_WORKERS = 6
 MUX_MAX_CONCURRENT = 4
 
-# Acoustic delay parameters (4-Anchor GCC-PHAT)
+# Acoustic delay parameters (Adaptive Multi-Anchor GCC-PHAT)
 SAMPLE_RATE = 8000
-WINDOW_SEC = 75.0
+WINDOW_SEC = 35.0
 MAX_LAG_SEC = 25.0
-ANCHOR_POSITIONS = (0.20, 0.40, 0.60, 0.80)
+ANCHOR_POSITIONS = (0.05, 0.20, 0.35, 0.50, 0.65, 0.85)
 MIN_CONFIDENCE_PSR = 10.0
 
 # Telegram split limit (MiB)

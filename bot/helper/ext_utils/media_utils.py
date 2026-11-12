@@ -1658,6 +1658,29 @@ async def _enrich_template_metadata(metadata, filename, filepath=None, extra=Non
         metadata.get("subtitles", ""), filename
     )
     metadata["DS4K"] = metadata.get("DS4K") or ("DS4K" if _has_ds4k(filename) else "")
+
+    # Enrich with Japanese (Romaji & Native) anime titles if applicable
+    anime_query = metadata.get("title") or metadata.get("name") or filename
+    if anime_query:
+        try:
+            an_titles = await _resolve_anilist_all_titles(anime_query)
+            rom = an_titles.get("romaji") or ""
+            nat = an_titles.get("native") or ""
+            eng = an_titles.get("english") or ""
+            if rom:
+                metadata["romaji"] = rom
+                metadata["romaji_title"] = rom
+                metadata["japanese"] = rom
+                metadata["jp_title"] = rom
+            if nat:
+                metadata["native"] = nat
+                metadata["native_title"] = nat
+            if eng:
+                metadata["english"] = eng
+                metadata["eng_title"] = eng
+        except Exception as e:
+            LOGGER.debug(f"Failed to enrich anime Japanese title: {e}")
+
     for key in (
         "file_name", "file_size", "file_caption", "languages", "language", "subtitles",
         "duration", "ott", "source", "resolution", "name", "title", "year", "quality",
@@ -1667,6 +1690,8 @@ async def _enrich_template_metadata(metadata, filename, filepath=None, extra=Non
         "dynamic_range", "release_group", "group", "DS4K", "bit", "size",
         "date", "episode_name", "episodes", "genres", "rating", "plot", "synopsis",
         "start", "end", "range", "range_tag", "filename", "upload_filename",
+        "romaji", "romaji_title", "japanese", "jp_title", "native", "native_title",
+        "english", "eng_title",
     ):
         metadata.setdefault(key, "")
     return metadata
@@ -2168,10 +2193,28 @@ async def _fetch_anilist_media(title):
         return {}
 
 
-async def _resolve_anilist_title(title):
+async def _resolve_anilist_title(title, prefer_romaji=False):
     media = await _fetch_anilist_media(title)
     titles = media.get("title") or {}
-    return titles.get("english") or titles.get("romaji") or titles.get("native") or ""
+    romaji = titles.get("romaji") or ""
+    english = titles.get("english") or ""
+    native = titles.get("native") or ""
+    if prefer_romaji:
+        return romaji or english or native or ""
+    clean_t = title.lower().strip()
+    if romaji and clean_t in romaji.lower():
+        return romaji
+    return english or romaji or native or ""
+
+
+async def _resolve_anilist_all_titles(title):
+    media = await _fetch_anilist_media(title)
+    titles = media.get("title") or {}
+    return {
+        "english": titles.get("english") or "",
+        "romaji": titles.get("romaji") or "",
+        "native": titles.get("native") or "",
+    }
 
 
 async def get_anilist_poster_link(title, as_doc=False):
@@ -2365,7 +2408,7 @@ async def _resolve_media_title(title, filename, year=None):
     return title
 
 
-async def extract_metadata_from_filename(filename, filepath=None):
+async def extract_metadata_from_filename(filename, filepath=None, **extra):
     """Extract title, season, episode, source, and media fields from a filename.
 
     Ported from WZMLakane leech_utils.py with extended patterns for anime,

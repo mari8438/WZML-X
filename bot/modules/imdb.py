@@ -340,6 +340,22 @@ async def imdb_callback(_, query):
         template = Config.IMDB_TEMPLATE
         if imdb and template != "":
             cap = template.format(**imdb, **locals())
+        elif imdb:
+            cap = f"""<b>{imdb['title']} ({imdb['year']})</b>
+{imdb.get('genres', 'N/A')}
+
+<blockquote>
+• <b>Rating:</b> ★ {imdb['rating']} ({imdb['votes']} votes)
+• <b>Runtime:</b> {imdb['runtime']} | <b>Type:</b> {imdb['kind']}
+• <b>Languages:</b> {imdb['languages']}
+• <b>Director:</b> {imdb['director']}
+• <b>Cast:</b> {imdb['cast']}
+</blockquote>
+
+<blockquote expandable>
+<b>💎 𝗦𝗬𝗡𝗢𝗣𝗦𝗜𝗦 :</b>
+{imdb['plot']}
+</blockquote>"""
         else:
             cap = "No Results"
         if imdb.get("poster"):

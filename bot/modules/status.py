@@ -213,23 +213,23 @@ async def status_pages(_, query):
                     tasks["Download"] += 1
 
         if is_starfall_theme():
-            msg = f"""◉⃝     <b>Tasks Overview</b>  ◉⃝
-╔══════════════════
-╠ Download ➥ {tasks["Download"]} | Upload ➥ {tasks["Upload"]}
-╠ Seed ➥ {tasks["Seed"]} | Archive ➥ {tasks["Archive"]}
-╠ Extract ➥ {tasks["Extract"]} | Split ➥ {tasks["Split"]}
-╠ QueueDL ➥ {tasks["QueueDl"]} | QueueUP ➥ {tasks["QueueUp"]}
-╠ Clone ➥ {tasks["Clone"]} | CheckUp ➥ {tasks["CheckUp"]}
-╠ Paused ➥ {tasks["Pause"]} | SamVideo ➥ {tasks["SamVid"]}
-╠ Convert ➥ {tasks["ConvertMedia"]} | FFmpeg ➥ {tasks["FFmpeg"]}
-╚══════════════════
+            active_total = sum(tasks.values())
+            msg = f"""<blockquote>
+<b>📊 Starfall Tasks Overview ({active_total} Total)</b>
+• <b>Download:</b> {tasks["Download"]} | <b>Upload:</b> {tasks["Upload"]}
+• <b>Seed:</b> {tasks["Seed"]} | <b>Archive:</b> {tasks["Archive"]}
+• <b>Extract:</b> {tasks["Extract"]} | <b>Split:</b> {tasks["Split"]}
+• <b>Queue DL:</b> {tasks["QueueDl"]} | <b>Queue UP:</b> {tasks["QueueUp"]}
+• <b>Clone:</b> {tasks["Clone"]} | <b>CheckUp:</b> {tasks["CheckUp"]}
+• <b>Paused:</b> {tasks["Pause"]} | <b>FFmpeg:</b> {tasks["FFmpeg"]}
+</blockquote>
 
-◉⃝     <b>Transfer Speeds</b>  ◉⃝
-╔══════════════════
-╠ Download ➥ {get_readable_file_size(dl_speed)}/s
-╠ Upload ➥ {get_readable_file_size(up_speed)}/s
-╠ Seeding ➥ {get_readable_file_size(seed_speed)}/s
-╚══════════════════"""
+<blockquote expandable>
+<b>⚡ Live Transfer Bandwidth</b>
+• <b>Download Speed:</b> {get_readable_file_size(dl_speed)}/s
+• <b>Upload Speed:</b> {get_readable_file_size(up_speed)}/s
+• <b>Seeding Speed:</b> {get_readable_file_size(seed_speed)}/s
+</blockquote>"""
         else:
             msg = f"""㊂ <b>Tasks Overview</b> :
 

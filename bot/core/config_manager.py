@@ -59,7 +59,7 @@ class Config:
     MYANIMELIST_CLIENT_ID = ""
     MYANIMELIST_CLIENT_NAME = ""
     AUTORENAME = True
-    BASE_URL = "http://172.105.52.160:8080"
+    BASE_URL = os.environ.get("BASE_URL", "")
     BASE_URL_PORT = 8080
     BOT_TOKEN = ""
     HELPER_TOKENS = ""
@@ -301,7 +301,7 @@ class Config:
     LEECH_PREFIX = ""
     LEECH_CAPTION = ""
     LEECH_SUFFIX = ""
-    LEECH_FILENAME_REMNAME_AUTO = "[S{season}E{episode}] {title}   {resolution} {bit} {ott} {quality} {lib} [Tamil] ESub"
+    LEECH_FILENAME_REMNAME_AUTO = "[S{season}E{episode}] {title}   {resolution} {bit} {ott} {quality} {lib} [Tam + Jap] ESub"
     LEECH_FILENAME_REMNAME_REGEX = r"www\.1TamilMV\.[^\s]+"
     LEECH_FONT = ""
     LEECH_SPLIT_SIZE = 2097152000

@@ -163,6 +163,7 @@ class KufircClient:
         image="",
         desc="",
         anonymous=False,
+        ignoredupes=True,
     ):
         if not ospath.isfile(torrent_path):
             raise KufircError(f"Torrent file not found: {torrent_path}")
@@ -188,6 +189,8 @@ class KufircClient:
             "desc": str(desc).strip(),
             "anonymous": "1" if anonymous else "0",
         }
+        if ignoredupes:
+            data["ignoredupes"] = "1"
 
         filename = ospath.basename(torrent_path)
         with open(torrent_path, "rb") as f:
@@ -209,7 +212,20 @@ class KufircClient:
         resp_text = resp.text
         resp_url = str(resp.url)
 
-        # Check for duplicate
+        # Handle dupe confirmation if needed
+        temp_m = re.search(r'name=[\'"]tempfileid[\'"]\s+value=[\'"](\d+)[\'"]', resp_text)
+        if temp_m and ignoredupes:
+            LOGGER.info("Kufirc requires dupe confirmation; confirming with tempfileid=%s", temp_m.group(1))
+            data["tempfileid"] = temp_m.group(1)
+            data["tempfilename"] = filename
+            auth_m = re.search(r'name=[\'"]auth[\'"]\s+value=[\'"]([a-f0-9]+)[\'"]', resp_text)
+            if auth_m:
+                data["auth"] = auth_m.group(1)
+            resp = await self.client.post(upload_url, data=data, headers={"Referer": upload_url})
+            resp_text = resp.text
+            resp_url = str(resp.url)
+
+        # Check for duplicate error
         if "The exact same torrent file already exists" in resp_text:
             dupe_m = re.search(r'href=[\'"](?:https?://kufirc\.com)?/(torrents\.php\?id=\d+)', resp_text)
             dupe_url = urljoin(f"{self.base_url}/", dupe_m.group(1)) if dupe_m else ""
@@ -229,8 +245,18 @@ class KufircClient:
         if id_m:
             torrent_id = id_m.group(1)
         else:
-            id_m2 = re.search(r"torrents\.php\?id=(\d+)", resp_text)
-            if id_m2:
+            for err_pattern in [
+                r'<p[^>]+style=[\'"][^\'"]*color:\s*red[^\'"]*[\'"][^>]*>(.*?)</p>',
+                r'<div[^>]+class=[\'"][^\'"]*error[^\'"]*[\'"][^>]*>(.*?)</div>',
+                r'<span[^>]+style=[\'"][^\'"]*color:\s*red[^\'"]*[\'"][^>]*>(.*?)</span>',
+            ]:
+                found_err = re.search(err_pattern, resp_text, re.DOTALL | re.I)
+                if found_err:
+                    err_text = re.sub(r'<[^>]+>', ' ', unescape(found_err.group(1))).strip()
+                    if err_text:
+                        raise KufircError(f"Kufirc rejected upload: {err_text}")
+            id_m2 = re.search(r'href=[\'"](?:https?://kufirc\.com)?/torrents\.php\?id=(\d+)[\'"]', resp_text)
+            if id_m2 and "upload.php" not in resp_url:
                 torrent_id = id_m2.group(1)
 
         if not torrent_id:

@@ -68,12 +68,15 @@ BLURAY_SANITIZE_RE = re.compile(
 
 
 def sanitize_bluray_tag(text: str) -> str:
-    """Strictly replace any occurrence of BDRip, BD-Rip, or BRRip with `BluRay`."""
+    """Strictly replace any occurrence of BDRip, BD-Rip, or BRRip with `BluRay`, and remove the CR word."""
     if not text:
         return "BluRay"
     cleaned = BLURAY_SANITIZE_RE.sub("BluRay", text)
     if cleaned.strip().upper() == "BD":
         return "BluRay"
+    # Remove the CR word as per user instruction
+    cleaned = re.sub(r"\bCR\b\s*", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned
 
 
@@ -263,23 +266,31 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         year: int = 2024,
         resolution: str = "1080p",
         bit: str = "10bit",
-        ott: str = "CR",
+        ott: str = "",
         quality: str = "BluRay",
         codec: str = "x265",
         release_group: str = "Starfall",
+        languages: str = "Tam + Jap",
+        audio_codec: str = "AAC",
+        audio_channels: str = "2.0",
+        shortsub: str = "ESub",
     ) -> str:
         """
-        Generate standardized Starfall v1.6 episode filename (strictly `BluRay`, never `BDRip`):
-        `🄰🅂-[S01E01] {name} {year} {resolution} {bit} {ott} BluRay {codec} [Tamil-AAC 2.0] ESub ~ {release_group} ~ [@Anime_Starfall🥰].mkv`
+        Generate standardized Starfall episode filename strictly conforming to user format:
+        `🄰🅂- [S{season:02d}E{episode:02d}] {name} ({year}) {resolution} {bit} {quality} {codec} [{languages} {audio_codec} {audio_channels}] {shortsub} ~ {release_group} ~ [@Anime_Starfall🥰].mkv`
         """
         clean_name = re.sub(r"[^\w\s-]", "", anime_name).strip()
         safe_quality = sanitize_bluray_tag(quality)
-        safe_codec = "x265" if codec.upper() == "HEVC" else codec
+        safe_codec = "x265" if codec.upper() in ("HEVC", "H.265", "H265") else codec
+        year_str = f"({year})" if year else ""
         raw_filename = (
-            f"🄰🅂-[S{season_num:02d}E{episode_num:02d}] {clean_name} {year} "
-            f"{resolution} {bit} {ott} {safe_quality} {safe_codec} [Tamil-AAC 2.0] ESub ~ "
+            f"🄰🅂- [S{season_num:02d}E{episode_num:02d}] {clean_name} {year_str} "
+            f"{resolution} {bit} {safe_quality} {safe_codec} "
+            f"[{languages} {audio_codec} {audio_channels}] {shortsub} ~ "
             f"{release_group} ~ [@Anime_Starfall🥰].mkv"
         )
+        raw_filename = re.sub(r"\bCR\b\s*", "", raw_filename)
+        raw_filename = re.sub(r"\s+", " ", raw_filename).strip()
         return sanitize_bluray_tag(raw_filename)
 
     async def mux_single_episode(
@@ -330,6 +341,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if tr_type == "video":
                 video_track_id = tr_id
             elif tr_type == "audio":
+                # STRICT FILTER: Exclude English audio tracks entirely; only preserve Japanese/original
+                props = tr.get("properties", {})
+                lang = (props.get("language") or "").lower()
+                name = (props.get("track_name") or "").lower()
+                if lang in ["eng", "en"] or "eng" in name:
+                    LOGGER.info(f"🚫 Stripping English audio track {tr_id} ({lang}: {name})")
+                    continue
                 orig_audio_ids.append(tr_id)
             elif tr_type == "subtitles":
                 sub_track_ids.append(tr_id)
@@ -338,10 +356,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         video_track_name = USER_SETTINGS.get("VIDEO_METADATA", {}).get("title", "[@Anime_Starfall🥰]")
 
         # Format mkvmerge `--sync` argument (supports both CONSTANT delay and PAL_DRIFT ratio)
+        # Note: GCC-PHAT measures target relative to ref. If target leads (negative delay),
+        # mkvmerge needs a positive shift to delay target to align with ref.
+        # Therefore, mkvmerge track sync = -calculated_delay_ms.
+        mkv_delay = -int(calculated_delay_ms)
         if abs(speed_ratio - 1.0) > 1e-5:
-            sync_arg = f"0:{int(calculated_delay_ms)},{speed_ratio:.6f}"
+            sync_arg = f"0:{mkv_delay},{speed_ratio:.6f}"
         else:
-            sync_arg = f"0:{int(calculated_delay_ms)}"
+            sync_arg = f"0:{mkv_delay}"
 
         cmd: List[str] = [
             "mkvmerge",
@@ -352,9 +374,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             "--track-name", f"{video_track_id}:{video_track_name}",
         ]
 
-        # Preserve original Japanese / multi-audio tracks (marked non-default)
-        for aid in orig_audio_ids:
-            cmd.extend(["--default-track-flag", f"{aid}:no"])
+        # Preserve ONLY Japanese audio from video source (English is explicitly excluded)
+        if orig_audio_ids:
+            cmd.extend(["-a", ",".join(str(a) for a in orig_audio_ids)])
+            for aid in orig_audio_ids:
+                cmd.extend([
+                    "--default-track-flag", f"{aid}:no",
+                    "--language", f"{aid}:jpn",
+                    "--track-name", f"{aid}:Japanese [Original]",
+                ])
+        else:
+            cmd.append("-A")
 
         # Preserve all multi-subtitles intact
         if sub_track_ids:
@@ -392,12 +422,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         track_order.append("2:0")
         cmd.extend(["--track-order", ",".join(track_order)])
 
-        # Attachment: Official Season Poster as cover.jpg
+        # Attachment: Official Season Poster as cover.jpg (Direct Photo Cover Art)
+        if not poster_path or not os.path.exists(poster_path):
+            default_cover = "/home/administrator/starfall/data/intro_preroll.jpg"
+            if os.path.exists(default_cover):
+                poster_path = default_cover
+
         if poster_path and os.path.exists(poster_path):
             cmd.extend([
-                "--attach-file", poster_path,
-                "--attachment-mime-type", "image/jpeg",
                 "--attachment-name", "cover.jpg",
+                "--attachment-mime-type", "image/jpeg",
+                "--attach-file", poster_path,
             ])
 
         LOGGER.info(
@@ -437,16 +472,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             size_mib = os.path.getsize(output_mkv_path) / (1024 ** 2)
             LOGGER.info(f"✅ Muxed {os.path.basename(output_mkv_path)} ({size_mib:.2f} MiB)")
 
-            # Move safely to persistent NVMe storage to instantly free RAM tmpfs
+            # If output was written in RAM workspace (/dev/shm), move to persistent NVMe storage
             try:
-                safe_dest_dir = os.path.join(DATA_DIR, "saved_muxes")
-                os.makedirs(safe_dest_dir, exist_ok=True)
-                safe_dest_path = os.path.join(safe_dest_dir, os.path.basename(output_mkv_path))
-                if os.path.abspath(output_mkv_path) != os.path.abspath(safe_dest_path):
-                    if os.path.exists(safe_dest_path):
-                        os.remove(safe_dest_path)
-                    shutil.move(output_mkv_path, safe_dest_path)
-                    LOGGER.info(f"💾 Moved muxed episode from RAM to NVMe: {os.path.basename(safe_dest_path)}")
+                if os.path.abspath(os.path.dirname(output_mkv_path)) == os.path.abspath(self.workspace_dir):
+                    safe_dest_dir = os.path.join(DATA_DIR, "saved_muxes")
+                    os.makedirs(safe_dest_dir, exist_ok=True)
+                    safe_dest_path = os.path.join(safe_dest_dir, os.path.basename(output_mkv_path))
+                    if os.path.abspath(output_mkv_path) != os.path.abspath(safe_dest_path):
+                        if os.path.exists(safe_dest_path):
+                            os.remove(safe_dest_path)
+                        shutil.move(output_mkv_path, safe_dest_path)
+                        LOGGER.info(f"💾 Moved muxed episode from RAM to NVMe: {os.path.basename(safe_dest_path)}")
             except Exception as e:
                 LOGGER.warning(f"Could not persist copy to safe storage: {e}")
 
@@ -498,11 +534,16 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if split_size_mb and split_size_mb > 0:
             cmd.extend(["--split", f"size:{int(split_size_mb)}M"])
 
+        if not poster_path or not os.path.exists(poster_path):
+            default_cover = "/home/administrator/starfall/data/intro_preroll.jpg"
+            if os.path.exists(default_cover):
+                poster_path = default_cover
+
         if poster_path and os.path.exists(poster_path):
             cmd.extend([
-                "--attach-file", poster_path,
-                "--attachment-mime-type", "image/jpeg",
                 "--attachment-name", "cover.jpg",
+                "--attachment-mime-type", "image/jpeg",
+                "--attach-file", poster_path,
             ])
 
         cmd.append(first_ep)

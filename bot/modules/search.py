@@ -76,15 +76,14 @@ async def search(key, site, message, method):
                     f"No result found for <i>{key}</i>\nTorrent Site:- <i>{SITES.get(site)}</i>",
                 )
                 return
-            msg = f"<b>Found {min(search_results['total'], TELEGRAPH_LIMIT)}</b>"
-            if method == "apitrend":
-                msg += f" <b>trending result(s)\nTorrent Site:- <i>{SITES.get(site)}</i></b>"
-            elif method == "apirecent":
-                msg += (
-                    f" <b>recent result(s)\nTorrent Site:- <i>{SITES.get(site)}</i></b>"
-                )
-            else:
-                msg += f" <b>result(s) for <i>{key}</i>\nTorrent Site:- <i>{SITES.get(site)}</i></b>"
+            msg = f"""🔍 <b>Torrent Search Results</b>
+<blockquote>
+• <b>Query:</b> <code>{escape(str(key))}</code>
+• <b>Source:</b> {SITES.get(site, str(site).capitalize())}
+• <b>Total Matches:</b> {min(search_results['total'], TELEGRAPH_LIMIT)}
+</blockquote>
+
+<i>Click the button below to view the full interactive results telegraph page.</i>"""
             search_results = search_results["data"]
         except Exception as e:
             await edit_message(message, str(e))
@@ -111,8 +110,14 @@ async def search(key, site, message, method):
                 f"No result found for <i>{key}</i>\nTorrent Site:- <i>{site.capitalize()}</i>",
             )
             return
-        msg = f"<b>Found {min(total_results, TELEGRAPH_LIMIT)}</b>"
-        msg += f" <b>result(s) for <i>{key}</i>\nTorrent Site:- <i>{site.capitalize()}</i></b>"
+        msg = f"""🔍 <b>Torrent Search Results</b>
+<blockquote>
+• <b>Query:</b> <code>{escape(str(key))}</code>
+• <b>Source:</b> {str(site).capitalize()}
+• <b>Total Matches:</b> {min(total_results, TELEGRAPH_LIMIT)}
+</blockquote>
+
+<i>Click the button below to view the full interactive results telegraph page.</i>"""
         await TorrentManager.qbittorrent.search.delete(search_id)
     link = await get_result(search_results, key, message, method)
     buttons = ButtonMaker()

@@ -80,8 +80,8 @@ class QBittorrentBridge:
         }
         try:
             r = self.session.post(url, data=data, timeout=self.timeout)
-            if r.status_code in (200, 409):
-                # 200 = added fresh, 409 = already queued in qBittorrent
+            if r.status_code in (200, 202, 409):
+                # 200 = added fresh, 202 = accepted/pending async, 409 = already queued in qBittorrent
                 try:
                     resp_json = r.json()
                     added = resp_json.get("added_torrent_ids", [])
@@ -115,6 +115,16 @@ class QBittorrentBridge:
             return r.status_code == 200
         except Exception as e:
             LOGGER.error(f"Failed to reannounce {info_hash}: {e}")
+            return False
+
+    def recheck_torrent(self, info_hash: str) -> bool:
+        """Trigger recheck on a torrent."""
+        url = f"{self.base_url}/torrents/recheck"
+        try:
+            r = self.session.post(url, data={"hashes": info_hash.lower()}, timeout=self.timeout)
+            return r.status_code == 200
+        except Exception as e:
+            LOGGER.error(f"Failed to recheck {info_hash}: {e}")
             return False
 
     def resume_torrent(self, info_hash: str) -> bool:

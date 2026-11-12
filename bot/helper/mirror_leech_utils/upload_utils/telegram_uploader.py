@@ -95,6 +95,16 @@ def _to_bool(value, default=False):
     return text in {"1", "true", "yes", "y", "on"} if text else default
 
 
+def _is_permanent_thumb(path):
+    if not path or str(path).strip().lower() == "none":
+        return False
+    try:
+        abs_p = ospath.abspath(path)
+        return abs_p.startswith(ospath.abspath("thumbnails"))
+    except Exception:
+        return False
+
+
 _CHANNEL_COPY_LOCKS: dict[str, Lock] = {}
 
 
@@ -748,10 +758,15 @@ class TelegramUploader:
                                 "but the Premium user session is unavailable"
                             )
                         self._user_session = True
-                        self._sent_msg = await TgClient.user.get_messages(
-                            chat_id=self._sent_msg.chat.id,
-                            message_ids=self._sent_msg.id,
-                        )
+                        try:
+                            self._sent_msg = await TgClient.user.get_messages(
+                                chat_id=self._sent_msg.chat.id,
+                                message_ids=self._sent_msg.id,
+                            )
+                        except Exception as e:
+                            LOGGER.warning(
+                                f"Cannot fetch message {self._sent_msg.id} via user session: {e}. Keeping current route."
+                            )
                         LOGGER.info(
                             "Using Premium user session for large upload: %s (%s bytes)",
                             file_,
@@ -1270,12 +1285,14 @@ class TelegramUploader:
             if (
                 self._thumb is None
                 and thumb is not None
+                and not _is_permanent_thumb(thumb)
                 and await aiopath.exists(thumb)
             ):
                 await remove(thumb)
             if (
                 doc_thumb
                 and doc_thumb != thumb
+                and not _is_permanent_thumb(doc_thumb)
                 and await aiopath.exists(doc_thumb)
             ):
                 await remove(doc_thumb)
@@ -1290,12 +1307,14 @@ class TelegramUploader:
             if (
                 self._thumb is None
                 and thumb is not None
+                and not _is_permanent_thumb(thumb)
                 and await aiopath.exists(thumb)
             ):
                 await remove(thumb)
             if (
                 doc_thumb
                 and doc_thumb != thumb
+                and not _is_permanent_thumb(doc_thumb)
                 and await aiopath.exists(doc_thumb)
             ):
                 await remove(doc_thumb)
@@ -1312,19 +1331,40 @@ class TelegramUploader:
             if (
                 self._thumb is None
                 and thumb is not None
+                and not _is_permanent_thumb(thumb)
                 and await aiopath.exists(thumb)
             ):
                 await remove(thumb)
             if (
                 doc_thumb
                 and doc_thumb != thumb
+                and not _is_permanent_thumb(doc_thumb)
                 and await aiopath.exists(doc_thumb)
             ):
                 await remove(doc_thumb)
             err_type = "RPCError: " if isinstance(err, RPCError) else ""
             LOGGER.error(f"{err_type}{err}. Path: {self._up_path}", exc_info=True)
-            if "INTERDCCALL" in f"{type(err).__name__}: {err}".upper() and transient_attempt < 2:
-                await sleep(2 ** (transient_attempt + 1))
+            err_str = f"{type(err).__name__}: {err}".upper()
+            is_transient = any(
+                m in err_str
+                for m in (
+                    "INTERDCCALL",
+                    "TIMEOUT",
+                    "CONNECTIONRESET",
+                    "BROKENPIPE",
+                    "NETWORK",
+                    "CLIENTPAYLOADERROR",
+                    "500 INTERNAL",
+                    "502 BAD GATEWAY",
+                    "503 SERVICE",
+                )
+            ) or isinstance(err, (TimeoutError, ConnectionResetError, BrokenPipeError))
+            if is_transient and transient_attempt < 3:
+                backoff = 2 ** (transient_attempt + 1)
+                LOGGER.warning(
+                    f"Transient upload error: {err}. Retrying attempt {transient_attempt + 2}/4 in {backoff}s..."
+                )
+                await sleep(backoff)
                 return await self._upload_file(
                     cap_mono,
                     file,

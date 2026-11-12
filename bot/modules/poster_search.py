@@ -60,29 +60,32 @@ def _summary(session):
         key: len(_artwork(metadata, key))
         for key in ("landscape", "portrait", "clean")
     }
+    title = escape(str(metadata.get('title') or metadata.get('name') or 'Unknown'))
+    category = escape(str(metadata.get('category') or 'movie'))
     lines = [
-        "<b>Thumbnail Search</b>",
+        f"📺 <b>Thumbnail & Poster Studio</b>",
+        f"<b>Title:</b> <code>{title}</code>",
         "",
-        f"<b>Title:</b> {escape(str(metadata.get('title') or metadata.get('name') or 'Unknown'))}",
-        f"<b>Type:</b> {escape(str(metadata.get('category') or 'movie'))}",
+        "<blockquote>",
+        f"• <b>Type:</b> {category}",
     ]
     if metadata.get("season"):
-        lines.append(f"<b>Season:</b> {escape(str(metadata['season']))}")
+        lines.append(f"• <b>Season:</b> {escape(str(metadata['season']))}")
     if metadata.get("episode"):
-        lines.append(f"<b>Episode:</b> {escape(str(metadata['episode']))}")
+        lines.append(f"• <b>Episode:</b> {escape(str(metadata['episode']))}")
     if metadata.get("year"):
-        lines.append(f"<b>Year:</b> <code>{escape(str(metadata['year']))}</code>")
+        lines.append(f"• <b>Year:</b> <code>{escape(str(metadata['year']))}</code>")
     if metadata.get("provider"):
-        lines.append(f"<b>Provider:</b> {escape(str(metadata['provider']))}")
-    lines.extend(
-        [
-            "",
-            f"Landscape: <b>{counts['landscape']}</b> | Portrait: <b>{counts['portrait']}</b>",
-            f"Clean Landscape: <b>{counts['clean']}</b>",
-            "",
-            "Choose an artwork type or upload your own thumbnail.",
-        ]
-    )
+        lines.append(f"• <b>Provider:</b> {escape(str(metadata['provider']))}")
+    lines.extend([
+        f"• <b>Available Art:</b> Landscape ({counts['landscape']}) • Portrait ({counts['portrait']}) • Clean ({counts['clean']})",
+        "</blockquote>",
+    ])
+    overview = metadata.get("overview") or metadata.get("description") or ""
+    if overview:
+        short_syn = overview[:480].rsplit(" ", 1)[0] + "..." if len(overview) > 480 else overview
+        lines.append(f"\n<blockquote expandable><b>💎 𝗦𝗬𝗡𝗢𝗣𝗦𝗜𝗦 :</b>\n{escape(short_syn)}</blockquote>")
+    lines.append("\n<i>Choose an artwork type below or send your own thumbnail.</i>")
     return "\n".join(lines)
 
 

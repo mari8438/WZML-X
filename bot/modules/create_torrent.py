@@ -1759,8 +1759,6 @@ async def _collect_hstream_pack_auto(message, folder_path, folder_name, status_m
                     "--referer", item.url, "--merge-output-format", "mkv",
                     "-f", "bv*+ba/b", "-o", output_file,
                 ]
-                if ospath.isfile("cookies.txt"):
-                    cmd.extend(("--cookies", "cookies.txt"))
                 cmd.append(stream_url)
                 process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=STDOUT)
                 last_update = 0

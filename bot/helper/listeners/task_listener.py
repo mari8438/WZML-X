@@ -140,10 +140,8 @@ class TaskListener(TaskConfig):
             event.set()
         controller_gid = getattr(self, "batch_controller_gid", "")
         if controller_gid and result != "complete":
-            with suppress(Exception):
-                from ...modules.batch_task_registry import mark_controller_cancelled
-
-                mark_controller_cancelled(controller_gid, str(result))
+            # Link failed: skip it without cancelling the entire batch task
+            pass
 
     def _mark_batch_download_done(self):
         event = getattr(self, "batch_download_event", None)
@@ -428,7 +426,8 @@ class TaskListener(TaskConfig):
             ):
                 self.video_tool = True
 
-        if auto_enabled(self) and not self.video_tool and not self.is_cancelled:
+        if auto_enabled(self) and not self.is_cancelled:
+            self.video_tool = False
             up_path = await process_auto_pipeline(self, up_path, gid)
             if self.is_cancelled:
                 return
@@ -1017,7 +1016,16 @@ class TaskListener(TaskConfig):
             await clean_download(self.dir)
         if self.up_dir:
             await clean_download(self.up_dir)
-        if self.thumb and await aiopath.exists(self.thumb):
+        def _is_permanent_thumb(p):
+            if not p or str(p).strip().lower() == "none":
+                return False
+            try:
+                from os.path import abspath
+                return abspath(p).startswith(abspath("thumbnails"))
+            except Exception:
+                return False
+
+        if self.thumb and not _is_permanent_thumb(self.thumb) and await aiopath.exists(self.thumb):
             await remove(self.thumb)
         self._mark_bq_done(f"download_error: {error}")
         self.mark_multi_step_done()
@@ -1076,7 +1084,16 @@ class TaskListener(TaskConfig):
             await clean_download(self.dir)
         if self.up_dir:
             await clean_download(self.up_dir)
-        if self.thumb and await aiopath.exists(self.thumb):
+        def _is_permanent_thumb(p):
+            if not p or str(p).strip().lower() == "none":
+                return False
+            try:
+                from os.path import abspath
+                return abspath(p).startswith(abspath("thumbnails"))
+            except Exception:
+                return False
+
+        if self.thumb and not _is_permanent_thumb(self.thumb) and await aiopath.exists(self.thumb):
             await remove(self.thumb)
         self._mark_bq_done(f"upload_error: {error}")
         self.mark_multi_step_done()

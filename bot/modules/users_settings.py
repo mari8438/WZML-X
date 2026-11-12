@@ -95,7 +95,7 @@ TEMPLATE_VARIABLES_TEXT = (
     "{shortlang} {part} {raw_name} {link} {vcodec} {codec} {bit} {acodec} "
     "{audio_codec} {audio_channels} {audio_bitrate} {hdr} {dynamic_range} "
     "{release_group} {group} {date} {episode_name} {genres} {rating} "
-    "{plot} {synopsis}"
+    "{plot} {synopsis} {romaji} {japanese} {jp_title} {native} {native_title} {english}"
 )
 
 leech_options = [

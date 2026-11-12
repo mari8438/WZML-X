@@ -35,7 +35,7 @@ def patch_file(filepath: str):
 
         raw_fn = (
             f"🄰🅂- [S{season_num:02d}E{episode_num:02d}] {clean_name} {year_str} "
-            f"{resolution} {bit} {quality} {codec} [Tamil-AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
+            f"{resolution} {bit} {quality} {codec} [Tam + Jap AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
         )
         raw_fn = re.sub(r"\\s+", " ", raw_fn).strip()
         return cls.sanitize_bluray_keyword(raw_fn)
@@ -65,7 +65,7 @@ def patch_file(filepath: str):
 
         raw_fn = (
             f"📦 🄰🅂- [S{season_num}E{ep_start:02d}-{ep_end:02d}] {clean_name} {year_str} "
-            f"{resolution} {bit} {quality} {codec} [Tamil-AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
+            f"{resolution} {bit} {quality} {codec} [Tam + Jap AAC 2.0] ESub ~ {group} ~ [@Anime_Starfall🥰].mkv"
         )
         raw_fn = re.sub(r"\\s+", " ", raw_fn).strip()
         return cls.sanitize_bluray_keyword(raw_fn)"""

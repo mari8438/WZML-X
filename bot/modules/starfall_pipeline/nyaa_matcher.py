@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -108,6 +109,14 @@ class NyaaMatcher:
         """
         t = title.upper()
 
+        # Allow multi-season ranges (e.g. S01-S04, S1-S3, Seasons 1-4)
+        m_range = re.search(r"S(?:EASONS?)?\s*0*(\d{1,2})\s*[-~]\s*(?:S(?:EASON)?)?\s*0*(\d{1,2})", t)
+        if m_range:
+            s_start, s_end = int(m_range.group(1)), int(m_range.group(2))
+            if s_start <= target_season <= s_end:
+                # Target season is within this multi-season collection!
+                return True
+
         # Reject other seasons (e.g., if searching season 1, reject S02, Season 2, 2nd Season)
         for s in range(1, 10):
             if s != target_season and re.search(rf"\b(S(?:EASON)?\s*0?{s}|{s}(?:ND|RD|TH)\s*SEASON)\b", t):
@@ -158,7 +167,8 @@ class NyaaMatcher:
         req = urllib.request.Request(url, headers=headers)
         results = []
         try:
-            with urllib.request.urlopen(req, timeout=12) as resp:
+            time.sleep(0.2)
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 xml_content = resp.read()
             root = ET.fromstring(xml_content)
             channel = root.find("channel")
@@ -247,24 +257,23 @@ class NyaaMatcher:
             search_titles.append(romaji_title)
         if eng_title and eng_title.lower() != romaji_title.lower():
             search_titles.append(eng_title)
-        if meta and meta.get("synonyms"):
-            for syn in meta["synonyms"]:
-                if syn and syn not in search_titles:
-                    search_titles.append(syn)
         if not search_titles:
             search_titles.append(title_english)
 
         all_candidates: Dict[str, Dict[str, Any]] = {}
 
-        # Search queries for each name variant
-        for t in search_titles:
+        # Search queries for primary title variants
+        for t in search_titles[:2]:
             queries = [
+                f"{t} Complete Collection 1080p",
+                f"{t} Complete 1080p",
                 f"{t} S{season_number:02d} 1080p",
                 f"{t} Season {season_number} 1080p",
                 f"{t} Batch 1080p",
-                f"{t} 1080p",
             ]
             for q in queries:
+                if len(all_candidates) >= 6:
+                    break
                 items = self.search_nyaa_rss(q)
                 for item in items:
                     title = item["title"]

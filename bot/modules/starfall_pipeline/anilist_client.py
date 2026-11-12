@@ -38,6 +38,7 @@ class AniListClient:
 
     def __init__(self, session: Optional[requests.Session] = None):
         self.session = session or requests.Session()
+        self._cache: Dict[str, Any] = {}
         self.session.headers.update({
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -47,47 +48,79 @@ class AniListClient:
     def search_anime(self, title: str) -> Optional[Dict[str, Any]]:
         """
         Query AniList for an anime title and return standardized metadata.
+        Uses Page.media so non-exact matches never raise HTTP 404, and falls back to
+        parenthetical alternate titles or spaced compound words (e.g. Summertime -> Summer Time).
         """
+        alt_match = re.search(r"\((.*?)\)", title)
+        alt_title = alt_match.group(1).strip() if alt_match else ""
+
         clean_title = re.sub(r"\[.*?\]|\(.*?\)|Season\s*\d+|S\d+", "", title).strip()
         clean_title = re.sub(r"[-_]", " ", clean_title).strip()
+        cache_key = clean_title.lower()
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
-        # Query GraphQL directly with search string
-        gql = f'''
-        {{
-          Media(search: "{clean_title}", type: ANIME) {{
-            id
-            idMal
-            title {{
-              romaji
-              english
-              native
-            }}
-            synonyms
-            season
-            seasonYear
-            episodes
-            format
-            genres
-            averageScore
-            description(asHtml: false)
-            coverImage {{
-              extraLarge
-              large
-            }}
-          }}
-        }}
-        '''
+        search_candidates = [clean_title]
+        if alt_title and alt_title.lower() != clean_title.lower():
+            search_candidates.append(alt_title)
+        if "summertime" in clean_title.lower():
+            search_candidates.append(re.sub(r"(?i)summertime", "Summer Time", clean_title))
+        if "&" in clean_title:
+            search_candidates.append(clean_title.split("&")[0].strip())
 
-        try:
-            resp = self.session.post(ANILIST_API_URL, json={"query": gql}, timeout=10)
-            if resp.status_code != 200:
-                LOGGER.warning(f"AniList query returned status {resp.status_code} for {clean_title}")
-                return None
-            data = resp.json().get("data", {}).get("Media")
-            return data
-        except Exception as e:
-            LOGGER.error(f"Error querying AniList for {clean_title}: {e}")
-            return None
+        for cand in search_candidates:
+            if not cand:
+                continue
+            safe_q = cand.replace('"', '\\"')
+            gql = f'''
+            {{
+              Page(perPage: 1) {{
+                media(search: "{safe_q}", type: ANIME, sort: SEARCH_MATCH) {{
+                  id
+                  idMal
+                  title {{
+                    romaji
+                    english
+                    native
+                  }}
+                  synonyms
+                  season
+                  seasonYear
+                  episodes
+                  format
+                  status
+                  genres
+                  averageScore
+                  description(asHtml: false)
+                  studios(isMain: true) {{
+                    nodes {{
+                      name
+                    }}
+                  }}
+                  coverImage {{
+                    extraLarge
+                    large
+                  }}
+                  bannerImage
+                }}
+              }}
+            }}
+            '''
+            try:
+                resp = self.session.post(ANILIST_API_URL, json={"query": gql}, timeout=10)
+                if resp.status_code == 200:
+                    media_list = ((resp.json().get("data") or {}).get("Page") or {}).get("media") or []
+                    if media_list:
+                        data = media_list[0]
+                        self._cache[cache_key] = data
+                        return data
+                else:
+                    LOGGER.debug(f"AniList query returned status {resp.status_code} for {cand}")
+            except Exception as e:
+                LOGGER.warning(f"Error querying AniList for {cand}: {e}")
+
+        self._cache[cache_key] = None
+        return None
 
     def get_romaji_title(self, title: str) -> str:
         """Translate English title to official Romaji title."""

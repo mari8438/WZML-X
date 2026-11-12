@@ -1,7 +1,8 @@
+import os
 from ... import LOGGER
 from ...core.config_manager import Config
 
-STATIC_DEFAULT_URL = "http://172.105.52.160:8080"
+STATIC_DEFAULT_URL = os.environ.get("BASE_URL", "")
 
 
 async def _sync_base_url_to_db(url):

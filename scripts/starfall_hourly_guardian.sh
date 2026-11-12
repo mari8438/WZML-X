@@ -31,7 +31,7 @@ Execute the following autonomous health and self-healing cycle:
    - If aria2c fails with code 13, verify `--allow-overwrite=true` and `--auto-file-renaming=false` in `torrent_downloader.py`.
    - If tmpfs or disk is full, check `df -h / /dev/shm` and clean up any partial mux stubs older than 2 hours in `/dev/shm/starfall_mux/`.
    - If autorename differs from user format, ensure `format_episode_filename` and `format_season_merge_filename` strictly produce:
-     `🄰🅂- [S01E01] Name (Year) 1080p 10bit BluRay HEVC [Tamil-AAC 2.0] ESub ~ Group ~ [@Anime_Starfall🥰].mkv`
+     `🄰🅂- [S01E01] Name (Year) 1080p 10bit BluRay HEVC [Tam + Jap AAC 2.0] ESub ~ Group ~ [@Anime_Starfall🥰].mkv`
    - If thumbnails differ, ensure the single authoritative 16:9 thumbnail is shared for the entire season.
    - If any python file is edited, run `python3 -m py_compile <file>` and restart `starfall-pipeline.service`.
 

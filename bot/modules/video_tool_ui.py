@@ -217,7 +217,11 @@ async def render_muxing_configuration(vt_msg, state):
     external_sub = state.get("external_sub", [])
 
     audio_delay_ms = int(state.get("audio_delay_ms") or 0)
+    if audio_delay_ms == 0 and external_audio and external_audio[0].get("delay_ms"):
+        audio_delay_ms = int(external_audio[0]["delay_ms"])
     delay_summary = f" ({audio_delay_ms:+d}ms)" if audio_delay_ms != 0 else ""
+    if external_audio and external_audio[0].get("psr_score"):
+        delay_summary += f" [PSR {external_audio[0]['psr_score']}]"
 
     auto_sync = f"ON{delay_summary}" if state.get("auto_sync", True) else f"OFF{delay_summary}"
     final_sample = "ON (1 Sample Only)" if state.get("final_sample", True) else "OFF"
@@ -336,7 +340,10 @@ async def render_muxing_configuration(vt_msg, state):
             size_mb = item.get("size_mb", 0.0)
             size_display = f"{size_mb:.2f}MB" if size_mb else "N/A"
             delay = item.get("delay_ms", 0)
+            psr = item.get("psr_score")
             sync_info = f" | Sync: {delay:+d}ms"
+            if psr:
+                sync_info += f" [PSR {psr}]"
             if length_diff_ms is not None:
                 sync_info += f" | Δ: {length_diff_ms:+d}ms"
             lines.append(
@@ -355,7 +362,7 @@ async def render_muxing_configuration(vt_msg, state):
 
     rows = []
     # 1. Prominent Web Studio URL Button
-    base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL and "trycloudflare.com" not in Config.BASE_URL else f"http://172.105.52.160:{Config.BASE_URL_PORT or 8080}"
+    base_url = Config.BASE_URL.rstrip('/') if Config.BASE_URL else f"http://127.0.0.1:{Config.BASE_URL_PORT or 8080}"
     web_url = state.get("web_studio_url") or f"{base_url}/app/video-studio?task_id={task_id}&token={state.get('token', '')}"
     if web_url:
         rows.append([
@@ -1147,14 +1154,34 @@ async def video_tools_callback(_, query):
                 if toggle_key == "auto_sync":
                     state["auto_sync"] = not state.get("auto_sync", True)
                     if state["auto_sync"]:
-                        video_dur = float(state.get("video_duration", 0) or 0)
-                        for a in state.get("external_audio", []):
-                            track_dur = float(a.get("duration", 0) or 0)
-                            if video_dur and track_dur:
-                                a["delay_ms"] = int(round((video_dur - track_dur) * 1000))
+                        video_path = state.get("input_path")
+                        if not video_path and state.get("folder_videos"):
+                            video_path = state["folder_videos"][0]
+                        ext_audio = state.get("external_audio", [])
+                        if ext_audio and video_path and ospath.isfile(video_path):
+                            from ..helper.video_utils.video_tools import compute_acoustic_sync_delay
+                            with suppress(Exception):
+                                await query.answer("⚡ Running acoustic waveform analysis...", show_alert=False)
+                            for a in ext_audio:
+                                audio_path = a.get("path")
+                                if audio_path and ospath.isfile(audio_path):
+                                    sync_res = await compute_acoustic_sync_delay(video_path, audio_path)
+                                    a["delay_ms"] = sync_res["delay_ms"]
+                                    a["psr_score"] = sync_res["psr_score"]
+                                    a["sync_mode"] = sync_res["sync_mode"]
+                                    a["acoustic_sync_done"] = True
+                                    if sync_res.get("healed_path") and ospath.isfile(sync_res["healed_path"]):
+                                        a["path"] = sync_res["healed_path"]
+                        else:
+                            video_dur = float(state.get("video_duration", 0) or 0)
+                            for a in state.get("external_audio", []):
+                                track_dur = float(a.get("duration", 0) or 0)
+                                if video_dur and track_dur:
+                                    a["delay_ms"] = int(round((video_dur - track_dur) * 1000))
                     else:
                         for a in state.get("external_audio", []):
                             a["delay_ms"] = 0
+                            a.pop("acoustic_sync_done", None)
                     state["preview_stale"] = True
                 elif toggle_key == "preview_sync":
                     state["preview_sync"] = not state.get("preview_sync", True)
