@@ -876,6 +876,17 @@ class TaskConfig:
                 max_rounds,
                 self.name,
             )
+        if self.is_file and output_path == dl_path and self.files_to_proceed:
+            LOGGER.warning(
+                f"Auto-unzip failed for {self.name}: Archive could not be extracted (password protected or corrupted)."
+            )
+            try:
+                await send_message(
+                    self.message,
+                    f"⚠️ <b>Auto-Unzip Failed:</b> <code>{self.name}</code> could not be extracted (it may be encrypted with a password or corrupted). Proceeding with raw archive upload...",
+                )
+            except Exception:
+                pass
         return output_path if self.is_file and output_path != dl_path else dl_path
 
     async def proceed_ffmpeg(self, dl_path, gid):

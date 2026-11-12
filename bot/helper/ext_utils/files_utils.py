@@ -8,7 +8,7 @@ from asyncio.subprocess import PIPE
 from contextlib import suppress
 from psutil import disk_usage
 from os import path as ospath, readlink, walk
-from re import I, escape, search as re_search, split as re_split, sub as re_sub
+from re import I, escape, search as re_search, split as re_split, sub as re_sub, findall as re_findall
 
 from aiofiles.os import (
     listdir,
@@ -346,10 +346,18 @@ def get_base_name(orig_path):
         (ext for ext in sorted(ARCH_EXT, key=len, reverse=True) if orig_path.strip().lower().endswith(ext)), ""
     )
     if extension != "":
-        return re_split(f"{re_escape(extension)}$", orig_path, maxsplit=1, flags=I)[0]
+        base = re_split(f"{escape(extension)}$", orig_path, maxsplit=1, flags=I)[0]
     else:
         root, _ = ospath.splitext(orig_path)
-        return root or f"{orig_path}_extracted"
+        base = root or f"{orig_path}_extracted"
+
+    clean_base = re_sub(
+        r"[\.-](?:pahe\.in|pahe\.ink|pahe\.li|pahe\.me|psa\.pm|xdmovies\.com|(?:[a-zA-Z0-9_]{3,}\.(?:in|ink|li|me|pm|wf|re|com|org|net|cc|to|is|cx|ms|fun|club|site|xyz))|in)$",
+        "",
+        base,
+        flags=I,
+    )
+    return clean_base or base
 
 
 def get_source_container_name(name):
@@ -369,6 +377,12 @@ def get_source_container_name(name):
         if value.lower().endswith(extension):
             value = value[: -len(extension)]
             break
+    value = re_sub(
+        r"[\.-](?:pahe\.in|pahe\.ink|pahe\.li|pahe\.me|psa\.pm|xdmovies\.com|(?:[a-zA-Z0-9_]{3,}\.(?:in|ink|li|me|pm|wf|re|com|org|net|cc|to|is|cx|ms|fun|club|site|xyz))|in)$",
+        "",
+        value,
+        flags=I,
+    )
     return re_sub(r'[\\/:*?"<>|]+', " ", value).strip(" .-")
 
 
@@ -568,89 +582,176 @@ class SevenZ:
                 or ".part01.rar" in f_lower
                 or ".part001.rar" in f_lower
                 or ".rar." in f_lower
-                or ".rar" in f_lower
+                or f_lower.endswith(".rar")
             )
 
-        if is_rar and (await aiopath.exists("/usr/bin/unrar") or await aiopath.exists("unrar")):
-            unrar_bin = "/usr/bin/unrar" if await aiopath.exists("/usr/bin/unrar") else "unrar"
-            cmd_unrar = [unrar_bin, "x", "-y", "-o+"]
-            if pswd:
-                cmd_unrar.append(f"-p{pswd}")
+        # Build candidate password list (auto-detect release groups, sites & domains)
+        candidate_passwords = []
+        if pswd:
+            candidate_passwords.append(str(pswd).strip())
+
+        f_base = ospath.basename(f_path).lower()
+        if "pahe" in f_base:
+            for p in ["pahe.in", "pahe.li", "pahe.ink", "pahe.me"]:
+                if p not in candidate_passwords:
+                    candidate_passwords.append(p)
+        if "psa" in f_base:
+            for p in ["psa.pm", "psa.wf", "psa.re"]:
+                if p not in candidate_passwords:
+                    candidate_passwords.append(p)
+        if "uhdmovies" in f_base:
+            for p in ["uhdmovies", "uhdmovies.fun"]:
+                if p not in candidate_passwords:
+                    candidate_passwords.append(p)
+        if "katmoviehd" in f_base:
+            for p in ["katmoviehd", "katmoviehd.cx"]:
+                if p not in candidate_passwords:
+                    candidate_passwords.append(p)
+        if "xdmovies" in f_base:
+            for p in ["XDMovies.com", "xdmovies.com"]:
+                if p not in candidate_passwords:
+                    candidate_passwords.append(p)
+
+        domains = re_findall(
+            r"(?:^|[\.\-_@])([a-zA-Z0-9-]+\.(?:in|li|ink|me|pm|wf|re|com|org|net|cc|to|is|cx|ms|fun|club|site|xyz))(?:[\.\-_]|$)",
+            f_base,
+        )
+        for d in domains:
+            if d not in candidate_passwords:
+                candidate_passwords.append(d)
+
+        if self._listener:
+            src = getattr(self._listener, "source_url", "") or getattr(self._listener, "link", "")
+            if src:
+                s_lower = str(src).lower()
+                if "pahe" in s_lower:
+                    for p in ["pahe.in", "pahe.li", "pahe.ink"]:
+                        if p not in candidate_passwords:
+                            candidate_passwords.append(p)
+                for d in re_findall(r"(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+\.[a-zA-Z]{2,6})", s_lower):
+                    if d not in candidate_passwords and not d.startswith("cloud-") and not d.endswith("workers.dev"):
+                        candidate_passwords.append(d)
+
+        for common in ["pahe.in", "pahe.li", "psa.pm", "uhdmovies", "1234", "12345"]:
+            if common not in candidate_passwords:
+                candidate_passwords.append(common)
+
+        # Always try empty password FIRST if none was explicitly given by user!
+        if pswd:
+            passwords_to_try = [str(pswd).strip()]
+        else:
+            passwords_to_try = [""] + candidate_passwords
+
+        has_unrar = await aiopath.exists("/usr/bin/unrar") or await aiopath.exists("unrar")
+        unrar_bin = "/usr/bin/unrar" if await aiopath.exists("/usr/bin/unrar") else "unrar"
+        has_unzip = await aiopath.exists("/usr/bin/unzip") or await aiopath.exists("unzip")
+        unzip_bin = "/usr/bin/unzip" if await aiopath.exists("/usr/bin/unzip") else "unzip"
+
+        last_code = 1
+        for attempt_pwd in passwords_to_try:
+            if self._listener.is_cancelled:
+                return False
+
+            pwd_label = f"with password '{attempt_pwd}'" if attempt_pwd else "without password"
+
+            # If RAR format, try unrar first
+            if is_rar and has_unrar:
+                cmd_unrar = [unrar_bin, "x", "-y", "-o+"]
+                if attempt_pwd:
+                    cmd_unrar.append(f"-p{attempt_pwd}")
+                else:
+                    cmd_unrar.append("-p-")
+                cmd_unrar.extend([f_path, f"{t_path}/"])
+                LOGGER.info(f"Extracting RAR archive using unrar {pwd_label}: {f_path}")
+                await aiomakedirs(t_path, exist_ok=True)
+                self._listener.subproc = await create_subprocess_exec(
+                    *cmd_unrar,
+                    stdout=PIPE,
+                    stderr=PIPE,
+                    stdin=asyncio.subprocess.DEVNULL,
+                )
+                stdout, stderr = await self._listener.subproc.communicate()
+                code = self._listener.subproc.returncode
+                if code in (0, 1):
+                    LOGGER.info(f"Successfully extracted RAR archive: {f_path} ({pwd_label})")
+                    return 0
+                err_msg = stderr.decode(errors="ignore").strip() or stdout.decode(errors="ignore").strip()
+                LOGGER.warning(f"unrar ({pwd_label}) returned {code}: {err_msg}")
+                last_code = code
+
+            # 7z extraction (primary for zip/7z/tar or fallback for rar)
+            cmd_7z = [
+                "7z",
+                "x",
+                "-y",
+                f"-o{t_path}",
+                "-aot",
+                "-xr!@PaxHeader",
+                "-bsp1",
+                "-bse1",
+                "-bb3",
+            ]
+            if attempt_pwd:
+                cmd_7z.append(f"-p{attempt_pwd}")
             else:
-                cmd_unrar.append("-p-")
-            cmd_unrar.extend([f_path, f"{t_path}/"])
-            LOGGER.info(f"Extracting RAR archive using unrar: {f_path}")
+                cmd_7z.append("-p-")
+            cmd_7z.append(f_path)
+
+            LOGGER.info(f"Extracting archive using 7z {pwd_label}: {f_path}")
             if self._listener.is_cancelled:
                 return False
             await aiomakedirs(t_path, exist_ok=True)
             self._listener.subproc = await create_subprocess_exec(
-                *cmd_unrar,
+                *cmd_7z,
                 stdout=PIPE,
                 stderr=PIPE,
+                stdin=asyncio.subprocess.DEVNULL,
             )
+            await self._sevenz_progress()
             stdout, stderr = await self._listener.subproc.communicate()
             code = self._listener.subproc.returncode
-            if code in (0, 1):
-                LOGGER.info(f"Successfully extracted RAR archive: {f_path}")
+            if self._listener.is_cancelled:
+                return False
+            if code == 0:
+                LOGGER.info(f"Successfully extracted archive using 7z ({pwd_label}): {f_path}")
                 return 0
-            err_msg = stderr.decode(errors="ignore").strip() or stdout.decode(errors="ignore").strip()
-            LOGGER.warning(f"unrar returned {code}: {err_msg}. Trying 7z fallback...")
 
-        cmd = [
-            "7z",
-            "x",
-            f"-p{pswd}",
-            f_path,
-            f"-o{t_path}",
-            "-aot",
-            "-xr!@PaxHeader",
-            "-bsp1",
-            "-bse1",
-            "-bb3",
-        ]
-        if not pswd:
-            del cmd[2]
-        if self._listener.is_cancelled:
-            return False
-        self._listener.subproc = await create_subprocess_exec(
-            *cmd,
-            stdout=PIPE,
-            stderr=PIPE,
-        )
-        await self._sevenz_progress()
-        stdout, stderr = await self._listener.subproc.communicate()
-        code = self._listener.subproc.returncode
-        if self._listener.is_cancelled:
-            return False
-        if code == -9:
-            self._listener.is_cancelled = True
-            return False
-        elif code != 0:
-            if await aiopath.exists("/usr/bin/unrar") or await aiopath.exists("unrar"):
-                unrar_bin = "/usr/bin/unrar" if await aiopath.exists("/usr/bin/unrar") else "unrar"
-                cmd_unrar = [unrar_bin, "x", "-y", "-o+"]
-                if pswd:
-                    cmd_unrar.append(f"-p{pswd}")
-                else:
-                    cmd_unrar.append("-p-")
-                cmd_unrar.extend([f_path, f"{t_path}/"])
-                LOGGER.info(f"Attempting unrar fallback for: {f_path}")
-                await aiomakedirs(t_path, exist_ok=True)
-                subproc = await create_subprocess_exec(
-                    *cmd_unrar,
+            # If zip extension and native unzip exists, try unzip
+            if f_path.lower().endswith(".zip") and has_unzip:
+                cmd_unzip = [unzip_bin, "-q", "-o"]
+                if attempt_pwd:
+                    cmd_unzip.extend(["-P", attempt_pwd])
+                cmd_unzip.extend([f_path, "-d", t_path])
+                LOGGER.info(f"Extracting zip archive using unzip {pwd_label}: {f_path}")
+                self._listener.subproc = await create_subprocess_exec(
+                    *cmd_unzip,
                     stdout=PIPE,
                     stderr=PIPE,
+                    stdin=asyncio.subprocess.DEVNULL,
                 )
-                stdout_unrar, stderr_unrar = await subproc.communicate()
-                if subproc.returncode in (0, 1):
-                    LOGGER.info(f"Successfully extracted archive using unrar fallback: {f_path}")
+                stdout, stderr = await self._listener.subproc.communicate()
+                code_unzip = self._listener.subproc.returncode
+                if code_unzip in (0, 1):
+                    LOGGER.info(f"Successfully extracted zip archive using unzip ({pwd_label}): {f_path}")
                     return 0
-            try:
-                err_text = stderr.decode().strip() or stdout.decode().strip()
-            except Exception:
-                err_text = "Unable to decode the error!"
-            LOGGER.error(f"{err_text}. Unable to extract archive!. Path: {f_path}")
-        return code
+
+            out_text = (stderr.decode(errors="ignore") + stdout.decode(errors="ignore")).strip()
+            is_pwd_err = (
+                "password" in out_text.lower()
+                or "crc failed in encrypted file" in out_text.lower()
+                or "cannot open encrypted" in out_text.lower()
+                or "data error in encrypted file" in out_text.lower()
+                or last_code == 11
+            )
+            if not is_pwd_err and attempt_pwd != "":
+                LOGGER.warning(f"Archive extraction failed with non-password error: {out_text[:200]}")
+                last_code = code
+                break
+
+            last_code = code
+
+        LOGGER.error(f"Unable to extract archive after trying candidate passwords!. Path: {f_path}")
+        return last_code
 
     async def zip(self, dl_path, up_path, pswd):
         size = await get_path_size(dl_path)
