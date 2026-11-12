@@ -59,7 +59,7 @@ class Config:
     MYANIMELIST_CLIENT_ID = ""
     MYANIMELIST_CLIENT_NAME = ""
     AUTORENAME = True
-    BASE_URL = os.environ.get("BASE_URL", "")
+    BASE_URL = getenv("BASE_URL", "")
     BASE_URL_PORT = 8080
     BOT_TOKEN = ""
     HELPER_TOKENS = ""
