@@ -2569,7 +2569,9 @@ async def extract_metadata_from_filename(filename, filepath=None, **extra):
             if ep_name and not re.fullmatch(r"[A-Fa-f0-9]{6,}", ep_name):
                 metadata["episode_name"] = ep_name
 
-    if not episode_found:
+    is_movie_title = bool(re.search(r"\b(?:movie|the\s+movie|film)\b", filename, re.IGNORECASE))
+
+    if not episode_found and not is_movie_title:
         episode_patterns = [
             r"^0*(\d{1,4})[\s\.\-_]+(?![xX]\d)",
             r"(?<![A-Za-z0-9])(?:[Ee]pisode|[Ee]p|[Ee])[\s\.\-]*0*(\d{1,4})(?![A-Za-z0-9])",
@@ -2595,6 +2597,8 @@ async def extract_metadata_from_filename(filename, filepath=None, **extra):
                 ep_value = episode_match.group(1)
                 try:
                     ep_num = int(ep_value)
+                    if ep_num in (264, 265, 480, 720, 1080, 2160):
+                        continue
                     if pat == r"^0*(\d{1,4})[\s\.\-_]+(?![xX]\d)":
                         if ep_num >= 1920 or ep_num == 0:
                             continue
@@ -2625,14 +2629,23 @@ async def extract_metadata_from_filename(filename, filepath=None, **extra):
                 )
                 if fallback_match:
                     ep_num = int(fallback_match.group(1))
-                    if 1 <= ep_num <= 9999:
+                    if 1 <= ep_num <= 9999 and ep_num not in (264, 265, 480, 720, 1080, 2160):
                         metadata["episode"] = str(ep_num).zfill(
                             4 if ep_num >= 1000 else 3 if ep_num >= 100 else 2
                         )
                         episode_found = True
 
-    if metadata.get("episode") and not metadata.get("season"):
-        metadata["season"] = "1"
+    if is_movie_title:
+        metadata["season"] = ""
+        metadata["episode"] = ""
+        metadata["range"] = ""
+    elif metadata.get("episode") and not metadata.get("season"):
+        metadata["season"] = "01"
+    elif metadata.get("season"):
+        try:
+            metadata["season"] = str(int(metadata["season"])).zfill(2)
+        except (ValueError, TypeError):
+            pass
 
     resolution_match = re.search(r"(\d{3,4}p|4K|2160p)", filename, re.IGNORECASE)
     if resolution_match:
@@ -2812,9 +2825,12 @@ async def apply_template_rename(filename, template, filepath=None, **extra):
         renamed = re.sub(r"\[\s*-\s*\]\s*", "", renamed)
         renamed = re.sub(r"\[\s*\]\s*", "", renamed)
         renamed = re.sub(r"\(\s*\)\s*", "", renamed)
-        # Ensure '🄰🅂- ' has clean spacing
-        renamed = re.sub(r"^🄰🅂-\s*", "🄰🅂- ", renamed)
+        # Ensure '🄰🅂- ' has clean spacing:
+        # If followed by [, no space: '🄰🅂-[S01E01]'
+        # If followed by movie title, clean single space: '🄰🅂- '
         renamed = re.sub(r"\s+", " ", renamed).strip()
+        renamed = re.sub(r"^🄰🅂-(?!\[)\s*", "🄰🅂- ", renamed)
+        renamed = re.sub(r"^🄰🅂-\s*\[", "🄰🅂-[", renamed)
         original_ext = Path(filename).suffix
         if original_ext and not renamed.lower().endswith(original_ext.lower()):
             renamed += original_ext

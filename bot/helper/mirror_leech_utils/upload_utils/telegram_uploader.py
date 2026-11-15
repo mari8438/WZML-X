@@ -408,15 +408,20 @@ class TelegramUploader:
             cap_file_ = clean_rss_filename(cap_file_)
 
         if self._lprefix and not rss_skip_prefix_suffix:
-            cap_file_ = self._lprefix.replace(r"\s", " ") + file_
-            self._lprefix = re_sub(r"<.*?>", "", self._lprefix).replace(r"\s", " ")
-            if not file_.startswith(self._lprefix):
-                file_ = f"{self._lprefix}{file_}"
+            raw_prefix = re_sub(r"<.*?>", "", self._lprefix).replace(r"\s", " ").strip()
+            clean_lprefix = self._lprefix.replace(r"\s", " ")
+            if not cap_file_.startswith(raw_prefix) and not cap_file_.startswith("🄰🅂-"):
+                cap_file_ = clean_lprefix + cap_file_
+            self._lprefix = raw_prefix
+            if not file_.startswith(raw_prefix) and not file_.startswith("🄰🅂-"):
+                file_ = f"{clean_lprefix}{file_}"
 
         if self._lsuffix and not rss_skip_prefix_suffix:
+            raw_suffix = re_sub(r"<.*?>", "", self._lsuffix).replace(r"\s", " ").strip()
             name, ext = ospath.splitext(cap_file_)
-            cap_file_ = name + self._lsuffix.replace(r"\s", " ") + ext
-            self._lsuffix = re_sub(r"<.*?>", "", self._lsuffix).replace(r"\s", " ")
+            if raw_suffix and raw_suffix not in name and "@Anime_Starfall" not in name:
+                cap_file_ = name + self._lsuffix.replace(r"\s", " ") + ext
+            self._lsuffix = raw_suffix
 
         cap_mono = (
             f"<{self._lfont}>{cap_file_}</{self._lfont}>"
@@ -488,7 +493,8 @@ class TelegramUploader:
             file_ = f"{name}{ext}"
         elif self._lsuffix:
             name, ext = ospath.splitext(file_)
-            file_ = f"{name}{self._lsuffix}{ext}"
+            if self._lsuffix not in name and "@Anime_Starfall" not in name:
+                file_ = f"{name}{self._lsuffix}{ext}"
 
         if self._caption_word_replace:
             try:
