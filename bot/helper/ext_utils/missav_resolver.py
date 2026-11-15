@@ -68,6 +68,8 @@ class MissAVTitle:
     views: int = 0
     actors: list[str] = field(default_factory=list)
     director: str = ""
+    maker: str = ""
+    label: str = ""
     genres: list[str] = field(default_factory=list)
     master_url: str = ""
     qualities: list[MissAVQuality] = field(default_factory=list)
@@ -680,6 +682,12 @@ class MissAVResolver:
         date = _meta(tree, "og:video:release_date")
         views = _extract_views(source, tree)
         actors = [value.strip() for value in tree.xpath('//meta[@property="og:video:actor"]/@content') if value.strip()]
+        if not actors:
+            actors = [a.strip() for a in tree.xpath('//a[contains(@href, "/actresses/")]/text()') if a.strip() and "ranking" not in a.lower()]
+        makers = tree.xpath('//a[contains(@href, "/makers/")]/text()')
+        maker = makers[0].strip() if makers else ""
+        labels = tree.xpath('//a[contains(@href, "/labels/")]/text()')
+        label = labels[0].strip() if labels else ""
         director = _meta(tree, "og:video:director")
         genres = _extract_genres(tree)
         has_sub_badge = (
@@ -700,6 +708,8 @@ class MissAVResolver:
             views=views,
             actors=actors,
             director=director,
+            maker=maker,
+            label=label,
             genres=genres,
             master_url=master_urls[0],
             sample_urls=sample_urls,

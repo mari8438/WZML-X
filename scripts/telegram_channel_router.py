@@ -408,9 +408,19 @@ async def run_pipeline(limit: int = 0, dedup_only: bool = False, specific_id: Op
 
             if possible_files:
                 target_file = possible_files[0]
-                caption = f"🎬 <b>{movie['Popular_Anime_Movie_Title']} ({movie['Release_Year']})</b>\n\n" \
-                          f"🏢 <b>Studio:</b> {movie.get('Director_And_Studio', 'N/A')}\n" \
-                          f"📦 <b>Release:</b> {movie.get('Primary_1080p_HEVC_10bit_Release', '1080p HEVC')}"
+                from bot.modules.starfall_pipeline.pipeline_manager import AutoRenameResolver
+                movie_fn = AutoRenameResolver.format_movie_filename(
+                    movie_title=movie['Popular_Anime_Movie_Title'],
+                    year=int(movie.get('Release_Year') or 0),
+                    resolved_meta={
+                        "quality": "BluRay",
+                        "codec": "HEVC",
+                        "bit": "10bit",
+                        "resolution": "1080p",
+                        "release_group": (movie.get('Primary_1080p_HEVC_10bit_Release') or 'Judas').split()[0].strip('[]')
+                    }
+                )
+                caption = f"<b>{movie_fn}</b>"
                 msg_id = await router.upload_file(target_file, caption=caption)
                 if msg_id:
                     router.record_success(movie, msg_id, source_type="LOCAL_UPLOAD", file_size=os.path.getsize(target_file))

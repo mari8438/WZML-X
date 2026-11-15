@@ -87,7 +87,7 @@ async def upload_image_details(path, client=None, api_key=None):
         if not img_data:
             raise LuminapixError(f"LuminaPix returned unexpected JSON structure: {payload}")
 
-        direct_url = img_data.get("display_url") or img_data.get("url")
+        direct_url = img_data.get("url") or img_data.get("display_url")
         thumb_url = img_data.get("thumb", {}).get("url") or direct_url
         page_url = img_data.get("url_viewer") or img_data.get("url_short") or direct_url
 

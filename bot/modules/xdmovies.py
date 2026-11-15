@@ -186,6 +186,28 @@ async def queue_xdmovies_candidates(
     return queued
 
 
+async def xdmovies_monitor():
+    """Daily monitor job scheduled to run once a day for XDMovies."""
+    if not getattr(Config, "XDMOVIES_AUTO_LEECH", False):
+        return
+
+    from ..helper.ext_utils.hstream_maintenance import hstream_maintenance
+
+    if hstream_maintenance.pauses_feeds():
+        LOGGER.info("XDMovies monitor paused for owner maintenance.")
+        return
+
+    LOGGER.info("XDMovies: running daily scheduled crawl for 1080p AV1/HEVC Tamil releases...")
+    try:
+        seen = _seen_items()
+        candidates = await XDMoviesResolver.get_tamil_candidates(max_pages=2, seen=seen)
+        if candidates:
+            queued = await queue_xdmovies_candidates(candidates, seen=seen)
+            LOGGER.info(f"XDMovies daily monitor queued {queued} new release(s).")
+    except Exception as err:
+        LOGGER.error(f"XDMovies daily monitor failed: {err}", exc_info=True)
+
+
 def _build_dashboard_buttons(user_id: int) -> ButtonMaker:
     """Constructs interactive /userset style inline buttons for XDMovies."""
     buttons = ButtonMaker()
@@ -570,3 +592,31 @@ async def xdmovies_handler(_, message):
         except Exception as err:
             LOGGER.error(f"XDMovies search failed: {err}", exc_info=True)
             await edit_message(notice, f"❌ <b>XDMovies search error:</b> <code>{err}</code>")
+
+
+def start_xdmovies_scheduler():
+    """Initializes and schedules the daily XDMovies monitor ONLY if explicitly enabled."""
+    if not getattr(Config, "XDMOVIES_AUTO_LEECH", False):
+        LOGGER.info("XDMovies background scheduler disabled (on-demand mode active).")
+        return
+
+    try:
+        from apscheduler.triggers.interval import IntervalTrigger
+        from .. import scheduler
+
+        hours = int(getattr(Config, "XDMOVIES_CHECK_INTERVAL_HOURS", 24) or 24)
+        if scheduler.get_job("xdmovies") is None:
+            scheduler.add_job(
+                xdmovies_monitor,
+                trigger=IntervalTrigger(hours=hours),
+                id="xdmovies",
+                name="XDMovies Daily Leech",
+                misfire_grace_time=600,
+                max_instances=1,
+                replace_existing=True,
+            )
+            LOGGER.info(f"XDMovies daily scheduler registered (every {hours} hours).")
+            if not scheduler.running:
+                scheduler.start()
+    except Exception as err:
+        LOGGER.warning(f"Could not register XDMovies daily scheduler: {err}")

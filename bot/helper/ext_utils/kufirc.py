@@ -164,6 +164,7 @@ class KufircClient:
         desc="",
         anonymous=False,
         ignoredupes=True,
+        use_doubleseed=False,
     ):
         if not ospath.isfile(torrent_path):
             raise KufircError(f"Torrent file not found: {torrent_path}")
@@ -227,9 +228,19 @@ class KufircClient:
 
         # Check for duplicate error
         if "The exact same torrent file already exists" in resp_text:
-            dupe_m = re.search(r'href=[\'"](?:https?://kufirc\.com)?/(torrents\.php\?id=\d+)', resp_text)
-            dupe_url = urljoin(f"{self.base_url}/", dupe_m.group(1)) if dupe_m else ""
-            raise KufircError(f"Duplicate torrent on Kufirc: {dupe_url or 'already exists'}")
+            dupe_m = re.search(r'href=[\'"](?:https?://kufirc\.com)?/(torrents\.php\?(?:id|torrentid)=(\d+))', resp_text)
+            if dupe_m:
+                dupe_url = urljoin(f"{self.base_url}/", dupe_m.group(1))
+                t_id = dupe_m.group(2)
+                LOGGER.info(f"Torrent already exists on Kufirc: ID={t_id} -> {dupe_url}")
+                return {
+                    "torrent_id": t_id,
+                    "detail_url": dupe_url,
+                    "accepted_bytes": None,
+                    "authkey": self.authkey,
+                    "passkey": self.passkey,
+                }
+            raise KufircError(f"Duplicate torrent on Kufirc: already exists")
 
         # Check for errors in HTML
         err_m = re.search(r'<p[^>]+style=[\'"][^\'"]*color:\s*red[^\'"]*[\'"][^>]*>(.*?)</p>', resp_text, re.DOTALL | re.I)
@@ -267,20 +278,28 @@ class KufircClient:
 
         # Download accepted torrent file
         accepted_torrent_bytes = None
-        dl_link_m = re.search(r'href=[\'"]([^\'"]*action=download[^\'"]*)[\'"]', resp_text)
-        if dl_link_m:
-            dl_url = urljoin(f"{self.base_url}/", unescape(dl_link_m.group(1)))
-        elif self.authkey and self.passkey:
-            dl_url = f"{self.base_url}/torrents.php?action=download&id={torrent_id}&authkey={self.authkey}&torrent_pass={self.passkey}"
+        if use_doubleseed and self.authkey and self.passkey:
+            dl_url = f"{self.base_url}/torrents.php?action=download&id={torrent_id}&authkey={self.authkey}&torrent_pass={self.passkey}&usetoken=2"
+            LOGGER.info("Requesting accepted torrent with Double Seed slot (usetoken=2): %s", dl_url)
         else:
-            dl_url = None
+            dl_link_m = re.search(r'href=[\'"]([^\'"]*action=download[^\'"]*)[\'"]', resp_text)
+            if dl_link_m:
+                dl_url = urljoin(f"{self.base_url}/", unescape(dl_link_m.group(1)))
+                if use_doubleseed and "usetoken=" not in dl_url:
+                    dl_url += "&usetoken=2"
+            elif self.authkey and self.passkey:
+                token_param = "&usetoken=2" if use_doubleseed else ""
+                dl_url = f"{self.base_url}/torrents.php?action=download&id={torrent_id}&authkey={self.authkey}&torrent_pass={self.passkey}{token_param}"
+            else:
+                dl_url = None
 
         if dl_url:
             try:
                 dl_resp = await self.client.get(dl_url)
                 if dl_resp.status_code == 200 and len(dl_resp.content) > 100:
                     accepted_torrent_bytes = dl_resp.content
-                    LOGGER.info("Downloaded accepted torrent from Kufirc (%d bytes) from %s", len(accepted_torrent_bytes), dl_url)
+                    slot_tag = " [Double Seed Slot]" if use_doubleseed else ""
+                    LOGGER.info("Downloaded accepted torrent%s from Kufirc (%d bytes) from %s", slot_tag, len(accepted_torrent_bytes), dl_url)
             except Exception as dl_err:
                 LOGGER.warning("Could not download accepted torrent: %s", dl_err)
 
@@ -290,4 +309,31 @@ class KufircClient:
             "accepted_bytes": accepted_torrent_bytes,
             "authkey": self.authkey,
             "passkey": self.passkey,
+            "doubleseed": use_doubleseed,
         }
+
+    async def activate_doubleseed(self, torrent_id: str):
+        """Applies a double seed slot (usetoken=2) on an existing torrent and returns accepted torrent bytes."""
+        if not self.authkey or not self.passkey:
+            await self._get_upload_form()
+
+        if not self.authkey or not self.passkey:
+            LOGGER.error("Cannot activate doubleseed: authkey or passkey not resolved")
+            return None
+
+        dl_url = f"{self.base_url}/torrents.php?action=download&id={torrent_id}&authkey={self.authkey}&torrent_pass={self.passkey}&usetoken=2"
+        LOGGER.info("Activating double seed slot on Kufirc for torrent %s: %s", torrent_id, dl_url)
+        try:
+            resp = await self.client.get(dl_url)
+            if resp.status_code == 200 and len(resp.content) > 100:
+                LOGGER.info("Successfully activated double seed slot for torrent %s (%d bytes)", torrent_id, len(resp.content))
+                return {
+                    "torrent_id": torrent_id,
+                    "accepted_bytes": resp.content,
+                    "download_url": dl_url,
+                }
+            LOGGER.warning("Failed to activate double seed slot: HTTP %s (%d bytes)", resp.status_code, len(resp.content))
+            return None
+        except Exception as e:
+            LOGGER.error("Error activating double seed slot for torrent %s: %s", torrent_id, e)
+            return None

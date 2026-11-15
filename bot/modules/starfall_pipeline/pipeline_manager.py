@@ -353,6 +353,38 @@ class AutoRenameResolver:
         return cls.sanitize_bluray_keyword(raw_fn)
 
     @classmethod
+    def format_movie_filename(
+        cls,
+        movie_title: str,
+        year: Optional[int] = None,
+        resolved_meta: Optional[Dict[str, str]] = None,
+        audio_tag: str = "Japanese-AAC 2.0",
+        sub_tag: str = "ESub",
+    ) -> str:
+        """
+        Produce canonical Starfall Movie filename:
+        `🄰🅂- [Movie] Your Name. (2016) 1080p 10bit BluRay HEVC [Tam + Jap AAC 2.0] ESub ~ Judas ~ [@Anime_Starfall🥰].mkv`
+        """
+        resolved_meta = resolved_meta or {}
+        clean_name = re.sub(r"[^\w\s-]", "", movie_title).strip()
+        quality = cls.sanitize_bluray_keyword(resolved_meta.get("quality", "BluRay"))
+        if quality.lower() in ("bdrip", "bd-rip", "brrip", "bluray", "bdremux", "bd"):
+            quality = "BluRay"
+        codec_raw = resolved_meta.get("codec", "HEVC")
+        codec = "HEVC" if codec_raw.lower() in ("x265", "hevc", "h.265", "h265") else codec_raw
+        bit = resolved_meta.get("bit", "10bit")
+        resolution = resolved_meta.get("resolution", "1080p")
+        group = resolved_meta.get("release_group", "Starfall")
+        year_str = f"({year})" if year else ""
+
+        raw_fn = (
+            f"🄰🅂- [Movie] {clean_name} {year_str} "
+            f"{resolution} {bit} {quality} {codec} [{audio_tag}] {sub_tag} ~ {group} ~ [@Anime_Starfall🥰].mkv"
+        )
+        raw_fn = re.sub(r"\s+", " ", raw_fn).strip()
+        return cls.sanitize_bluray_keyword(raw_fn)
+
+    @classmethod
     def plan_merge_chunks(
         cls,
         episodes: List[Tuple[int, str]],

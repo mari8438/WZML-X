@@ -152,7 +152,11 @@ def probe_media_streams(filepath: str, torrent_name: str = "") -> Dict[str, Any]
                 primary_codec = codecs[0] if codecs else "AAC"
                 primary_chan = chans[0] if chans else "2.0"
 
-                if len(a_tracks) >= 2 and ("Japanese" in langs and "English" in langs):
+                if "Tamil" in langs and "Japanese" in langs:
+                    lang_label = "Tam + Jap"
+                elif "Tamil" in langs:
+                    lang_label = "Tamil"
+                elif len(a_tracks) >= 2 and ("Japanese" in langs and "English" in langs):
                     lang_label = "Dual Audio"
                 elif len(langs) >= 2:
                     lang_label = "Multi Audio"
@@ -349,7 +353,8 @@ def format_archival_filename(
     res = stream_info.get("resolution", "1080p")
     bit = stream_info.get("bit_depth", "10bit")
     qual = stream_info.get("quality", "BluRay")
-    codec = stream_info.get("codec", "x265")
+    codec_raw = stream_info.get("codec_badge", stream_info.get("codec", "HEVC"))
+    codec = "HEVC" if codec_raw.lower() in ("x265", "hevc", "h.265", "h265") else codec_raw
     audio_tag = stream_info.get("audio_file_tag", "Japanese-FLAC 2.0")
     sub_tag = stream_info.get("sub_tag", "ESub")
     clean_enc = encoder.split("(")[0].strip() if encoder else "Judas"

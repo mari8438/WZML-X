@@ -141,7 +141,9 @@ def format_poster_card(row: dict, target_msg_link: Optional[str] = None) -> str:
     nudity_amt = clean_text(row.get("Amount_Of_Visible_Nudity_25pct"))
     official_release = clean_text(row.get("Official_Uncensored_Availability"))
     bd_info = clean_text(row.get("BluRay_DVD_Release_Info"))
+    bd_info = re.sub(r"\bFull\s*HD\b|\bHD\b", "FHD", bd_info, flags=re.IGNORECASE)
     diffs = clean_text(row.get("TV_vs_Home_Video_Differences"))
+    diffs = re.sub(r"\bFull\s*HD\b|\bHD\b", "FHD", diffs, flags=re.IGNORECASE)
     desc = clean_text(row.get("Content_Description"))
 
     nyaa_url = row.get("Nyaa_BD_Archive_URL", "").strip()
@@ -185,21 +187,22 @@ class IndexManager:
         logger.info(f"Connected User Session: @{me.username} (ID: {me.id})")
 
         # Connect Helper Bots
+        # Connect Helper Bot 1 (verified member of Index Channel)
         helper_token_list = HELPER_TOKENS.split()
-        for idx, token in enumerate(helper_token_list, 1):
+        if helper_token_list:
             try:
                 bot = Client(
-                    f"index_hbot_{idx}",
+                    "index_hbot_1",
                     api_id=TELEGRAM_API,
                     api_hash=TELEGRAM_HASH,
-                    bot_token=token,
+                    bot_token=helper_token_list[0],
                     in_memory=True
                 )
                 await bot.start()
                 self.helper_bots.append(bot)
-                logger.info(f"  • Helper Bot {idx} Active: @{bot.me.username}")
+                logger.info(f"  • Helper Bot Active & Verified: @{bot.me.username}")
             except Exception as e:
-                logger.warning(f"  • Helper Bot {idx} failed to start: {e}")
+                logger.warning(f"  • Helper Bot failed to start: {e}")
 
     async def stop(self):
         for bot in self.helper_bots:
@@ -214,11 +217,14 @@ class IndexManager:
                 pass
 
     def get_sender(self) -> Client:
-        """Rotates between helper bots and user session"""
-        if self.helper_bots:
-            bot = self.helper_bots[self.current_bot_idx % len(self.helper_bots)]
+        """Rotates between verified helper bots and user session"""
+        senders = list(self.helper_bots)
+        if self.user_app:
+            senders.append(self.user_app)
+        if senders:
+            sender = senders[self.current_bot_idx % len(senders)]
             self.current_bot_idx += 1
-            return bot
+            return sender
         return self.user_app
 
     def get_posted_ranks(self) -> Dict[str, int]:
