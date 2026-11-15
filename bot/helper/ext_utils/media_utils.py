@@ -2815,11 +2815,15 @@ async def apply_template_rename(filename, template, filepath=None, **extra):
     try:
         renamed = template.format_map(_SafeFormatDict(metadata))
         # If season and episode are empty (e.g. movies), clean up unfilled series tags
-        is_movie = not metadata.get("season") and not metadata.get("episode")
+        is_movie = (
+            not metadata.get("season") and not metadata.get("episode")
+        ) or bool(re.search(r"\b(?:movie|the\s+movie|film)\b", filename, re.I))
         if is_movie:
-            renamed = re.sub(r"\[\s*S\s*E\s*\]\s*", "", renamed, flags=re.IGNORECASE)
+            renamed = re.sub(r"\[\s*S\d*(?:E\d*)?\s*\]\s*", "", renamed, flags=re.IGNORECASE)
             renamed = re.sub(r"\[\s*S00E00\s*\]\s*", "", renamed, flags=re.IGNORECASE)
             renamed = re.sub(r"\[\s*S\s*-\s*EP\(\s*\)\s*\]\s*", "", renamed, flags=re.IGNORECASE)
+        renamed = re.sub(r"\[\s*(S\d+)\s*E\s*\]", r"[\1]", renamed, flags=re.IGNORECASE)
+        renamed = re.sub(r"\[\s*S\s*(E\d+)\s*\]", r"[\1]", renamed, flags=re.IGNORECASE)
         renamed = re.sub(r"\[\s*S\s*E\s*\]\s*", "", renamed, flags=re.IGNORECASE)
         renamed = re.sub(r"\[\s*S\s*-\s*EP\(\s*\)\s*\]\s*", "", renamed, flags=re.IGNORECASE)
         renamed = re.sub(r"\[\s*-\s*\]\s*", "", renamed)

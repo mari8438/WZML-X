@@ -580,7 +580,7 @@ class TelegramUploader:
                 else caption
             )
             sent = await send_message(target, media_caption, photo=path)
-            if sent:
+            if sent and hasattr(sent, "chat") and getattr(sent, "chat", None):
                 self._sent_msg = sent
                 if poster_followup:
                     await self._send_caption_followup(sent, poster_followup)
@@ -776,15 +776,23 @@ class TelegramUploader:
                                 "but the Premium user session is unavailable"
                             )
                         self._user_session = True
-                        try:
-                            self._sent_msg = await TgClient.user.get_messages(
-                                chat_id=self._sent_msg.chat.id,
-                                message_ids=self._sent_msg.id,
-                            )
-                        except Exception as e:
-                            LOGGER.warning(
-                                f"Cannot fetch message {self._sent_msg.id} via user session: {e}. Keeping current route."
-                            )
+                        target = (
+                            self._sent_msg
+                            or getattr(self, "_log_msg", None)
+                            or self._listener.message
+                        )
+                        if target and getattr(target, "chat", None) and getattr(target, "id", None):
+                            try:
+                                user_msg = await TgClient.user.get_messages(
+                                    chat_id=target.chat.id,
+                                    message_ids=target.id,
+                                )
+                                if user_msg is not None and getattr(user_msg, "chat", None):
+                                    self._sent_msg = user_msg
+                            except Exception as e:
+                                LOGGER.warning(
+                                    f"Cannot fetch message {target.id} via user session: {e}. Keeping current route."
+                                )
                         LOGGER.info(
                             "Using Premium user session for large upload: %s (%s bytes)",
                             file_,
@@ -792,10 +800,25 @@ class TelegramUploader:
                         )
                     elif self._listener.hybrid_leech and self._listener.user_transmission:
                         self._user_session = False
-                        self._sent_msg = await self._listener.client.get_messages(
-                            chat_id=self._sent_msg.chat.id,
-                            message_ids=self._sent_msg.id,
+                        target = (
+                            self._sent_msg
+                            or getattr(self, "_log_msg", None)
+                            or self._listener.message
                         )
+                        if target and getattr(target, "chat", None) and getattr(target, "id", None):
+                            try:
+                                client_msg = await self._listener.client.get_messages(
+                                    chat_id=target.chat.id,
+                                    message_ids=target.id,
+                                )
+                                if client_msg is not None and getattr(client_msg, "chat", None):
+                                    self._sent_msg = client_msg
+                            except Exception as e:
+                                LOGGER.warning(
+                                    f"Cannot fetch message {target.id} via client: {e}. Keeping current route."
+                                )
+                    if not self._sent_msg or not getattr(self._sent_msg, "chat", None):
+                        self._sent_msg = getattr(self, "_log_msg", None) or self._listener.message
                     self._last_msg_in_group = False
                     self._last_uploaded = 0
                     self._transfer_start_time = None
@@ -812,6 +835,9 @@ class TelegramUploader:
                         not self._is_corrupted
                         and (self._listener.is_super_chat or self._listener.up_dest)
                         and not self._is_private
+                        and self._sent_msg
+                        and hasattr(self._sent_msg, "link")
+                        and self._sent_msg.link
                     ):
                         self._msgs_dict[self._sent_msg.link] = file_
                     await sleep(1)
