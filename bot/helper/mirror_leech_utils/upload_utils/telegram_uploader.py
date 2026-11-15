@@ -42,6 +42,8 @@ from ...ext_utils.performance import (
     get_tg_flood_wait_multiplier,
 )
 from ...ext_utils.starfallx_upload import (
+    UploadRoute,
+    parse_dump_chat,
     private_dump_only,
     starfallx_upload,
 )
@@ -631,20 +633,31 @@ class TelegramUploader:
             LOGGER.warning(f"Copy flood wait: sleeping {wait_time:.1f}s")
             await sleep(wait_time)
             return await TgClient.bot.copy_message(**kwargs)
-        except BadRequest as error:
-            if "MEDIA_CAPTION_TOO_LONG" not in str(error).upper():
-                raise
-            source = await TgClient.bot.get_messages(
-                chat_id=kwargs["from_chat_id"],
-                message_ids=kwargs["message_id"],
-            )
-            original_caption = getattr(source, "caption", None)
-            clean_kwargs = dict(kwargs)
-            clean_kwargs["caption"] = "<code>Uploaded file</code>"
-            copied = await TgClient.bot.copy_message(**clean_kwargs)
-            if original_caption:
-                await self._send_caption_followup(copied, original_caption)
-            return copied
+        except Exception as error:
+            if isinstance(error, BadRequest) and "MEDIA_CAPTION_TOO_LONG" in str(error).upper():
+                source = await TgClient.bot.get_messages(
+                    chat_id=kwargs["from_chat_id"],
+                    message_ids=kwargs["message_id"],
+                )
+                original_caption = getattr(source, "caption", None)
+                clean_kwargs = dict(kwargs)
+                clean_kwargs["caption"] = "<code>Uploaded file</code>"
+                copied = await TgClient.bot.copy_message(**clean_kwargs)
+                if original_caption:
+                    await self._send_caption_followup(copied, original_caption)
+                return copied
+            try:
+                LOGGER.warning(
+                    f"copy_message failed ({error}), attempting forward_messages fallback"
+                )
+                msgs = await TgClient.bot.forward_messages(
+                    chat_id=kwargs.get("chat_id"),
+                    from_chat_id=kwargs.get("from_chat_id"),
+                    message_ids=kwargs.get("message_id"),
+                )
+                return msgs[0] if isinstance(msgs, list) and msgs else msgs
+            except Exception:
+                raise error
 
     async def _flush_deferred_copies(self):
         if not self._deferred_copies:
@@ -681,12 +694,18 @@ class TelegramUploader:
                 LOGGER.error(f"Failed To Send in BotPM:\n{str(err)}")
         if leech_dest and str(leech_dest) != str(chat_id):
             try:
-                await self._copy_message_with_backoff(
+                copied = await self._copy_message_with_backoff(
                     chat_id=leech_dest,
                     from_chat_id=chat_id,
                     message_id=msg_id,
                     message_thread_id=thread_id,
                 )
+                if copied and hasattr(copied, "link") and copied.link:
+                    for k, v in list(self._msgs_dict.items()):
+                        if f"/{msg_id}" in k:
+                            del self._msgs_dict[k]
+                            self._msgs_dict[copied.link] = v
+                            break
             except Exception as e:
                 LOGGER.error(f"Failed to forward to {leech_dest}: {e}")
                 await send_message(
@@ -846,11 +865,19 @@ class TelegramUploader:
         artist=None,
         title=None,
     ):
+        chat_id = route.chat_id
+        if not chat_id:
+            chat_id = getattr(getattr(self, "_sent_msg", None), "chat", None)
+            if hasattr(chat_id, "id"):
+                chat_id = chat_id.id
+        if not chat_id:
+            chat_id = getattr(self._listener, "up_dest", None) or Config.LEECH_DUMP_CHAT
+        thread_id = route.thread_id or getattr(self._listener, "chat_thread_id", None)
         common = {
-            "chat_id": route.chat_id,
+            "chat_id": chat_id,
             "caption": cap_mono,
             "disable_notification": True,
-            "message_thread_id": route.thread_id,
+            "message_thread_id": thread_id,
             "progress": self._upload_progress,
         }
         if key == "documents":
@@ -1081,6 +1108,24 @@ class TelegramUploader:
             self._private_dump_only = bool(self._private_dump_only or private_dump_only(private_text))
             f_size = await aiopath.getsize(self._up_path)
             route = await starfallx_upload.acquire_route(self._listener, f_size)
+            if f_size > TgClient.NON_PREMIUM_SPLIT_SIZE:
+                if not TgClient.user or not TgClient.IS_PREMIUM_USER:
+                    raise ValueError(
+                        f"File size ({f_size} bytes) exceeds bot 2000 MiB limit, "
+                        "and Premium user session is unavailable."
+                    )
+                if not route or not route.direct or route.client != TgClient.user:
+                    dump_chat, thread_id = parse_dump_chat(
+                        getattr(self._listener, "up_dest", None) or Config.LEECH_DUMP_CHAT
+                    )
+                    thread_id = getattr(self._listener, "chat_thread_id", None) or thread_id
+                    route = UploadRoute(
+                        "user",
+                        "Premium User String Session",
+                        TgClient.user,
+                        chat_id=dump_chat,
+                        thread_id=thread_id,
+                    )
             self._active_route = route
             if getattr(route, "notice", ""):
                 await send_message(self._listener.message, route.notice)
