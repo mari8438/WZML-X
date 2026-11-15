@@ -455,7 +455,7 @@ class HindiAnimeResolver:
     async def get_tamil_candidates(
         cls,
         max_pages: int = 1,
-        solver_url: str = "http://flaresolverr:8192/solve",
+        solver_url: str = "http://flaresolverr:8191/v1",
         days: Optional[int] = None,
         quality_filter: Optional[str] = "1080p",
         seen: Optional[set[str]] = None,
@@ -525,7 +525,7 @@ class HindiAnimeResolver:
         p_title: str,
         p_url: str,
         p_content: str,
-        solver_url: str = "http://flaresolverr:8192/solve",
+        solver_url: str = "http://flaresolverr:8191/v1",
         quality_filter: Optional[str] = "1080p",
         seen: Optional[set[str]] = None,
     ) -> list[HindiAnimeCandidate]:
@@ -627,7 +627,7 @@ class HindiAnimeResolver:
     async def get_candidates_for_url(
         cls,
         post_url: str,
-        solver_url: str = "http://flaresolverr:8192/solve",
+        solver_url: str = "http://flaresolverr:8191/v1",
         quality_filter: Optional[str] = "1080p",
     ) -> list[HindiAnimeCandidate]:
         """Resolves candidates for a direct HindiAnimeZone post URL."""
@@ -651,7 +651,7 @@ class HindiAnimeResolver:
     async def search_tamil_candidates(
         cls,
         query: str,
-        solver_url: str = "http://flaresolverr:8192/solve",
+        solver_url: str = "http://flaresolverr:8191/v1",
         quality_filter: Optional[str] = "1080p",
         seen: Optional[set[str]] = None,
     ) -> list[HindiAnimeCandidate]:

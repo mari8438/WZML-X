@@ -213,31 +213,30 @@ class XDMoviesResolver:
 
         candidates: list[XDMoviesCandidate] = []
 
-        # Find all download-item containers
-        # Typical structure: <div class="download-item ..."><div class="custom-title ...">FILENAME</div><a href="LINK">SIZE</a></div>
+        # Find all download-item, pack-card, and episode-card containers
         item_blocks = re.findall(
-            r'<div[^>]*class=[\"\'][^\"\']*download-item[^\"\']*[\"\'][^>]*>(.*?)(?=<div[^>]*class=[\"\'][^\"\']*download-item|\Z)',
+            r'<div[^>]*class=[\"\'][^\"\']*(?:download-item|pack-card|episode-card)[^\"\']*[\"\'][^>]*>(.*?)(?=<div[^>]*class=[\"\'][^\"\']*(?:download-item|pack-card|episode-card)|\Z)',
             html,
             flags=re.DOTALL | re.IGNORECASE,
         )
 
-        # Fallback if download-item is not wrapping: search for custom-title blocks directly
+        # Fallback if specific containers are absent: search for title blocks directly
         if not item_blocks:
             item_blocks = re.findall(
-                r'(<div[^>]*class=[\"\'][^\"\']*custom-title[^\"\']*[\"\'].*?)(?=<div[^>]*class=[\"\'][^\"\']*custom-title|\Z)',
+                r'((?:<div|<h[1-6])[^>]*class=[\"\'][^\"\']*(?:custom-title|pack-title|episode-title)[^\"\']*[\"\'].*?<a[^>]+href=[\"\']https?://link\.xdmovies\.wtf/download/[^\"\']+[\"\'].*?</a>)',
                 html,
                 flags=re.DOTALL | re.IGNORECASE,
             )
 
         for block in item_blocks:
             title_m = re.search(
-                r'<div[^>]*class=[\"\'][^\"\']*custom-title[^\"\']*[\"\'][^>]*>(.*?)</div>',
+                r'<(?:div|h[1-6])[^>]*class=[\"\'][^\"\']*(?:custom-title|pack-title|episode-title)[^\"\']*[\"\'][^>]*>(.*?)</(?:div|h[1-6])>',
                 block,
                 flags=re.DOTALL | re.IGNORECASE,
             )
             file_title = unescape(title_m.group(1).strip()) if title_m else ""
             if not file_title:
-                # Fallback to plain text match if custom-title div is absent
+                # Fallback to plain text match if title tag is absent
                 text_clean = re.sub(r"<[^>]+>", " ", block)
                 name_m = re.search(r"([A-Za-z0-9_\-\. ]+?\.(?:mkv|zip|mp4))", text_clean, flags=re.IGNORECASE)
                 file_title = name_m.group(1).strip() if name_m else ""

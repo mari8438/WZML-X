@@ -216,7 +216,7 @@ async def hindianime_monitor():
         return
 
     LOGGER.info("HindiAnimeZone: running daily scheduled crawl...")
-    solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+    solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
     try:
         seen = _seen_items()
         candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=2, solver_url=solver_url, seen=seen)
@@ -327,7 +327,7 @@ async def hindianime_callback(client, query):
     elif action == "lastweek":
         await query.answer("🗓️ Crawling releases from past 7 days...", show_alert=False)
         notice = await send_message(query.message, "🔎 <b>HindiAnimeZone:</b> Crawling last 7 days 1080p Tamil releases...")
-        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
         try:
             seen = _seen_items()
             candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=4, solver_url=solver_url, days=7, quality_filter="1080p", seen=seen)
@@ -347,7 +347,7 @@ async def hindianime_callback(client, query):
     elif action == "check_latest":
         await query.answer("🔄 Checking latest updates...", show_alert=False)
         notice = await send_message(query.message, "🔎 <b>HindiAnimeZone:</b> Crawling latest releases (pages: 2)...")
-        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
         try:
             seen = _seen_items()
             candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=2, solver_url=solver_url, quality_filter="1080p", seen=seen)
@@ -367,7 +367,7 @@ async def hindianime_callback(client, query):
     elif action == "backlog_14":
         await query.answer("⏱️ Crawling past 14 days...", show_alert=False)
         notice = await send_message(query.message, "🔎 <b>HindiAnimeZone:</b> Crawling last 14 days 1080p Tamil releases...")
-        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
         try:
             seen = _seen_items()
             candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=5, solver_url=solver_url, days=14, quality_filter="1080p", seen=seen)
@@ -411,7 +411,7 @@ async def hindianime_callback(client, query):
             response = await client.listen.Message(id=query.from_user.id, timeout=60)
             txt = response.text.strip()
             if txt != "/cancel":
-                solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+                solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
                 notice = await send_message(query.message, f"🔎 <b>HindiAnimeZone:</b> Searching for <code>{txt}</code>...")
                 cands = await HindiAnimeResolver.search_tamil_candidates(txt, solver_url=solver_url, quality_filter=None)
                 if not cands:
@@ -432,7 +432,7 @@ async def hindianime_callback(client, query):
             response = await client.listen.Message(id=query.from_user.id, timeout=60)
             target_url = response.text.strip()
             if target_url != "/cancel":
-                solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+                solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
                 cands = await HindiAnimeResolver.get_candidates_for_url(target_url, solver_url=solver_url, quality_filter=None)
                 if not cands:
                     await send_message(query.message, f"❌ <b>Dry-Run Result:</b> No candidates found for <code>{target_url}</code>.")
@@ -480,7 +480,7 @@ async def hindianime_handler(_, message):
         return
 
     subcmd = clean_parts[0].lower()
-    solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+    solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8191/v1")
 
     if clean_parts and (clean_parts[0].startswith("http://") or clean_parts[0].startswith("https://")):
         target_url = clean_parts[0]
