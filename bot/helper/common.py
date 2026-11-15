@@ -8,7 +8,8 @@ from shlex import split
 
 from aiofiles.os import listdir, makedirs, remove, path as aiopath
 from aioshutil import move, rmtree
-from pyrogram.enums import ChatAction
+from pyrogram import enums
+from pyrogram.enums import ChatAction, ChatMemberStatus
 
 from .. import (
     DOWNLOAD_DIR,
@@ -537,7 +538,11 @@ class TaskConfig:
                             self.hybrid_leech = False
                         else:
                             member = await chat.get_member(uploader_id)
-                            is_owner = getattr(member, "status", None) == enums.ChatMemberStatus.OWNER
+                            is_owner = (
+                                getattr(member, "status", None) == ChatMemberStatus.OWNER
+                                or "owner" in str(getattr(member, "status", "")).lower()
+                                or "creator" in str(getattr(member, "status", "")).lower()
+                            )
                             privileges = getattr(member, "privileges", None)
                             can_manage = bool(
                                 getattr(privileges, "can_manage_chat", False)
