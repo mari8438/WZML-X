@@ -24,6 +24,8 @@ def is_gdrive_link(url: str):
 
 
 def is_mega_link(url: str):
+    if not url or "userstorage.mega" in url or "/dl/" in url:
+        return False
     return "mega.nz" in url or "mega.co.nz" in url
 
 
