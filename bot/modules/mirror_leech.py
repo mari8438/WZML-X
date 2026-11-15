@@ -86,7 +86,7 @@ class Mirror(TaskListener):
         self.is_uphoster = is_uphoster
 
     async def new_event(self):
-        text = self.message.text.split("\n")
+        text = (self.message.text or self.message.caption or "").split("\n")
         input_list = text[0].split(" ")
 
         check_msg, check_button = await pre_task_check(self.message)
