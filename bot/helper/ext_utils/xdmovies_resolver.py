@@ -292,6 +292,12 @@ class XDMoviesResolver:
             )
             candidates.append(candidate)
 
+        # In web series if zip is detected then don't leech the single episodes
+        if is_series:
+            has_zip = any(c.is_season_pack or c.file_title.lower().endswith(".zip") for c in candidates)
+            if has_zip:
+                candidates = [c for c in candidates if c.is_season_pack or c.file_title.lower().endswith(".zip")]
+
         return candidates
 
     @classmethod

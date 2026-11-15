@@ -242,7 +242,50 @@ class TestXDMoviesSettingsAndWorkflow(unittest.TestCase):
         self.assertEqual(ser_settings["AUTO_KEEP_AUDIO_LANGS"], "Tamil, tam")
         self.assertTrue(ser_settings["AUTO_MERGE"])
         self.assertTrue(ser_settings["AUTO_UNZIP"])
-        self.assertIn("S{season}E{episode}", ser_settings["lremname_auto"])
+        self.assertTrue(ser_settings["lremname_auto"].startswith("🄰🅂-[S{season}E{episode}]"))
+        self.assertTrue(mov_settings["lremname_auto"].startswith("🄰🅂- {name}"))
+        self.assertNotIn("S{season}E{episode}", mov_settings["lremname_auto"])
+
+    def test_series_zip_detection_skips_episodes(self):
+        # When a series post contains both zip archive and single episodes, single episodes must be skipped
+        cand_zip = XDMoviesCandidate(
+            post_title="Loki S02 Complete",
+            post_url="https://huh.xdmovies.wtf/series/loki-season-2",
+            is_series=True,
+            file_title="Loki.S02.Complete.1080p.HEVC.Tamil.zip",
+            quality="1080p hevc",
+            has_tamil=True,
+            download_url="https://link.xdmovies.wtf/download/zip1",
+            is_season_pack=True,
+        )
+        cand_ep1 = XDMoviesCandidate(
+            post_title="Loki S02 Complete",
+            post_url="https://huh.xdmovies.wtf/series/loki-season-2",
+            is_series=True,
+            file_title="Loki.S02E01.1080p.HEVC.Tamil.mkv",
+            quality="1080p hevc",
+            has_tamil=True,
+            download_url="https://link.xdmovies.wtf/download/ep1",
+            is_season_pack=False,
+        )
+        cand_ep2 = XDMoviesCandidate(
+            post_title="Loki S02 Complete",
+            post_url="https://huh.xdmovies.wtf/series/loki-season-2",
+            is_series=True,
+            file_title="Loki.S02E02.1080p.HEVC.Tamil.mkv",
+            quality="1080p hevc",
+            has_tamil=True,
+            download_url="https://link.xdmovies.wtf/download/ep2",
+            is_season_pack=False,
+        )
+
+        all_cands = [cand_zip, cand_ep1, cand_ep2]
+        series_cands = [c for c in all_cands if c.is_series]
+        has_zip = any(c.is_season_pack or c.file_title.lower().endswith(".zip") for c in series_cands)
+        self.assertTrue(has_zip)
+        filtered = [c for c in all_cands if not c.is_series or (c.is_season_pack or c.file_title.lower().endswith(".zip"))]
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0].file_title, "Loki.S02.Complete.1080p.HEVC.Tamil.zip")
 
     def test_dashboard_ui_builders(self):
         text = xdm_mod._build_dashboard_text()

@@ -2804,15 +2804,16 @@ async def apply_template_rename(filename, template, filepath=None, **extra):
         # If season and episode are empty (e.g. movies), clean up unfilled series tags
         is_movie = not metadata.get("season") and not metadata.get("episode")
         if is_movie:
-            # Cleanly transform unfilled series tags to [Movie]
-            renamed = re.sub(r"\[\s*S\s*E\s*\]", "[Movie]", renamed, flags=re.IGNORECASE)
-            renamed = re.sub(r"\[\s*S00E00\s*\]", "[Movie]", renamed, flags=re.IGNORECASE)
-            renamed = re.sub(r"\[\s*S\s*-\s*EP\(\s*\)\s*\]", "[Movie]", renamed, flags=re.IGNORECASE)
+            renamed = re.sub(r"\[\s*S\s*E\s*\]\s*", "", renamed, flags=re.IGNORECASE)
+            renamed = re.sub(r"\[\s*S00E00\s*\]\s*", "", renamed, flags=re.IGNORECASE)
+            renamed = re.sub(r"\[\s*S\s*-\s*EP\(\s*\)\s*\]\s*", "", renamed, flags=re.IGNORECASE)
         renamed = re.sub(r"\[\s*S\s*E\s*\]\s*", "", renamed, flags=re.IGNORECASE)
         renamed = re.sub(r"\[\s*S\s*-\s*EP\(\s*\)\s*\]\s*", "", renamed, flags=re.IGNORECASE)
         renamed = re.sub(r"\[\s*-\s*\]\s*", "", renamed)
         renamed = re.sub(r"\[\s*\]\s*", "", renamed)
         renamed = re.sub(r"\(\s*\)\s*", "", renamed)
+        # Ensure '🄰🅂- ' has clean spacing
+        renamed = re.sub(r"^🄰🅂-\s*", "🄰🅂- ", renamed)
         renamed = re.sub(r"\s+", " ", renamed).strip()
         original_ext = Path(filename).suffix
         if original_ext and not renamed.lower().endswith(original_ext.lower()):

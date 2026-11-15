@@ -532,6 +532,10 @@ class HindiAnimeResolver:
         """Resolves all candidate episodes / batch zips within a post content."""
         resolved = []
         raw_items = cls.parse_post_episodes(p_content, p_title, p_url, quality_filter=quality_filter)
+        # In web series if zip is detected then don't leech the single episodes
+        has_zip = any(item.get("is_season_pack") or str(item.get("episode_title", "")).lower().endswith(".zip") for item in raw_items)
+        if has_zip:
+            raw_items = [item for item in raw_items if item.get("is_season_pack") or str(item.get("episode_title", "")).lower().endswith(".zip")]
         for item in raw_items:
             gateway_url = item["gateway_url"]
             if "pixeldrain" in gateway_url.lower():

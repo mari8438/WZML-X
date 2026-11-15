@@ -301,7 +301,7 @@ class Config:
     LEECH_PREFIX = ""
     LEECH_CAPTION = ""
     LEECH_SUFFIX = ""
-    LEECH_FILENAME_REMNAME_AUTO = "[S{season}E{episode}] {title}   {resolution} {bit} {ott} {quality} {lib} [Tam + Jap] ESub"
+    LEECH_FILENAME_REMNAME_AUTO = "🄰🅂-[S{season}E{episode}] {name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~ [@Anime_Starfall🥰]"
     LEECH_FILENAME_REMNAME_REGEX = r"www\.1TamilMV\.[^\s]+"
     LEECH_FONT = ""
     LEECH_SPLIT_SIZE = 2097152000

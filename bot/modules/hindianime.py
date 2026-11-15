@@ -63,7 +63,7 @@ def _get_anime_task_settings(user_id: int, is_season_pack: bool = False) -> dict
     # AutoRename settings: strictly enforce user template
     settings["AUTORENAME"] = True
     settings["RENAME_METHOD"] = "auto"
-    settings["lremname_auto"] = "🄰🅂- [S{season}E{episode}] {name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~ [@Anime_Starfall🥰]"
+    settings["lremname_auto"] = "🄰🅂-[S{season}E{episode}] {name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~ [@Anime_Starfall🥰]"
     settings["LEECH_PREFIX"] = ""
     settings["LEECH_SUFFIX"] = ""
 
@@ -154,6 +154,11 @@ async def queue_hindianime_candidates(
 
     staging_dest = Config.LEECH_DUMP_CHAT or -1003887117402
     staging_chat_id, staging_topic_id = _parse_chat_value(str(staging_dest))
+
+    # In anime series if zip is detected then don't leech the single episodes
+    has_zip = any(item.is_season_pack or item.file_title.lower().endswith(".zip") for item in candidates)
+    if has_zip:
+        candidates = [item for item in candidates if item.is_season_pack or item.file_title.lower().endswith(".zip")]
 
     queued = 0
     for item in candidates:

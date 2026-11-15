@@ -87,13 +87,6 @@ def _get_xdmovies_task_settings(user_id: int, is_series: bool) -> dict:
     settings["AUTO_PROCESS"] = True
 
     # 3. Auto-Rename configuration
-    base_rename = (
-        settings.get("lremname_auto")
-        or getattr(Config, "LEECH_FILENAME_REMNAME_AUTO", "")
-        or "{name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~[@Anime_Starfall🥰]"
-    )
-    clean_base = base_rename.replace("[S{season}E{episode}] ", "").replace("[S{season}E{episode}]", "").strip()
-
     settings["AUTORENAME"] = True
     settings["RENAME_METHOD"] = "auto"
 
@@ -102,12 +95,12 @@ def _get_xdmovies_task_settings(user_id: int, is_series: bool) -> dict:
         settings["AUTO_POSTER_ENABLED"] = True
         settings["AUTO_POSTER_SEND_MESSAGE"] = True
         settings["AUTO_POSTER_USE_AS_THUMBNAIL"] = False
-        settings["lremname_auto"] = f"[S{{season}}E{{episode}}] {clean_base}"
+        settings["lremname_auto"] = "🄰🅂-[S{season}E{episode}] {name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~ [@Anime_Starfall🥰]"
     else:
         settings["AUTO_POSTER_ENABLED"] = False
         settings["AUTO_POSTER_SEND_MESSAGE"] = False
         settings["AUTO_POSTER_USE_AS_THUMBNAIL"] = False
-        settings["lremname_auto"] = clean_base
+        settings["lremname_auto"] = "🄰🅂- {name} {year} {resolution} {bit} {ott} {quality} {codec} [{languages}-{audio_codec} {audio_channels}] {shortsub} ~ [@Anime_Starfall🥰]"
 
     # 5. TMDb Landscape Thumbnail
     settings["AUTO_THUMBNAIL"] = True
@@ -131,6 +124,15 @@ async def queue_xdmovies_candidates(
     seen = seen if seen is not None else _seen_items()
     user_id = int(owner_id or getattr(Config, "XDMOVIES_USER_ID", 8814651149) or 8814651149)
     queued = 0
+
+    # In web series if zip is detected then don't leech the single episodes
+    series_candidates = [c for c in candidates if c.is_series]
+    has_series_zip = any(c.is_season_pack or c.file_title.lower().endswith(".zip") for c in series_candidates)
+    if has_series_zip:
+        candidates = [
+            c for c in candidates
+            if not c.is_series or (c.is_season_pack or c.file_title.lower().endswith(".zip"))
+        ]
 
     for item in candidates:
         if not item.download_url:
