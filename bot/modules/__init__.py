@@ -143,7 +143,21 @@ try:
 except (ImportError, ModuleNotFoundError):
     pass
 try:
-    from .hindianime import hindianime_handler, hindianime_monitor
+    from .hindianime import (
+        hindianime_handler,
+        hindianime_monitor,
+        hindianime_callback,
+        hindianime_settings_handler,
+    )
+except (ImportError, ModuleNotFoundError):
+    pass
+try:
+    from .xdmovies import (
+        xdmovies_handler,
+        xdmovies_monitor,
+        xdmovies_callback,
+        xdmovies_settings_handler,
+    )
 except (ImportError, ModuleNotFoundError):
     pass
 try:
@@ -263,6 +277,12 @@ __all__ = [
     "fourkhdhub_monitor",
     "hindianime_handler",
     "hindianime_monitor",
+    "hindianime_callback",
+    "hindianime_settings_handler",
+    "xdmovies_handler",
+    "xdmovies_monitor",
+    "xdmovies_callback",
+    "xdmovies_settings_handler",
     "torrent_search",
     "torrent_search_update",
     "initiate_search_tools",

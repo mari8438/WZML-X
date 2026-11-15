@@ -118,6 +118,9 @@ async def main():
     if getattr(Config, "HINDIANIME_AUTO_LEECH", False):
         from .modules.hindianime import start_hindianime_scheduler
         start_hindianime_scheduler()
+    if getattr(Config, "XDMOVIES_AUTO_LEECH", False):
+        from .modules.xdmovies import start_xdmovies_scheduler
+        start_xdmovies_scheduler()
 
 
 bot_loop.run_until_complete(main())

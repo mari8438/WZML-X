@@ -2802,6 +2802,12 @@ async def apply_template_rename(filename, template, filepath=None, **extra):
     try:
         renamed = template.format_map(_SafeFormatDict(metadata))
         # If season and episode are empty (e.g. movies), clean up unfilled series tags
+        is_movie = not metadata.get("season") and not metadata.get("episode")
+        if is_movie:
+            # Cleanly transform unfilled series tags to [Movie]
+            renamed = re.sub(r"\[\s*S\s*E\s*\]", "[Movie]", renamed, flags=re.IGNORECASE)
+            renamed = re.sub(r"\[\s*S00E00\s*\]", "[Movie]", renamed, flags=re.IGNORECASE)
+            renamed = re.sub(r"\[\s*S\s*-\s*EP\(\s*\)\s*\]", "[Movie]", renamed, flags=re.IGNORECASE)
         renamed = re.sub(r"\[\s*S\s*E\s*\]\s*", "", renamed, flags=re.IGNORECASE)
         renamed = re.sub(r"\[\s*S\s*-\s*EP\(\s*\)\s*\]\s*", "", renamed, flags=re.IGNORECASE)
         renamed = re.sub(r"\[\s*-\s*\]\s*", "", renamed)
@@ -3167,7 +3173,7 @@ def format_clean_poster_title(raw_title, rename_regex=None):
 
 
 async def get_tmdb_poster_link(
-    title, year=None, as_doc=False, season=None, episode=None, season_only=False
+    title, year=None, as_doc=False, season=None, episode=None, season_only=False, tmdb_id=None
 ):
     """Fetch a poster/backdrop URL from TMDb with one live HTTP client."""
     access_token = Config.TMDB_ACCESS_TOKEN
@@ -3182,6 +3188,40 @@ async def get_tmdb_poster_link(
             "Authorization": f"Bearer {access_token}",
             "accept": "application/json",
         }
+
+        # Fast-Path: If direct tmdb_id is provided, fetch landscape backdrops directly
+        if tmdb_id:
+            try:
+                async with AsyncClient(timeout=10) as client:
+                    media_types = ["movie", "tv"] if not season else ["tv", "movie"]
+                    for mtype in media_types:
+                        img_resp = await client.get(
+                            f"https://api.themoviedb.org/3/{mtype}/{tmdb_id}/images",
+                            params={"include_image_language": "en,null"},
+                            headers=headers,
+                        )
+                        if img_resp.status_code == 200:
+                            img_data = img_resp.json()
+                            backdrops = img_data.get("backdrops", [])
+                            clean_backdrops = [b for b in backdrops if not b.get("iso_639_1")]
+                            en_backdrops = [b for b in backdrops if b.get("iso_639_1") == "en"]
+                            choices = (
+                                (en_backdrops, "landscape (en)"),
+                                (clean_backdrops, "landscape (clean)"),
+                                (backdrops, "landscape (other)"),
+                            ) if not as_doc else (
+                                (clean_backdrops, "landscape (clean)"),
+                                (en_backdrops, "landscape (en)"),
+                                (img_data.get("posters", []), "poster"),
+                            )
+                            for imgs, itype in choices:
+                                if imgs:
+                                    fpath = imgs[0].get("file_path")
+                                    if fpath:
+                                        LOGGER.info(f"TMDb fast-path found {itype} for ID {tmdb_id}: {fpath}")
+                                        return f"https://image.tmdb.org/t/p/original{fpath}"
+            except Exception as err:
+                LOGGER.debug(f"TMDb fast-path error for ID {tmdb_id}: {err}")
         search_url = "https://api.themoviedb.org/3/search/multi"
         params = {
             "query": title,

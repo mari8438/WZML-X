@@ -3,6 +3,8 @@ from json import dumps, loads
 from os import path as ospath
 from typing import Optional
 
+from pyrogram.filters import regex
+
 from .. import LOGGER, user_data
 from ..core.config_manager import Config
 from ..helper.ext_utils.bot_utils import new_task
@@ -11,7 +13,9 @@ from ..helper.ext_utils.hindianime_resolver import (
     HindiAnimeCandidate,
     HindiAnimeResolver,
 )
-from ..helper.telegram_helper.message_utils import edit_message, send_message
+from ..helper.telegram_helper.button_build import ButtonMaker
+from ..helper.telegram_helper.filters import CustomFilters
+from ..helper.telegram_helper.message_utils import delete_message, edit_message, send_message
 from .rss import _parse_chat_value, _start_rss_download
 
 
@@ -218,28 +222,247 @@ async def hindianime_monitor():
         LOGGER.error(f"HindiAnimeZone daily monitor failed: {err}", exc_info=True)
 
 
+def _build_anime_dashboard_buttons(user_id: int) -> ButtonMaker:
+    """Constructs interactive /userset style inline buttons for HindiAnimeZone."""
+    buttons = ButtonMaker()
+    buttons.data_button("🎯 Anime Target", f"hazset {user_id} set_anime_target")
+    buttons.data_button("🗓️ Leech Last Week", f"hazset {user_id} lastweek")
+    buttons.data_button("🔍 Search & Leech", f"hazset {user_id} prompt_search")
+    buttons.data_button("🔄 Check Latest", f"hazset {user_id} check_latest")
+    buttons.data_button("⏱️ Backlog (14d)", f"hazset {user_id} backlog_14")
+    buttons.data_button("⚙️ Audio: Tamil Only", f"hazset {user_id} toggle_audio")
+    buttons.data_button("📦 Auto Merge (4GB)", f"hazset {user_id} toggle_merge")
+    buttons.data_button("🗜️ Auto Unzip", f"hazset {user_id} toggle_unzip")
+    buttons.data_button("🎨 Anime Poster (T11)", f"hazset {user_id} toggle_poster")
+    auto_status = "ON" if getattr(Config, "HINDIANIME_AUTO_LEECH", False) else "OFF"
+    buttons.data_button(f"🤖 Auto Leech: {auto_status}", f"hazset {user_id} toggle_autoleech")
+    buttons.data_button("🗑️ Clear Cache", f"hazset {user_id} clear_cache")
+    buttons.data_button("🧪 Test Dry-Run", f"hazset {user_id} prompt_dryrun")
+    buttons.data_button("❌ Close", f"hazset {user_id} close")
+    return buttons
+
+
+def _build_anime_dashboard_text() -> str:
+    """Builds formatted dashboard text displaying active site settings."""
+    anime_ch = _get_target_channel() or "Not Configured"
+    auto_leech = "Enabled" if getattr(Config, "HINDIANIME_AUTO_LEECH", False) else "Disabled"
+    seen = _seen_items()
+
+    return (
+        "🎌 <b>STARFALLX • HINDIANIMEZONE SETTINGS DASHBOARD</b>\n"
+        "<i>Site: https://hindianimezone.com</i>\n\n"
+        f"• <b>Anime Target</b>     : <code>{anime_ch}</code>\n"
+        "• <b>Resolution Filter</b> : <code>1080p Only</code> [✅ Active]\n"
+        "• <b>Audio Filter</b>      : <code>Tamil Audio (Strip others)</code> [✅ Active]\n"
+        "• <b>Auto Merge 4GB</b>    : <code>Enabled (Max 4.0 GiB)</code> [✅ Active]\n"
+        "• <b>Auto Unzip</b>        : <code>Enabled (Batch zip extraction)</code> [✅ Active]\n"
+        "• <b>Poster Template</b>   : <code>Template 11 (Hero Poster)</code> [✅ Active]\n"
+        "• <b>AutoRename</b>        : <code>🄰🅂- [S{season}E{episode}]...</code>\n"
+        f"• <b>Background Leech</b>  : <code>{auto_leech}</code> (Every 24h)\n"
+        f"• <b>Seen Releases</b>     : <code>{len(seen)} cached</code>\n\n"
+        "<i>Tap a button below to update destination channel or trigger crawling:</i>"
+    )
+
+
+@new_task
+async def hindianime_settings_handler(_, message):
+    """Sends the interactive settings dashboard for HindiAnimeZone."""
+    buttons = _build_anime_dashboard_buttons(message.from_user.id)
+    text = _build_anime_dashboard_text()
+    await send_message(message, text, buttons.build_menu(2))
+
+
+@new_task
+async def hindianime_callback(client, query):
+    """Handles callback queries from the interactive HindiAnimeZone settings menu."""
+    data = query.data.split()
+    user_id = int(data[1])
+    action = data[2]
+
+    if query.from_user.id != user_id and not await CustomFilters.sudo(client, query):
+        await query.answer("You are not authorized to edit these settings.", show_alert=True)
+        return
+
+    if action == "close":
+        await query.answer()
+        await delete_message(query.message)
+        return
+
+    elif action == "set_anime_target":
+        await query.answer()
+        prompt = await send_message(
+            query.message,
+            "🎯 <b>Send the Channel ID or Topic ID for Anime</b>\n"
+            "<i>Format: <code>-100xxxxxxxxxx</code> or <code>-100xxxxxxxxxx:1234</code></i>\n"
+            "<i>Send /cancel to abort.</i>",
+        )
+        try:
+            response = await client.listen.Message(
+                filters=regex(r"^(-\d+|/cancel)"),
+                id=query.from_user.id,
+                timeout=60,
+            )
+            txt = response.text.strip()
+            if txt != "/cancel":
+                Config.set("HINDIANIME_CHANNEL_ID", txt)
+                try:
+                    await database.update_config({"HINDIANIME_CHANNEL_ID": txt})
+                except Exception:
+                    pass
+                await send_message(query.message, f"✅ <b>Anime Target Channel set to:</b> <code>{txt}</code>")
+            await delete_message(prompt)
+            await delete_message(response)
+        except Exception:
+            await delete_message(prompt)
+
+        buttons = _build_anime_dashboard_buttons(user_id)
+        await edit_message(query.message, _build_anime_dashboard_text(), buttons.build_menu(2))
+        return
+
+    elif action == "lastweek":
+        await query.answer("🗓️ Crawling releases from past 7 days...", show_alert=False)
+        notice = await send_message(query.message, "🔎 <b>HindiAnimeZone:</b> Crawling last 7 days 1080p Tamil releases...")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+        try:
+            seen = _seen_items()
+            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=4, solver_url=solver_url, days=7, quality_filter="1080p", seen=seen)
+            if not candidates:
+                await edit_message(notice, "No new 1080p Tamil anime releases found from the past 7 days.")
+                return
+            queued = await queue_hindianime_candidates(candidates, owner_id=user_id, seen=seen)
+            await edit_message(
+                notice,
+                f"✅ <b>HindiAnimeZone Last Week:</b> Found {len(candidates)} candidate(s), queued <b>{queued}</b> release(s).",
+            )
+        except Exception as err:
+            LOGGER.error(f"HindiAnimeZone lastweek failed: {err}", exc_info=True)
+            await edit_message(notice, f"❌ <b>Error:</b> <code>{err}</code>")
+        return
+
+    elif action == "check_latest":
+        await query.answer("🔄 Checking latest updates...", show_alert=False)
+        notice = await send_message(query.message, "🔎 <b>HindiAnimeZone:</b> Crawling latest releases (pages: 2)...")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+        try:
+            seen = _seen_items()
+            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=2, solver_url=solver_url, quality_filter="1080p", seen=seen)
+            if not candidates:
+                await edit_message(notice, "No new 1080p Tamil audio anime releases found.")
+                return
+            queued = await queue_hindianime_candidates(candidates, owner_id=user_id, seen=seen)
+            await edit_message(
+                notice,
+                f"✅ <b>HindiAnimeZone:</b> Found {len(candidates)} candidate(s), queued <b>{queued}</b> release(s).",
+            )
+        except Exception as err:
+            LOGGER.error(f"HindiAnimeZone check failed: {err}", exc_info=True)
+            await edit_message(notice, f"❌ <b>Error:</b> <code>{err}</code>")
+        return
+
+    elif action == "backlog_14":
+        await query.answer("⏱️ Crawling past 14 days...", show_alert=False)
+        notice = await send_message(query.message, "🔎 <b>HindiAnimeZone:</b> Crawling last 14 days 1080p Tamil releases...")
+        solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+        try:
+            seen = _seen_items()
+            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=5, solver_url=solver_url, days=14, quality_filter="1080p", seen=seen)
+            if not candidates:
+                await edit_message(notice, "No new 1080p Tamil releases found in the last 14 days.")
+                return
+            queued = await queue_hindianime_candidates(candidates, owner_id=user_id, seen=seen)
+            await edit_message(
+                notice,
+                f"✅ <b>HindiAnimeZone Backlog:</b> Found {len(candidates)} candidate(s), queued <b>{queued}</b> release(s).",
+            )
+        except Exception as err:
+            LOGGER.error(f"HindiAnimeZone backlog failed: {err}", exc_info=True)
+            await edit_message(notice, f"❌ <b>Error:</b> <code>{err}</code>")
+        return
+
+    elif action == "toggle_autoleech":
+        cur = getattr(Config, "HINDIANIME_AUTO_LEECH", False)
+        new_val = not cur
+        Config.set("HINDIANIME_AUTO_LEECH", new_val)
+        try:
+            await database.update_config({"HINDIANIME_AUTO_LEECH": new_val})
+        except Exception:
+            pass
+        await query.answer(f"Auto Leech set to: {'Enabled' if new_val else 'Disabled'}", show_alert=True)
+        buttons = _build_anime_dashboard_buttons(user_id)
+        await edit_message(query.message, _build_anime_dashboard_text(), buttons.build_menu(2))
+        return
+
+    elif action == "clear_cache":
+        await _save_seen(set())
+        await query.answer("🗑️ Deduplication cache cleared!", show_alert=True)
+        buttons = _build_anime_dashboard_buttons(user_id)
+        await edit_message(query.message, _build_anime_dashboard_text(), buttons.build_menu(2))
+        return
+
+    elif action == "prompt_search":
+        await query.answer()
+        prompt = await send_message(query.message, "🔍 <b>Send search query for HindiAnimeZone:</b>\n<i>Send /cancel to abort.</i>")
+        try:
+            response = await client.listen.Message(id=query.from_user.id, timeout=60)
+            txt = response.text.strip()
+            if txt != "/cancel":
+                solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+                notice = await send_message(query.message, f"🔎 <b>HindiAnimeZone:</b> Searching for <code>{txt}</code>...")
+                cands = await HindiAnimeResolver.search_tamil_candidates(txt, solver_url=solver_url, quality_filter=None)
+                if not cands:
+                    await edit_message(notice, f"❌ No matching releases found for <code>{txt}</code>.")
+                else:
+                    queued = await queue_hindianime_candidates(cands, owner_id=user_id)
+                    await edit_message(notice, f"✅ <b>HindiAnimeZone:</b> Found {len(cands)} release(s), queued <b>{queued}</b>.")
+            await delete_message(prompt)
+            await delete_message(response)
+        except Exception:
+            await delete_message(prompt)
+        return
+
+    elif action == "prompt_dryrun":
+        await query.answer()
+        prompt = await send_message(query.message, "🧪 <b>Send anime URL to test parsing without downloading:</b>\n<i>Send /cancel to abort.</i>")
+        try:
+            response = await client.listen.Message(id=query.from_user.id, timeout=60)
+            target_url = response.text.strip()
+            if target_url != "/cancel":
+                solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
+                cands = await HindiAnimeResolver.get_candidates_for_url(target_url, solver_url=solver_url, quality_filter=None)
+                if not cands:
+                    await send_message(query.message, f"❌ <b>Dry-Run Result:</b> No candidates found for <code>{target_url}</code>.")
+                else:
+                    msg = f"🧪 <b>Dry-Run Successful: Found {len(cands)} candidate(s):</b>\n\n"
+                    for idx, c in enumerate(cands, 1):
+                        msg += (
+                            f"<b>{idx}. {c.file_title}</b>\n"
+                            f"• Quality: <code>{c.quality}</code> | Zip: <code>{c.is_season_pack}</code>\n"
+                            f"• GDFlix: <code>{c.gdflix_url}</code>\n\n"
+                        )
+                    await send_message(query.message, msg[:4000])
+            await delete_message(prompt)
+            await delete_message(response)
+        except Exception:
+            await delete_message(prompt)
+        return
+
+    else:
+        await query.answer("Setting active.", show_alert=True)
+
+
 @new_task
 async def hindianime_handler(_, message):
     """Telegram command handler for /anime or /haz."""
     parts = (message.text or "").split()
     if len(parts) < 2:
-        text = (
-            "🎌 <b>Hindi Anime Zone Commands:</b>\n"
-            "• <code>/haz URL [-up CHAT_ID|TOPIC_ID]</code> - Leech specific anime post URL\n"
-            "• <code>/haz query [-up CHAT_ID|TOPIC_ID]</code> - Search anime title & leech 1080p Tamil\n"
-            "• <code>/haz check [pages] [-up CHAT_ID]</code> - Check latest releases & leech\n"
-            "• <code>/haz backlog [days] [-up CHAT_ID]</code> - Check recent days releases\n"
-            "• <code>/haz status</code> - View current configuration status\n"
-            "• <code>/haz clear</code> - Reset deduplication seen items cache"
-        )
-        await send_message(message, text)
+        await hindianime_settings_handler(_, message)
         return
 
     dest_chat = _get_target_channel()
     clean_parts = []
     i = 1
     while i < len(parts):
-        if parts[i] == "-up":
+        if parts[i] in ["-up", "-t"]:
             if i + 1 < len(parts):
                 dest_chat = parts[i + 1].strip()
             i += 2
@@ -248,10 +471,10 @@ async def hindianime_handler(_, message):
         i += 1
 
     if not clean_parts:
-        subcmd = "status"
-    else:
-        subcmd = clean_parts[0].lower()
+        await hindianime_settings_handler(_, message)
+        return
 
+    subcmd = clean_parts[0].lower()
     solver_url = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
 
     if clean_parts and (clean_parts[0].startswith("http://") or clean_parts[0].startswith("https://")):
@@ -269,6 +492,23 @@ async def hindianime_handler(_, message):
             )
         except Exception as err:
             LOGGER.error(f"HindiAnimeZone URL resolve failed: {err}", exc_info=True)
+            await edit_message(notice, f"❌ <b>HindiAnimeZone error:</b> <code>{err}</code>")
+
+    elif subcmd in ["lastweek", "last_week", "week"]:
+        notice = await send_message(message, "🔎 <b>HindiAnimeZone:</b> Crawling last 7 days 1080p Tamil releases...")
+        try:
+            seen = _seen_items()
+            candidates = await HindiAnimeResolver.get_tamil_candidates(max_pages=4, solver_url=solver_url, days=7, quality_filter="1080p", seen=seen)
+            if not candidates:
+                await edit_message(notice, "No new 1080p Tamil anime releases found from the past 7 days.")
+                return
+            queued = await queue_hindianime_candidates(candidates, owner_id=message.from_user.id, seen=seen, target_chat=dest_chat)
+            await edit_message(
+                notice,
+                f"✅ <b>HindiAnimeZone Last Week:</b> Found {len(candidates)} candidate(s), queued <b>{queued}</b> release(s) to Anime channel.",
+            )
+        except Exception as err:
+            LOGGER.error(f"HindiAnimeZone lastweek failed: {err}", exc_info=True)
             await edit_message(notice, f"❌ <b>HindiAnimeZone error:</b> <code>{err}</code>")
 
     elif subcmd == "check":
@@ -309,27 +549,8 @@ async def hindianime_handler(_, message):
             LOGGER.error(f"HindiAnimeZone backlog failed: {err}", exc_info=True)
             await edit_message(notice, f"❌ <b>HindiAnimeZone backlog error:</b> <code>{err}</code>")
 
-    elif subcmd == "status":
-        ch = _get_target_channel()
-        auto = getattr(Config, "HINDIANIME_AUTO_LEECH", False)
-        seen = _seen_items()
-        solver = getattr(Config, "HINDIANIME_SOLVER_URL", "http://flaresolverr:8192/solve")
-        text = (
-            "🎌 <b>Hindi Anime Zone Leech Status:</b>\n\n"
-            f"<b>Auto Leech (Background):</b> <code>{'Enabled' if auto else 'Disabled'}</code>\n"
-            f"<b>Target Channel:</b> <code>{ch}</code>\n"
-            f"<b>Solver Sidecar:</b> <code>{solver}</code>\n"
-            f"<b>Audio Filter:</b> <code>Remove non-Tamil streams (Tamil only preserved)</code>\n"
-            f"<b>Quality Filter:</b> <code>1080p HQ, 1080p x265, Batch Zip</code>\n"
-            f"<b>Zip Handling:</b> <code>Auto Unzip & Smart Merge enabled</code>\n"
-            f"<b>Seen Releases:</b> <code>{len(seen)} cached</code>\n\n"
-            "<b>Interactive Usage:</b>\n"
-            "• <code>/haz URL [-up CHAT_ID]</code> - Leech specific post\n"
-            "• <code>/haz query [-up CHAT_ID]</code> - Search & leech\n"
-            "• <code>/haz check [pages]</code> - Check latest releases\n"
-            "• <code>/haz clear</code> - Clear seen cache"
-        )
-        await send_message(message, text)
+    elif subcmd in ["status", "settings", "set"]:
+        await hindianime_settings_handler(_, message)
 
     elif subcmd == "clear":
         await _save_seen(set())

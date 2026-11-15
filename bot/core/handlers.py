@@ -451,6 +451,19 @@ def add_handlers():
     )
     TgClient.bot.add_handler(
         MessageHandler(
+            xdmovies_handler,
+            filters=command(BotCommands.XDMoviesCommand, case_sensitive=False)
+            & CustomFilters.sudo,
+        )
+    )
+    TgClient.bot.add_handler(
+        CallbackQueryHandler(hindianime_callback, filters=regex("^hazset"))
+    )
+    TgClient.bot.add_handler(
+        CallbackQueryHandler(xdmovies_callback, filters=regex("^xdmset"))
+    )
+    TgClient.bot.add_handler(
+        MessageHandler(
             ping,
             filters=command(BotCommands.PingCommand, case_sensitive=True)
             & CustomFilters.authorized,
