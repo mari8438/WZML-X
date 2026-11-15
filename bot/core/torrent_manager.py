@@ -98,16 +98,35 @@ class TorrentManager:
                 LOGGER.info("Torrents are disabled.")
                 return
 
-            proc = await create_subprocess_exec(
-                _resolve_qbit_binary(),
-                "-d",
-                f"--profile={getcwd()}/configs/qbittorrent",
-            )
-            LOGGER.info(f"qBittorrent started (PID: {proc.pid})")
-            await _wait_for_http(
-                "http://127.0.0.1:8090/api/v2/app/version",
-                "qBittorrent Web API",
-            )
+            is_ready = False
+            try:
+                await _wait_for_http(
+                    "http://127.0.0.1:8090/api/v2/app/version",
+                    "qBittorrent Web API",
+                    retries=2,
+                    delay=0.5,
+                )
+                is_ready = True
+            except Exception:
+                pass
+
+            if not is_ready:
+                try:
+                    kill_proc = await create_subprocess_exec("pkill", "-9", "-f", "qbittorrent-nox")
+                    await kill_proc.wait()
+                    await sleep(0.5)
+                except Exception:
+                    pass
+                proc = await create_subprocess_exec(
+                    _resolve_qbit_binary(),
+                    "-d",
+                    f"--profile={getcwd()}/configs/qbittorrent",
+                )
+                LOGGER.info(f"qBittorrent started (PID: {proc.pid})")
+                await _wait_for_http(
+                    "http://127.0.0.1:8090/api/v2/app/version",
+                    "qBittorrent Web API",
+                )
 
             cls.qbittorrent = await create_client("http://localhost:8090/api/v2/")
             cls.qbittorrent = wrap_with_retry(cls.qbittorrent)
