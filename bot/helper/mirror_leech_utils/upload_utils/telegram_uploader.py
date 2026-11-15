@@ -229,11 +229,16 @@ class TelegramUploader:
                 )
                 self._sent_msg = self._log_msg
                 if self._user_session:
-                    self._sent_msg = await TgClient.user.get_messages(
-                        chat_id=self._sent_msg.chat.id,
-                        message_ids=self._sent_msg.id,
-                    )
-                else:
+                    try:
+                        user_msg = await TgClient.user.get_messages(
+                            chat_id=self._sent_msg.chat.id,
+                            message_ids=self._sent_msg.id,
+                        )
+                        if user_msg is not None:
+                            self._sent_msg = user_msg
+                    except Exception:
+                        pass
+                if hasattr(self._sent_msg, "chat") and self._sent_msg.chat:
                     self._is_private = self._sent_msg.chat.type.name == "PRIVATE"
                 leech_dest, thread_id = self._get_leech_dest()
                 if (
@@ -929,6 +934,12 @@ class TelegramUploader:
             LOGGER.warning(f"{o_path} disappeared before upload; skipping.")
             self._is_corrupted = True
             return
+
+        if self._sent_msg is None or not hasattr(self._sent_msg, "chat") or self._sent_msg.chat is None:
+            if hasattr(self, "_log_msg") and self._log_msg and hasattr(self._log_msg, "chat") and self._log_msg.chat:
+                self._sent_msg = self._log_msg
+            elif hasattr(self._listener, "message") and self._listener.message and hasattr(self._listener.message, "chat") and self._listener.message.chat:
+                self._sent_msg = self._listener.message
 
         if self._sent_msg is None:
             LOGGER.error("Cannot upload: _sent_msg is None")
