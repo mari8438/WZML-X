@@ -207,7 +207,7 @@ class UploadRoute:
 
     @property
     def direct(self):
-        return self.kind in {"user_bot", "global_bot", "approved_helper"}
+        return self.kind in {"user", "user_bot", "global_bot", "approved_helper"}
 
 
 class StarFallXUploadManager:
@@ -729,10 +729,16 @@ class StarFallXUploadManager:
             return UploadRoute("current", "Current Engine", listener.client)
         if file_size > BOT_UPLOAD_LIMIT:
             client = TgClient.user if TgClient.user else listener.client
+            dump_chat, thread_id = parse_dump_chat(
+                getattr(listener, "up_dest", None) or Config.LEECH_DUMP_CHAT
+            )
+            thread_id = getattr(listener, "chat_thread_id", None) or thread_id
             return UploadRoute(
                 "user",
                 "Premium User String Session" if (TgClient.user and TgClient.IS_PREMIUM_USER) else "User String Session",
                 client,
+                chat_id=dump_chat,
+                thread_id=thread_id,
             )
         while True:
             async with self._lock:

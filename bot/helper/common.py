@@ -537,16 +537,21 @@ class TaskConfig:
                             self.hybrid_leech = False
                         else:
                             member = await chat.get_member(uploader_id)
-                            privileges = member.privileges
+                            is_owner = getattr(member, "status", None) == enums.ChatMemberStatus.OWNER
+                            privileges = getattr(member, "privileges", None)
                             can_manage = bool(
                                 getattr(privileges, "can_manage_chat", False)
                             )
                             can_delete = bool(
                                 getattr(privileges, "can_delete_messages", False)
                             )
+                            can_post = bool(
+                                getattr(privileges, "can_post_messages", False)
+                            )
                             if (
-                                not can_manage
-                                or not can_delete
+                                not is_owner
+                                and not can_post
+                                and (not can_manage or not can_delete)
                             ):
                                 self.user_transmission = False
                                 self.hybrid_leech = False
